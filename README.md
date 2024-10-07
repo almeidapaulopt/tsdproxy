@@ -52,7 +52,7 @@ docker run -d --name tsdproxy -v /var/run/docker.sock:/var/run/docker.sock https
 
 Here’s an example of how you can configure your services using Docker Compose:
 
-TsDProxy docker-composeer.yaml
+TsDProxy docker-compose.yaml
 ```yaml
 services:
   tailscale-docker-proxy:
