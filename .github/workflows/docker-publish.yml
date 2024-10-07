@@ -36,7 +36,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
+      - name: Setup go
+        uses: actions/setup-go@v5
+          with:
+            go-version-file: 'go.mod'
+            
+    # cache-dependency-path: "**/*.sum"       
       # Install the cosign tool except on PR
       # https://github.com/sigstore/cosign-installer
       - name: Install cosign
