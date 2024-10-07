@@ -6,9 +6,11 @@ This Docker-based application automatically creates a proxy to virtual addresses
 
 - Proxies traffic to virtual Tailscale addresses using Docker container labels.
 - No need to spin up a dedicated Tailscale container for every service.
-- Lightweight, Docker-based architecture.
+- No need to configure virtual hosts in Tailscale network.
+- Automatically supports Tailscale/LetsEncrypt certificates.
 - Supports multiple protocols (HTTP, HTTPS).
 - Easy configuration using Docker labels.
+- Lightweight, Docker-based architecture.
 
 ## Requirements
 
@@ -19,7 +21,7 @@ Before using this application, make sure you have:
 
 ## Configuration
 
-This application scans running Docker containers for specific labels to configure proxies to Tailscale virtual addresses. Labels must start with `tsdproxy`.
+This application scans running Docker containers for specific labels to configure proxies to Tailscale virtual addresses.
 
 ### Example Labels for a Docker Container
 
@@ -28,22 +30,22 @@ Add the following labels to the Docker containers you wish to proxy:
 ```yaml
 labels:
   - "tsdproxy.enabled=true"
-  - "tsdproxy.virtual_hostname=example"
+  - "tsdproxy.hostname=example"
   - "tsdproxy.proxy_port=8080"
   - "tsdproxy.protocol=https"
 ```
 
 - `tsdproxy.enabled`: Set to `true` to indicate that this container should be proxied.
-- `tsdproxy.virtual_hostname`: The virtual Tailscale hostname the proxy will forward traffic to.
-- `tsdproxy.port`: The port to be proxied. If omited first container exposed port will used 
-- `tsdproxy.protocol`: The protocol to use for the proxy (e.g., `http`, `https`).
+- `tsdproxy.hostname`: The virtual Tailscale hostname the proxy will forward traffic to. (container hostname by default). You only need to set the subdomain, TsDProxy will automatically append the Tailscale domain.
+- `tsdproxy.port`: The port to be proxied. (Container first exposed port by default)
+- `tsdproxy.protocol`: The protocol to use for the proxy (e.g., `http`, `https`). (HTTPS by default)
 
 ## Running the Tailscale Docker Proxy
 
 To run the TsDProxy itself, use the following Docker command:
 
 ```bash
-docker run -d --name tsdproxy -v /var/run/docker.sock:/var/run/docker.sock https://ghcr.io/almeidapaulopt/tsdproxy:latest
+docker run -d --name tsdproxy -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/almeidapaulopt/tsdproxy:latest
 ```
 
 - `-v /var/run/docker.sock:/var/run/docker.sock`: This gives the proxy app access to the Docker daemon so it can monitor and interact with your containers.
@@ -53,27 +55,28 @@ docker run -d --name tsdproxy -v /var/run/docker.sock:/var/run/docker.sock https
 Here’s an example of how you can configure your services using Docker Compose:
 
 TsDProxy docker-compose.yaml
+
 ```yaml
 services:
   tailscale-docker-proxy:
-    image: https://ghcr.io/almeidapaulopt/tsdproxy:latest
+    image: ghcr.io/almeidapaulopt/tsdproxy:latest
     container_name: tailscale-docker-proxy
-    network_mode: host
+    ports:
+      - "80:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: always
 ```
 
 YourService docker-compose.yaml
+
 ```yaml
 services:
   my-service:
     image: my-service-image
     labels:
       - "tsdproxy.enabled=true"
-      - "tsdproxy.virtual_hostname=srv1"
-      - "tsdproxy.proxy_port=8080"
-      - "tsdproxy.protocol=https"
+      - "tsdproxy.hostname=srv1"
     ports:
       - "8080:8080"
 ```
