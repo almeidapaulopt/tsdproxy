@@ -135,6 +135,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	ln, err := server.ListenTLS("tcp", ":443")
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error listening on TLS")
+		return
 	}
 	defer ln.Close()
 
@@ -180,5 +181,11 @@ func (pm *ProxyManager) StopAll() {
 	pm.Log.Info().Msg("Shutdown all proxies")
 	for id := range pm.proxies {
 		pm.RemoveProxy(id)
+	}
+}
+
+func (pm *ProxyManager) reverseProxyFunc(p *httputil.ReverseProxy) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p.ServeHTTP(w, r)
 	}
 }
