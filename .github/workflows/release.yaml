@@ -1,22 +1,22 @@
 # .github/workflows/release.yml
 name: goreleaser
 
-# on:
-#   pull_request:
-#   push:
-#     # run only against tags
-#     tags:
-#       - "*"
-#
 on:
-  schedule:
-    - cron: "31 2 * * *"
-  push:
-    branches: ["main"]
-    # Publish semver tags as releases.
-    tags: ["v*.*.*"]
   pull_request:
-    branches: ["main"]
+  push:
+    # run only against tags
+    tags:
+      - "*"
+
+# on:
+#   schedule:
+#     - cron: "31 2 * * *"
+#   push:
+#     branches: ["main"]
+#     # Publish semver tags as releases.
+#     tags: ["v*.*.*"]
+#   pull_request:
+#     branches: ["main"]
 
 permissions:
   contents: write
