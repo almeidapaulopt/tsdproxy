@@ -19,13 +19,20 @@ services:
     restart: unless-stopped
 
   tsdproxy:
-    image: ghcr.io/almeidapaulopt/tsdproxy:latest
+    image: almeidapaulopt/tsdproxy:latest
     container_name: tsdproxy
     ports:
       - "80:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    restart: always
+      - datadir:/data
+    restart: unless-stopped
     depends_on:
       - tailscale-tsdproxy
-    network_mode: service:tailscale-tsdproxy
+    environment:
+      - TS_AUTHKEY=tskey-auth-is-not-actually-a-real-key
+      - TSDPROXY_DATADIR:/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
+
+volumes:
+  datadir:
