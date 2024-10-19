@@ -10,7 +10,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	go.opentelemetry.io/otel v1.31.0
 	go.opentelemetry.io/otel/trace v1.31.0
-	tailscale.com v1.76.0
+	tailscale.com v1.76.1
 )
 
 require (

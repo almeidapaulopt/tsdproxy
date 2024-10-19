@@ -49,7 +49,7 @@ builds:
       - -s -w -X "main.buildString={{ .Tag }} ({{ .ShortCommit }} {{ .Date }}, {{ .Os }}/{{ .Arch }})" -X "main.versionString={{ .Tag }}"
 
 universal_binaries:
-  - replace: false
+  - replace: true
 
 checksum:
   name_template: "checksums.txt"
