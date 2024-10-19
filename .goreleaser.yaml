@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+# SPD/-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
 #  SPDX-License-Identifier: MIT
 
 version: 2
@@ -36,7 +36,7 @@ builds:
       - arm64
       - arm
     goarm:
-      - "6"
+      - "7"
       - "7"
     ignore:
       - goarch: arm
@@ -93,24 +93,7 @@ archives:
     files:
       - README.md
       - LICENSE
-#
-# dockers:
-#   - image_templates:
-#       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest"
-#       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}"
-#       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:latest"
-#       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Tag }}"
-#   - build_flag_templates:
-#       - --platform=linux/amd64
-#       - --label=org.opencontainers.image.title={{ .ProjectName }}
-#       - --label=org.opencontainers.image.description={{ .ProjectName }}
-#       - --label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}
-#       - --label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}
-#       - --label=org.opencontainers.image.version={{ .Version }}
-#       - --label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}
-#       - --label=org.opencontainers.image.revision={{ .FullCommit }}
-#       - --label=org.opencontainers.image.licenses={{ .License }}
-#       # - --platform={{ .Runtime.Goos }}/{{ .Runtime.Goarch }}
+
 dockers:
   - use: buildx
     goos: linux

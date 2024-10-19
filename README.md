@@ -29,12 +29,12 @@ Add the following labels to the Docker containers you wish to proxy:
 
 ```yaml
 labels:
-  - "tsdproxy.enabled=true"
+  - "tsdproxy.enable=true"
   - "tsdproxy.url=https://example"
   - "tsdproxy.container_port=80"
 ```
 
-- `tsdproxy.enabled`: Set to `true` to indicate that this container should be proxied.
+- `tsdproxy.enable`: Set to `true` to indicate that this container should be proxied.
 - `tsdproxy.url`: The URL of the virtual Tailscale hostname that will be the proxy. (defaults are https and the container hostname). You only need to set the subdomain, TsDProxy will automatically append the Tailscale domain.
 - `tsdproxy.container_port`: The port on the container. (Container first exposed port by default)
 
@@ -43,7 +43,7 @@ labels:
 To run the TsDProxy itself, use the following Docker command:
 
 ```bash
-docker run -d --name tsdproxy -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/almeidapaulopt/tsdproxy:latest
+docker run -d --name tsdproxy -v /var/run/docker.sock:/var/run/docker.sock almeidapaulopt/tsdproxy:latest
 ```
 
 - `-v /var/run/docker.sock:/var/run/docker.sock`: This gives the proxy app access to the Docker daemon so it can monitor and interact with your containers.
@@ -57,13 +57,21 @@ TsDProxy docker-compose.yaml
 ```yaml
 services:
   tailscale-docker-proxy:
-    image: ghcr.io/almeidapaulopt/tsdproxy:latest
+    image: almeidapaulopt/tsdproxy:latest
     container_name: tailscale-docker-proxy
     ports:
       - "80:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    restart: always
+      - datadir:/data
+    restart: unless-stopped
+    environment:
+      - TS_AUTHKEY=tskey-auth-SecretKey
+      - TSDPROXY_DATADIR:/data
+      - DOCKER_HOST=unix:///var/run/docker.sock 
+
+volumes:
+  datadir:
 ```
 
 YourService docker-compose.yaml
@@ -73,14 +81,14 @@ services:
   my-service:
     image: my-service-image
     labels:
-      - "tsdproxy.enabled=true"
+      - "tsdproxy.enable=true"
     ports:
       - "8080:8080"
 ```
 
 ### How It Works
 
-- **Labels**: The app looks for Docker containers with `tsdproxy.enabled=true` to create a proxy.
+- **Labels**: The app looks for Docker containers with `tsdproxy.enable=true` to create a proxy.
 - **Tailscale Virtual Hostname**: It uses the virtual Tailscale hostname specified in the labels to route traffic to the correct containers.
 - **Dynamic Proxy Creation**: The application automatically sets up proxies as new containers start and removes them when containers are stopped.
 
