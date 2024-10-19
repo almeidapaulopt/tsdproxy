@@ -1,0 +1,26 @@
+services:
+  c1:
+    image: nginx
+    # ports:
+    #   - 81:80
+    labels:
+      - tsdproxy.enable=true
+      # - tsdproxy.url=https://localhost:8081
+      # - tsdproxy.proxy.port=8081
+
+  c2:
+    image: nginx
+    # ports:
+    # - 82:80
+    labels:
+      - tsdproxy.enable=true
+      # - tsdproxy.proxy.port=8082
+
+  c3:
+    image: nginx
+    network_mode: host
+    ports:
+      - 83:80
+    labels:
+      - tsdproxy.enable=true
+      # - tsdproxy.proxy.port=8083

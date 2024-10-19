@@ -8,7 +8,7 @@ This Docker-based application automatically creates a proxy to virtual addresses
 - No need to spin up a dedicated Tailscale container for every service.
 - No need to configure virtual hosts in Tailscale network.
 - Automatically supports Tailscale/LetsEncrypt certificates.
-- Supports multiple protocols (HTTP, HTTPS).
+- Supports multiple schemes (HTTP, HTTPS).
 - Easy configuration using Docker labels.
 - Lightweight, Docker-based architecture.
 
@@ -30,15 +30,13 @@ Add the following labels to the Docker containers you wish to proxy:
 ```yaml
 labels:
   - "tsdproxy.enabled=true"
-  - "tsdproxy.hostname=example"
-  - "tsdproxy.proxy_port=8080"
-  - "tsdproxy.protocol=https"
+  - "tsdproxy.url=https://example"
+  - "tsdproxy.container_port=80"
 ```
 
 - `tsdproxy.enabled`: Set to `true` to indicate that this container should be proxied.
-- `tsdproxy.hostname`: The virtual Tailscale hostname the proxy will forward traffic to. (container hostname by default). You only need to set the subdomain, TsDProxy will automatically append the Tailscale domain.
-- `tsdproxy.port`: The port to be proxied. (Container first exposed port by default)
-- `tsdproxy.protocol`: The protocol to use for the proxy (e.g., `http`, `https`). (HTTPS by default)
+- `tsdproxy.url`: The URL of the virtual Tailscale hostname that will be the proxy. (defaults are https and the container hostname). You only need to set the subdomain, TsDProxy will automatically append the Tailscale domain.
+- `tsdproxy.container_port`: The port on the container. (Container first exposed port by default)
 
 ## Running the Tailscale Docker Proxy
 
@@ -76,7 +74,6 @@ services:
     image: my-service-image
     labels:
       - "tsdproxy.enabled=true"
-      - "tsdproxy.hostname=srv1"
     ports:
       - "8080:8080"
 ```
