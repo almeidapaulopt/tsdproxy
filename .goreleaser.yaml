@@ -14,6 +14,7 @@ env:
 
 before:
   hooks:
+    - go mod download
     - go mod tidy
     - go generate ./...
 
