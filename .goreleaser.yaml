@@ -1,5 +1,5 @@
-# SPD/-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
-#  SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+# SPDX-License-Identifier: MIT
 
 version: 2
 
@@ -19,7 +19,7 @@ before:
     - go generate ./...
 
 gomod:
-  proxy: true
+  proxy: false
 
 report_sizes: true
 
