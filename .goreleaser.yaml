@@ -36,6 +36,7 @@ builds:
       - arm64
       - arm
     goarm:
+      - "6"
       - "7"
     ignore:
       - goarch: arm
@@ -43,7 +44,7 @@ builds:
       - goarch: arm64
         goos: freebsd
     ldflags:
-      - -s -w -X "main.buildString={{ .Tag }} ({{ .ShortCommit }} {{ .Date }}, {{ .Os }}/{{ .Arch }})" -X "main.versionString={{ .Tag }}"
+      - -s -w -X "github.com/almeidapaulopt/tsdproxy/core.buildString={{ .Tag }} ({{ .ShortCommit }} {{ .Date }}, {{ .Os }}/{{ .Arch }})" -X "github.com/almeidapaulopt/tsdproxy/core.version={{ .Tag }}"
 
 universal_binaries:
   - replace: false
