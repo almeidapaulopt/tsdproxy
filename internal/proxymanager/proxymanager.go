@@ -2,7 +2,6 @@ package proxymanager
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -140,15 +139,10 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	}
 	defer ln.Close()
 
-	lc, err := server.LocalClient()
+	err = server.Start()
 	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error setting LocalClient")
-		return
+		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error starting tailscale server")
 	}
-
-	ln = tls.NewListener(ln, &tls.Config{
-		GetCertificate: lc.GetCertificate,
-	})
 
 	// AddProxy to the list
 	pm.AddProxy(&Proxy{
