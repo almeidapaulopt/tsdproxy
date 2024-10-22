@@ -5,6 +5,7 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/creasty/defaults"
@@ -18,9 +19,12 @@ const prefix = "TSDPROXY_"
 
 type (
 	// Config stores complete configuration.
+	//
 	Config struct {
-		PublicURL string `default:"http://localhost:8080"`
-		DataDir   string `default:"/data/"`
+		PublicURL   string `default:"http://localhost:8080"`
+		DataDir     string `default:"/data/"`
+		AuthKey     string
+		AuthKeyFile string
 
 		Log  LogConfig
 		HTTP HTTPConfig
@@ -44,13 +48,14 @@ func GetConfig() (*Config, error) {
 	c := new(Config)
 
 	// load default values
+	//
 	if err := defaults.Set(c); err != nil {
 		fmt.Printf("Error loading defaults: %v", err)
 	}
 
-	k := koanf.New(".")
-
 	// load environment variables
+	//
+	k := koanf.New(".")
 	err := k.Load(
 		env.Provider(
 			prefix,
@@ -70,11 +75,22 @@ func GetConfig() (*Config, error) {
 	}
 
 	// unmarshal config to struct
+	//
 	err = k.UnmarshalWithConf("", &c, koanf.UnmarshalConf{
 		Tag: "env",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal config failed: %w", err)
+	}
+
+	// Read auth key from file (for example docker secret)
+	//
+	if c.AuthKeyFile != "" {
+		key, err := os.ReadFile(c.AuthKeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("read auth key from file: %w", err)
+		}
+		c.AuthKey = strings.TrimSpace(string(key))
 	}
 
 	return c, nil

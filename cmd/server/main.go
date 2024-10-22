@@ -37,12 +37,14 @@ func InitializeApp() (*WebApp, error) {
 	health := core.NewHealthHandler(httpServer, logger)
 
 	// Docker client
+	//
 	docker, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Error creating Docker client")
 	}
 
 	// Start ProxyManager
+	//
 	proxymanager := pm.NewProxyManager(docker, logger, config)
 
 	webApp := &WebApp{
@@ -60,12 +62,17 @@ func main() {
 	println("Initializing server")
 	println("Version", core.GetVersion())
 
-	app, _ := InitializeApp()
+	app, err := InitializeApp()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 
 	app.Start()
 	defer app.Stop()
 
 	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
+	//
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
@@ -78,6 +85,7 @@ func (app *WebApp) Start() {
 	ctx := context.Background()
 
 	// Setup proxy for existing containers
+	//
 	app.Log.Info().Msg("Setting up proxy for existing containers")
 	if err := app.ProxyManager.SetupExistingContainers(ctx); err != nil {
 		app.Log.Fatal().Err(err).Msg("Error setting up existing containers")
@@ -86,10 +94,12 @@ func (app *WebApp) Start() {
 	go app.ProxyManager.WatchDockerEvents(ctx)
 
 	// Start the webserver
+	//
 	go func() {
 		app.Log.Info().Msg("Initializing WebServer")
 
 		// Start the webserver
+		//
 		srv := http.Server{
 			Addr:              fmt.Sprintf("%s:%d", app.Config.HTTP.Hostname, app.Config.HTTP.Port),
 			ReadHeaderTimeout: core.ReadHeaderTimeout,
@@ -109,6 +119,7 @@ func (app *WebApp) Stop() {
 	app.Health.SetNotReady()
 
 	// Shutdown things here
+	//
 	app.ProxyManager.StopAll()
 
 	app.Log.Info().Msg("Server was shutdown successfully")

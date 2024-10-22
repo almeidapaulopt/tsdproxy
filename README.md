@@ -66,9 +66,16 @@ services:
       - datadir:/data
     restart: unless-stopped
     environment:
-      - TS_AUTHKEY=tskey-auth-SecretKey
+      - TSDPROXY_AUTHKEY=tskey-auth-SecretKey
+      #- TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
       - TSDPROXY_DATADIR:/data
       - DOCKER_HOST=unix:///var/run/docker.sock 
+    #secrets:
+      #- authkey
+
+#secrets:
+  #  authkey:
+    #file: tsdproxy_authkey.txt
 
 volumes:
   datadir:

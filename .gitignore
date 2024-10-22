@@ -26,3 +26,4 @@ go.work.sum
 
 dist/
 dev/data/
+KEY_FILE

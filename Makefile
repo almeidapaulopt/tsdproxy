@@ -99,7 +99,7 @@ dev: docker_start server_start
 .PHONY: server_start
 server_start:
 	TSDPROXY_DataDir=./dev/data TSDPROXY_LOG_LEVEL=debug DOCKER_HOST=unix:///var/run/docker.sock \
-		TS_AUTHKEY=tskey-auth-kbWjqjJbGB11CNTRL-ZdwkNiFQHpAyEM91g5xTpAFtVpGcc7qg \
+		TSDPROXY_AUTHKEYFILE=./KEY_FILE \
 		wgo run -file=.go -file=.yaml -file=.env -file=.json -file=.toml ${MAIN_PACKAGE_PATH}
 
 ## docker_start: start the docker containers
