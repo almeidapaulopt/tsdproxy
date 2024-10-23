@@ -76,7 +76,7 @@ func (pm *ProxyManager) SetupExistingContainers(ctx context.Context) error {
 
 	containers, err := pm.docker.ContainerList(ctx, ctypes.ListOptions{
 		Filters: containerFilter,
-		All:     true,
+		All:     false,
 	})
 	if err != nil {
 		pm.Log.Error().Err(err).Msg("error listing containers")
