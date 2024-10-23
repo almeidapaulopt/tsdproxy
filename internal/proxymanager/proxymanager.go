@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog/log"
-	"tailscale.com/tsnet"
 
 	ctypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/containers"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
+	"github.com/almeidapaulopt/tsdproxy/internal/tailscale"
 )
 
 type ProxyManager struct {
@@ -31,7 +31,7 @@ type ProxyManager struct {
 }
 
 type Proxy struct {
-	TsServer     *tsnet.Server
+	TsServer     *tailscale.TsNetServer
 	reverseProxy *httputil.ReverseProxy
 	container    *containers.Container
 	URL          *url.URL
@@ -128,11 +128,16 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	reverseProxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	// Create the tsnet server
-	server := pm.GetTsNetServer(proxyURL.Hostname())
+	server := tailscale.NewTsNetServer(proxyURL.Hostname(), pm.config, pm.Log)
 	defer server.Close()
 
+	if err := server.Start(ctx); err != nil {
+		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error starting server")
+		return
+	}
+
 	// Create the TLS listener
-	ln, err := server.ListenTLS("tcp", ":443")
+	ln, err := server.TsServer.ListenTLS("tcp", ":443")
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error listening on TLS")
 		return
