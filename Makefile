@@ -105,12 +105,12 @@ server_start:
 ## docker_start: start the docker containers
 .PHONY: docker_start
 docker_start:
-	cd dev && docker compose up -d
+	cd dev && docker compose -f docker-compose-local.yaml up -d
 
 ## docker_stop: stop the docker containers
 .PHONY: docker_stop
 docker_stop:
-	-cd dev && docker compose down
+	-cd dev && docker compose -f docker-compose-local.yaml down
 
 
 ## stop: stop the dev server

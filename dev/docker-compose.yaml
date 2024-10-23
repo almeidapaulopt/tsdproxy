@@ -5,6 +5,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
+      - tmp:/tmp
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
     restart: unless-stopped
@@ -28,9 +29,9 @@ services:
     image: nginx
     # ports:
     # - 82:80
-    labels:
-      - tsdproxy.enable=true
-      # - tsdproxy.proxy.port=8082
+    # labels:
+    #   - tsdproxy.enable=true
+    # - tsdproxy.proxy.port=8082
 
   c3:
     image: nginx
@@ -43,6 +44,7 @@ services:
 
 volumes:
   tsdata:
+  tmp:
 
 secrets:
   authkey:
