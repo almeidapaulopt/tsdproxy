@@ -8,8 +8,7 @@ env:
   - CGO_ENABLED=0
   - GITHUB_ORG=almeidapaulopt
   - DOCKER_ORG=almeidapaulopt
-    DOCKERFILE=Dockerfile.goreleaser
-
+  - DOCKERFILE=Dockerfile.goreleaser
   - MAIN=./cmd/server/
   - BINARY=tsdproxyd
 
