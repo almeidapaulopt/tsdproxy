@@ -8,6 +8,7 @@ env:
   - CGO_ENABLED=0
   - GITHUB_ORG=almeidapaulopt
   - DOCKER_ORG=almeidapaulopt
+    DOCKERFILE=Dockerfile.goreleaser
 
   - MAIN=./cmd/server/
   - BINARY=tsdproxyd
@@ -97,6 +98,7 @@ dockers:
   - use: buildx
     goos: linux
     goarch: amd64
+    dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-amd64"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-amd64"
@@ -119,6 +121,7 @@ dockers:
   - use: buildx
     goos: linux
     goarch: arm64
+    dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-arm64v8"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-arm64v8"
@@ -142,6 +145,7 @@ dockers:
     goos: linux
     goarch: arm
     goarm: 6
+    dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-armv6"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-armv6"
@@ -165,6 +169,7 @@ dockers:
     goos: linux
     goarch: arm
     goarm: 7
+    dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:latest-armv7"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Tag }}-armv7"
