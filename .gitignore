@@ -26,4 +26,5 @@ go.work.sum
 
 dist/
 dev/data/
-KEY_FILE
+dev/KEY_FILE
+dev/tsauthkey.env

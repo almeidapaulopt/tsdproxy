@@ -1,38 +1,23 @@
 ---
 services:
-  tailscale-tsdproxy:
-    image: tailscale/tailscale:latest
-    hostname: tailscale-tsdproxy
-    environment:
-      - TS_AUTHKEY=tskey-client-notAReal-OAuthClientSecret1Atawk
-      - TS_EXTRA_ARGS=--advertise-tags=tag:container
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_USERSPACE=false
-      - TS_HOSTNAME=server
-      - TS_ROUTES=192.168.1.0/24
-    volumes:
-      - ${PWD}/tailscale-tsdproxy/state:/var/lib/tailscale
-      - /dev/net/tun:/dev/net/tun
-    cap_add:
-      - net_admin
-      - sys_module
-    restart: unless-stopped
-
   tsdproxy:
     image: almeidapaulopt/tsdproxy:latest
     container_name: tsdproxy
     ports:
-      - "80:8080"
+      - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - datadir:/data
     restart: unless-stopped
-    depends_on:
-      - tailscale-tsdproxy
     environment:
+      #- TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
       - TS_AUTHKEY=tskey-auth-is-not-actually-a-real-key
       - TSDPROXY_DATADIR:/data
       - DOCKER_HOST=unix:///var/run/docker.sock
 
 volumes:
   datadir:
+
+secrets:
+  authkey:
+    file: ./KEY_FILE

@@ -9,7 +9,7 @@ WORKDIR /app
 COPY . .
 
 # Compila a aplicação Go
-RUN go mod download && CGO_ENABLED=0 GOOS=linux go build -o /tsdproxyd ./cmd/server/main.go
+RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /tsdproxyd ./cmd/server/main.go
 
 # Usa uma imagem mínima para rodar a aplicação
 FROM alpine:3.20
