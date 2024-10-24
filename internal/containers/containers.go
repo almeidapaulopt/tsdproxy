@@ -43,8 +43,8 @@ func (c *Container) GetName() string {
 }
 
 func (c *Container) GetDefaultPort() string {
-	for port := range c.Info.HostConfig.PortBindings {
-		return port.Port()
+	for _, bind := range c.Info.NetworkSettings.Ports {
+		return bind[0].HostPort
 	}
 
 	// if no port found, default to 80
@@ -52,12 +52,7 @@ func (c *Container) GetDefaultPort() string {
 }
 
 func (c *Container) GetIP() string {
-	for _, net := range c.Info.NetworkSettings.Networks {
-		return net.IPAddress
-	}
-
-	// if no port found, default to 80
-	return "80"
+	return c.Info.NetworkSettings.IPAddress
 }
 
 func (c *Container) GetTargetURL() (*url.URL, error) {
