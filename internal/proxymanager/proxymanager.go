@@ -105,23 +105,24 @@ func (pm *ProxyManager) HandleContainerEvent(ctx context.Context, event events.M
 func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	pm.Log.Info().Str("containerID", containerID).Msg("setting up proxy for container")
 
-	container, err := containers.NewContainer(ctx, containerID, pm.docker)
+	container, err := containers.NewContainer(ctx, containerID, pm.docker, pm.config.Hostname)
 	if err != nil {
-		pm.Log.Error().Str("containerID", containerID).Msg("Error creating container")
+		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error creating container")
 		return
 	}
 
 	// Get the proxy URL
 	proxyURL, err := container.GetProxyURL()
 	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", container.ID).Msg("Error parsing hostname")
+		pm.Log.Error().Err(err).Str("containerID", container.ID).Str("containerName", container.GetName()).Msg("Error parsing hostname")
+		return
 	}
 
 	// Get the target URL
 	targetURL, err := container.GetTargetURL()
-	pm.Log.Debug().Str("containerID", containerID).Str("targetURL", targetURL.String()).Msg("targetURL")
 	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("error on proxy URL")
+		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("error on proxy URL")
+		return
 	}
 
 	// Create the reverse proxy
@@ -132,14 +133,14 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	defer server.Close()
 
 	if err := server.Start(ctx); err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error starting server")
+		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error starting server")
 		return
 	}
 
 	// Create the TLS listener
 	ln, err := server.TsServer.ListenTLS("tcp", ":443")
 	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error listening on TLS")
+		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error listening on TLS")
 		return
 	}
 	defer ln.Close()
