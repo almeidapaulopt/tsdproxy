@@ -1,7 +1,11 @@
 FROM golang:alpine AS certs
-RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
+RUN apk add --no-cache ca-certificates curl && update-ca-certificates 2>/dev/null || true
 
 FROM scratch
+RUN apk add --no-cache curl
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 ENTRYPOINT ["/tsdproxyd"]
 COPY tsdproxyd /
+
+EXPOSE 8080
+HEALTHCHECK CMD curl -f http://localhost:8080/health/ready/

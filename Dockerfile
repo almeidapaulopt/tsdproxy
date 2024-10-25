@@ -13,6 +13,7 @@ RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /tsdproxyd ./cmd/server/
 
 # Usa uma imagem mínima para rodar a aplicação
 FROM alpine:3.20
+RUN apk --no-cache add curl
 
 # Define o diretório de trabalho
 WORKDIR /
@@ -22,7 +23,8 @@ COPY --from=builder /tsdproxyd /tsdproxyd
 
 EXPOSE 8080
 
-HEALTHCHECK CMD wget -q http://localhost:8080/health/ready/ || exit 1
+# HEALTHCHECK CMD wget -q http://localhost:8080/health/ready/ || exit 1
 
+HEALTHCHECK CMD curl -f http://localhost:8080/health/ready/
 # Executa o binário
 ENTRYPOINT ["/tsdproxyd"]
