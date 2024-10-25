@@ -21,10 +21,10 @@ func NewTsNetServer(hostname string, config *core.Config, logger *core.Logger) *
 			Dir:       filepath.Join(config.DataDir, hostname),
 			Ephemeral: true,
 			Logf: func(format string, args ...any) {
-				logger.Info().Msgf(format, args...)
+				logger.Trace().Msgf(format, args...)
 			},
 			UserLogf: func(format string, args ...any) {
-				logger.Info().Msgf(format, args...)
+				logger.Trace().Msgf(format, args...)
 			},
 		},
 	}
