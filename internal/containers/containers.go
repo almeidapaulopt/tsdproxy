@@ -21,54 +21,66 @@ const (
 )
 
 type Container struct {
-	Info types.ContainerJSON
-	ID   string
+	Info           types.ContainerJSON
+	ID             string
+	TargetHostname string
 }
 
-func NewContainer(ctx context.Context, containerID string, docker *client.Client) (*Container, error) {
+func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string) (*Container, error) {
 	// Get the container info
 	containerInfo, err := docker.ContainerInspect(ctx, containerID)
 	if err != nil {
 		return nil, fmt.Errorf("error inspecting container: %w", err)
 	}
 
-	return &Container{
+	container := &Container{
 		Info: containerInfo,
 		ID:   containerID,
-	}, nil
+	}
+
+	container.TargetHostname = container.getTargetHostname(hostname)
+	return container, nil
 }
 
 func (c *Container) GetName() string {
 	return strings.TrimLeft(c.Info.Name, "/")
 }
 
-func (c *Container) GetDefaultPort() string {
-	for _, bind := range c.Info.NetworkSettings.Ports {
-		return bind[0].HostPort
+func (c *Container) GetPort() (string, bool) {
+	// If Label is defined, get the container port
+	//
+	if customContainerPort, ok := c.Info.Config.Labels[LabelContainerPort]; ok {
+		return customContainerPort, true
 	}
 
-	// if no port found, default to 80
-	return "80"
+	for _, bind := range c.Info.NetworkSettings.Ports {
+		if bind != nil && len(bind) > 0 {
+			return bind[0].HostPort, true
+		}
+	}
+
+	return "", false
 }
 
-func (c *Container) GetIP() string {
-	return c.Info.NetworkSettings.IPAddress
+func (c *Container) getTargetHostname(hostname string) string {
+	// return container IP address if defined
+	if len(c.Info.NetworkSettings.IPAddress) > 0 {
+		return c.Info.NetworkSettings.IPAddress
+	}
+
+	// return hostname defined in the config
+	return hostname
 }
 
 func (c *Container) GetTargetURL() (*url.URL, error) {
 	// Set default proxy URL (virtual server in Tailscale)
 
-	containerPort := c.GetDefaultPort()
-
-	// If Label is defined, get the container port
-	//
-	if customContainerPort, ok := c.Info.Config.Labels[LabelContainerPort]; ok {
-		containerPort = customContainerPort
+	containerPort, ok := c.GetPort()
+	if !ok {
+		return nil, fmt.Errorf("no port found in container")
 	}
 
-	ip := c.GetIP()
-
-	return url.Parse(fmt.Sprintf("http://%s:%s", ip, containerPort))
+	return url.Parse(fmt.Sprintf("http://%s:%s", c.TargetHostname, containerPort))
 }
 
 func (c *Container) GetProxyURL() (*url.URL, error) {

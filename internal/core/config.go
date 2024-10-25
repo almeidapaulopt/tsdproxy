@@ -25,6 +25,7 @@ type (
 		DataDir     string `default:"/data/"`
 		AuthKey     string
 		AuthKeyFile string
+		Hostname    string `default:"127.0.0.1"`
 
 		Log  LogConfig
 		HTTP HTTPConfig

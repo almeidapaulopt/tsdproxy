@@ -67,10 +67,13 @@ services:
     restart: unless-stopped
     environment:
       - TSDPROXY_AUTHKEY=tskey-auth-SecretKey
+      - TSDPROXY_HOSTNAME=server1 # Address of docker server (access to example.com ports)
+      - DOCKER_HOST=unix:///var/run/docker.sock
       #- TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
-      - TSDPROXY_DATADIR:/data
-      - DOCKER_HOST=unix:///var/run/docker.sock 
-    #secrets:
+      #- TSDPROXY_DATADIR:/data
+      #- TSDPROXY_LOGLEVEL=info
+ 
+      #secrets:
       #- authkey
 
 #secrets:
