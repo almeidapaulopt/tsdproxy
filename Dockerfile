@@ -11,16 +11,17 @@ COPY . .
 
 # Compila a aplicação Go
 RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /tsdproxyd ./cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o /healthcheck ./cmd/healthcheck/main.go
 
 
 FROM scratch
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /tsdproxyd /tsdproxyd
 
-# add curl
-COPY --from=ghcr.io/tarampampam/curl:8.10.1 /bin/curl /bin/curl
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+
+COPY --from=builder /tsdproxyd /tsdproxyd
+COPY --from=builder /healthcheck /healthcheck
 
 ENTRYPOINT ["/tsdproxyd"]
 
 EXPOSE 8080
-HEALTHCHECK CMD curl --fail http://127.0.0.1:8080/health/ready/
+HEALTHCHECK CMD [ "/healthcheck" ]

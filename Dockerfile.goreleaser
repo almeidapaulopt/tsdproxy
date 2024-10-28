@@ -2,12 +2,12 @@ FROM alpine:latest AS certs
 RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
 
 FROM scratch
+
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-# add curl
-COPY --from=ghcr.io/tarampampam/curl:8.10.1 /bin/curl /bin/curl
+
+COPY tsdproxyd /
+COPY healthcheck /
 
 ENTRYPOINT ["/tsdproxyd"]
-COPY tsdproxyd /
-
 EXPOSE 8080
-HEALTHCHECK CMD curl --fail http://127.0.0.1:8080/health/ready/
+HEALTHCHECK CMD [ "/healthcheck" ]
