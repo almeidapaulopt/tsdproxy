@@ -78,12 +78,14 @@ func (l *Logger) LoggerMiddleware(next http.Handler) http.Handler {
 				Err(lw.err).
 				Int("status", lw.status).
 				Str("method", r.Method).
+				Str("host", r.Host).
 				Str("url", r.URL.String()).
 				Msg("error")
 		} else {
 			l.Info().
 				Int("status", lw.status).
 				Str("method", r.Method).
+				Str("host", r.Host).
 				Str("url", r.URL.String()).
 				Msg("request")
 		}

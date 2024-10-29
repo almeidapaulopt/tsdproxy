@@ -29,6 +29,8 @@ type (
 
 		Log  LogConfig
 		HTTP HTTPConfig
+
+		ContainerAccessLog bool `default:"true"`
 	}
 
 	// LogConfig stores logging configuration.

@@ -141,9 +141,11 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 		Msg("initializing proxy for container")
 
 	// Create the reverse proxy
+	//
 	reverseProxy := httputil.NewSingleHostReverseProxy(targetURL)
 
 	// Create the tsnet server
+	//
 	server := tailscale.NewTsNetServer(proxyURL.Hostname(), pm.config, pm.Log)
 	defer server.Close()
 
@@ -153,6 +155,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	}
 
 	// Create the TLS listener
+	//
 	ln, err := server.TsServer.ListenTLS("tcp", ":443")
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error listening on TLS")
@@ -161,6 +164,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	defer ln.Close()
 
 	// AddProxy to the list
+	//
 	pm.AddProxy(&Proxy{
 		container:    container,
 		TsServer:     server,
@@ -168,8 +172,24 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 		reverseProxy: reverseProxy,
 	})
 
+	// Create reverse proxy server
+	//
+	handler := pm.reverseProxyFunc(reverseProxy)
+
+	pm.Log.Debug().
+		Str("containerID", containerID).
+		Str("containerName", container.GetName()).
+		Msg("Proxy server created successfully")
+
+	// add logger to proxy
+	//
+	if pm.config.ContainerAccessLog {
+		handler = pm.Log.LoggerMiddleware(handler)
+	}
+
 	// start server
-	err = http.Serve(ln, pm.reverseProxyFunc(reverseProxy))
+	//
+	err = http.Serve(ln, handler)
 	defer log.Printf("Terminating server %s", proxyURL.Hostname())
 
 	if err != nil && !errors.Is(err, net.ErrClosed) {
@@ -208,8 +228,8 @@ func (pm *ProxyManager) StopAll() {
 	}
 }
 
-func (pm *ProxyManager) reverseProxyFunc(p *httputil.ReverseProxy) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func (pm *ProxyManager) reverseProxyFunc(p *httputil.ReverseProxy) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.ServeHTTP(w, r)
-	}
+	})
 }

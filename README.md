@@ -69,9 +69,10 @@ services:
       - TSDPROXY_AUTHKEY=tskey-auth-SecretKey
       - TSDPROXY_HOSTNAME=server1 # Address of docker server (access to example.com ports)
       - DOCKER_HOST=unix:///var/run/docker.sock
-      #- TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
-      #- TSDPROXY_DATADIR:/data
-      #- TSDPROXY_LOGLEVEL=info
+      #- TSDPROXY_AUTHKEYFILE=/run/secrets/authkey # to use docker secrets, Don't use AUTHKEY 
+      #- TSDPROXY_DATADIR:/data # defaults to /data
+      #- TSDPROXY_LOGLEVEL=info 
+      #- TSDPROXY_CONTAINERACCESSLOG=true #enable proxy access log for all active containers
  
       #secrets:
       #- authkey
