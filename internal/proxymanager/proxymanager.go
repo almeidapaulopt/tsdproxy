@@ -71,6 +71,7 @@ func (pm *ProxyManager) RemoveProxy(containerID string) {
 
 func (pm *ProxyManager) SetupExistingContainers(ctx context.Context) error {
 	// Filter containers with enable set to true
+	//
 	containerFilter := filters.NewArgs()
 	containerFilter.Add("label", containers.LabelIsEnabled)
 
@@ -84,6 +85,7 @@ func (pm *ProxyManager) SetupExistingContainers(ctx context.Context) error {
 	}
 
 	// add proxies to existing Containers
+	//
 	for _, container := range containers {
 		go pm.SetupProxy(ctx, container.ID)
 	}
@@ -93,6 +95,8 @@ func (pm *ProxyManager) SetupExistingContainers(ctx context.Context) error {
 
 func (pm *ProxyManager) HandleContainerEvent(ctx context.Context, event events.Message) {
 	containerID := event.Actor.ID
+
+	pm.Log.Debug().Str("containerID", containerID).Str("event", string(event.Action)).Msg("Handling container event")
 
 	switch event.Action {
 	case events.ActionStart:
@@ -105,6 +109,8 @@ func (pm *ProxyManager) HandleContainerEvent(ctx context.Context, event events.M
 func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	pm.Log.Info().Str("containerID", containerID).Msg("setting up proxy for container")
 
+	// Create a new container
+	//
 	container, err := containers.NewContainer(ctx, containerID, pm.docker, pm.config.Hostname)
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error creating container")
@@ -112,6 +118,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	}
 
 	// Get the proxy URL
+	//
 	proxyURL, err := container.GetProxyURL()
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", container.ID).Str("containerName", container.GetName()).Msg("Error parsing hostname")
@@ -119,11 +126,19 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 	}
 
 	// Get the target URL
+	//
 	targetURL, err := container.GetTargetURL()
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("error on proxy URL")
 		return
 	}
+
+	pm.Log.Debug().
+		Str("containerID", containerID).
+		Str("containerName", container.GetName()).
+		Str("targetURL", targetURL.String()).
+		Str("proxyURL", proxyURL.String()).
+		Msg("initializing proxy for container")
 
 	// Create the reverse proxy
 	reverseProxy := httputil.NewSingleHostReverseProxy(targetURL)
@@ -164,6 +179,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 
 func (pm *ProxyManager) WatchDockerEvents(ctx context.Context) {
 	// Filter Start/stop events for containers
+	//
 	eventsFilter := filters.NewArgs()
 	eventsFilter.Add("label", containers.LabelIsEnabled)
 	eventsFilter.Add("type", string(events.ContainerEventType))

@@ -91,6 +91,8 @@ func (app *WebApp) Start() {
 		app.Log.Fatal().Err(err).Msg("Error setting up existing containers")
 	}
 
+	// Start watching docker events
+	//
 	go app.ProxyManager.WatchDockerEvents(ctx)
 
 	// Start the webserver
