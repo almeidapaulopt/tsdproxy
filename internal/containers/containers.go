@@ -85,19 +85,14 @@ func (c *Container) GetTargetURL() (*url.URL, error) {
 
 func (c *Container) GetProxyURL() (*url.URL, error) {
 	// set default proxy URL
-	proxyURL, _ := url.Parse(fmt.Sprintf("https://%s:%s", c.GetName(), "443"))
+	name := c.GetName()
 
 	// Set custom proxy URL if present the Label in the container
-	if customURL, ok := c.Info.Config.Labels[LabelName]; ok {
-		var err error
-		proxyURL, err = proxyURL.Parse(customURL)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing hostname: %w", err)
-		}
-		if proxyURL.Scheme == "" {
-			proxyURL.Scheme = "https"
-		}
+	if customName, ok := c.Info.Config.Labels[LabelName]; ok {
+		name = customName
 	}
 
-	return proxyURL, nil
+	// validate url
+	//
+	return url.Parse(fmt.Sprintf("https://%s", name))
 }
