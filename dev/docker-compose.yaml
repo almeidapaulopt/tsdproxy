@@ -11,36 +11,38 @@ services:
     restart: unless-stopped
     environment:
       - TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
-      - TSDPROXY_DATADIR:/data
       - DOCKER_HOST=unix:///var/run/docker.sock
+      - TSDPROXY_HOSTNAME=192.168.43.149
     secrets:
       - authkey
 
   c1:
     image: nginx
-    # ports:
-    #   - 81:80
+    ports:
+      - 81:80
     labels:
       - tsdproxy.enable=true
-      # - tsdproxy.url=https://localhost:8081
-      # - tsdproxy.proxy.port=8081
+      - tsdproxy.name=teste
+    networks:
+      c1:
 
   c2:
     image: nginx
-    # ports:
-    # - 82:80
-    # labels:
-    #   - tsdproxy.enable=true
-    # - tsdproxy.proxy.port=8082
+    ports:
+      - 82:80
+    networks:
+      c2:
+    labels:
+      - tsdproxy.enable=true
 
   c3:
     image: nginx
-    network_mode: host
     ports:
       - 83:80
-    # labels:
-    # - tsdproxy.enable=true
-    # - tsdproxy.proxy.port=8083
+    networks:
+      c3:
+    labels:
+      - tsdproxy.enable=true
 
 volumes:
   tsdata:
@@ -49,3 +51,11 @@ volumes:
 secrets:
   authkey:
     file: ./KEY_FILE
+
+networks:
+  c1:
+    name: c1
+  c2:
+    name: c2
+  c3:
+    name: c3

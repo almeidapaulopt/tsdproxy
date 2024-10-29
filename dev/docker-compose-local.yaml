@@ -1,20 +1,22 @@
 services:
   c1:
     image: nginx
-    # ports:
-    #   - 81:80
+    ports:
+      - 81:80
     labels:
-      - tsdproxy.enable=false
-      # - tsdproxy.url=https://localhost:8081
-      # - tsdproxy.proxy.port=8081
+      - tsdproxy.enable=true
+      - tsdproxy.name=teste
+    networks:
+      - c1
 
   c2:
     image: nginx
-    # ports:
-    # - 82:80
-    # labels:
-    #   - tsdproxy.enable=true
-    # - tsdproxy.proxy.port=8082
+    ports:
+      - 82:80
+    labels:
+      - tsdproxy.enable=true
+    networks:
+      - c2
 
   c3:
     image: nginx
@@ -23,7 +25,6 @@ services:
       - 83:80
     labels:
       - tsdproxy.enable=true
-    # - tsdproxy.proxy.port=8083
 
 volumes:
   tsdata:
@@ -32,3 +33,7 @@ volumes:
 secrets:
   authkey:
     file: ./KEY_FILE
+
+networks:
+  c1:
+  c2:

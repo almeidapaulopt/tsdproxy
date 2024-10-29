@@ -16,7 +16,7 @@ const (
 
 	// Container config labels
 	LabelEnable        = LabelPrefix + "enable"
-	LabelURL           = LabelPrefix + "url"
+	LabelName          = LabelPrefix + "name"
 	LabelContainerPort = LabelPrefix + "container_port"
 )
 
@@ -54,7 +54,7 @@ func (c *Container) GetPort() (string, bool) {
 	}
 
 	for _, bind := range c.Info.NetworkSettings.Ports {
-		if bind != nil && len(bind) > 0 {
+		if len(bind) > 0 {
 			return bind[0].HostPort, true
 		}
 	}
@@ -88,7 +88,7 @@ func (c *Container) GetProxyURL() (*url.URL, error) {
 	proxyURL, _ := url.Parse(fmt.Sprintf("https://%s:%s", c.GetName(), "443"))
 
 	// Set custom proxy URL if present the Label in the container
-	if customURL, ok := c.Info.Config.Labels[LabelURL]; ok {
+	if customURL, ok := c.Info.Config.Labels[LabelName]; ok {
 		var err error
 		proxyURL, err = proxyURL.Parse(customURL)
 		if err != nil {

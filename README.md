@@ -30,12 +30,12 @@ Add the following labels to the Docker containers you wish to proxy:
 ```yaml
 labels:
   - "tsdproxy.enable=true"
-  - "tsdproxy.url=https://example"
+  - "tsdproxy.name=example"
   - "tsdproxy.container_port=80"
 ```
 
 - `tsdproxy.enable`: Set to `true` to indicate that this container should be proxied.
-- `tsdproxy.url`: The URL of the virtual Tailscale hostname that will be the proxy. (defaults are https and the container hostname). You only need to set the subdomain, TsDProxy will automatically append the Tailscale domain.
+- `tsdproxy.name`: The name of the virtual Tailscale hostname that will be the proxy. You only need to set the subdomain, TsDProxy will automatically append the Tailscale domain (example: my-network.ts.net).
 - `tsdproxy.container_port`: The port on the container. (Container first exposed port by default)
 
 ## Running the Tailscale Docker Proxy
