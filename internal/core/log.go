@@ -4,6 +4,9 @@
 package core
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"os"
 
@@ -59,6 +62,14 @@ func (r *LogRecord) Write(data []byte) (int, error) {
 	}
 
 	return n, err
+}
+
+func (r *LogRecord) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("hijack not supported")
+	}
+	return h.Hijack()
 }
 
 // LoggerMiddleware is a middleware function that logs incoming HTTP requests.
