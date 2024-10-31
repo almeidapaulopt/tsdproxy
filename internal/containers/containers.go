@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/docker/docker/api/types"
@@ -66,6 +67,16 @@ func (c *Container) getTargetHostname(hostname string) string {
 	// return container IP address if defined
 	if len(c.Info.NetworkSettings.IPAddress) > 0 {
 		return c.Info.NetworkSettings.IPAddress
+	}
+
+	// return localhost if container same as host to serve the dashboard
+	//
+	osname, err := os.Hostname()
+	if err != nil {
+		return hostname
+	}
+	if strings.HasPrefix(c.Info.ID, osname) {
+		return "127.0.0.1"
 	}
 
 	// return hostname defined in the config
