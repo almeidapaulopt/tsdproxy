@@ -22,8 +22,10 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/tailscale"
 )
 
+type ProxyList map[string]*Proxy
+
 type ProxyManager struct {
-	proxies map[string]*Proxy
+	Proxies ProxyList
 	docker  *client.Client
 	Log     *core.Logger
 	config  *core.Config
@@ -39,7 +41,7 @@ type Proxy struct {
 
 func NewProxyManager(cli *client.Client, logger *core.Logger, config *core.Config) *ProxyManager {
 	return &ProxyManager{
-		proxies: make(map[string]*Proxy),
+		Proxies: make(ProxyList),
 		docker:  cli,
 		config:  config,
 		Log:     logger,
@@ -50,21 +52,21 @@ func (pm *ProxyManager) AddProxy(proxy *Proxy) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
-	pm.proxies[proxy.container.ID] = proxy
+	pm.Proxies[proxy.container.ID] = proxy
 }
 
 func (pm *ProxyManager) RemoveProxy(containerID string) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
-	if proxy, exists := pm.proxies[containerID]; exists {
+	if proxy, exists := pm.Proxies[containerID]; exists {
 		if err := proxy.TsServer.Close(); err != nil {
 			pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error shutting down proxy server")
 		} else {
 			pm.Log.Info().Str("containerID", containerID).Msg("Proxy server shut down successfully")
 		}
 
-		delete(pm.proxies, containerID)
+		delete(pm.Proxies, containerID)
 		pm.Log.Info().Str("containerID", containerID[:12]).Msg("Removed proxy for container")
 	}
 }
@@ -146,13 +148,12 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 
 	// Create the tsnet server
 	//
-	server := tailscale.NewTsNetServer(proxyURL.Hostname(), pm.config, pm.Log)
-	defer server.Close()
-
-	if err := server.Start(ctx); err != nil {
+	server, err := tailscale.NewTsNetServer(proxyURL.Hostname(), pm.config, pm.Log)
+	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error starting server")
 		return
 	}
+	defer server.Close()
 
 	// Create the TLS listener
 	//
@@ -223,7 +224,7 @@ func (pm *ProxyManager) WatchDockerEvents(ctx context.Context) {
 
 func (pm *ProxyManager) StopAll() {
 	pm.Log.Info().Msg("Shutdown all proxies")
-	for id := range pm.proxies {
+	for id := range pm.Proxies {
 		pm.RemoveProxy(id)
 	}
 }

@@ -100,6 +100,8 @@ dev: docker_start server_start
 server_start:
 	TSDPROXY_DataDir=./dev/data TSDPROXY_LOG_LEVEL=debug DOCKER_HOST=unix:///var/run/docker.sock \
 		TSDPROXY_AUTHKEYFILE=./dev/KEY_FILE \
+		TSDPROXY_DASHBOARD_ENABLED=true \
+		TSDPROXY_DASHBOARD_NAME=DASH1 \
 		wgo run -file=.go -file=.yaml -file=.env -file=.json -file=.toml ${MAIN_PACKAGE_PATH}
 
 ## docker_start: start the docker containers
@@ -116,6 +118,23 @@ docker_stop:
 ## stop: stop the dev server
 .PHONY: stop
 stop: dev_kill docker_stop
+
+## docker_image: Create docker image
+.PHONY: docker_image
+docker_image:
+	docker buildx build  -t "tsdproxy:latest" .
+
+## docker_local image start
+.PHONY: docker_image_start
+docker_image_start:
+	docker compose -f dev/docker-compose.yaml up -d
+
+## docker_local image stop
+.PHONY: docker_image_stop
+docker_image_stop:
+	docker compose -f dev/docker-compose.yaml down
+
+
 
 # ==================================================================================== #
 # QUALITY CONTROL

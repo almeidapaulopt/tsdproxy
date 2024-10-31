@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/client"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
+	"github.com/almeidapaulopt/tsdproxy/internal/dashboard"
 	pm "github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
 )
 
@@ -25,6 +26,7 @@ type WebApp struct {
 	Health       *core.Health
 	Docker       *client.Client
 	ProxyManager *pm.ProxyManager
+	Dashboard    *dashboard.Dashboard
 }
 
 func InitializeApp() (*WebApp, error) {
@@ -47,6 +49,10 @@ func InitializeApp() (*WebApp, error) {
 	//
 	proxymanager := pm.NewProxyManager(docker, logger, config)
 
+	// init Dashboard
+	//
+	dash := dashboard.NewDashboard(httpServer, logger, config, proxymanager.Proxies)
+
 	webApp := &WebApp{
 		Config:       config,
 		Log:          logger,
@@ -54,6 +60,7 @@ func InitializeApp() (*WebApp, error) {
 		Health:       health,
 		Docker:       docker,
 		ProxyManager: proxymanager,
+		Dashboard:    dash,
 	}
 	return webApp, nil
 }
@@ -94,6 +101,10 @@ func (app *WebApp) Start() {
 	// Start watching docker events
 	//
 	go app.ProxyManager.WatchDockerEvents(ctx)
+
+	// Start Dashboard
+	//
+	app.Dashboard.AddRoutes()
 
 	// Start the webserver
 	//
