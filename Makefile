@@ -135,6 +135,10 @@ docker_image_stop:
 	docker compose -f dev/docker-compose.yaml down
 
 
+## docs local server
+.PHONY: docs
+docs:
+	cd docs && hugo server --buildDrafts --disableFastRender
 
 # ==================================================================================== #
 # QUALITY CONTROL

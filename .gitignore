@@ -28,3 +28,9 @@ dist/
 dev/data/
 dev/KEY_FILE
 dev/tsauthkey.env
+
+
+# Hugo output
+docs/public/
+docs/resources/
+docs/.hugo_build.lock
