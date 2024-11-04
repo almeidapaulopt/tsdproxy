@@ -2,6 +2,10 @@
 
 This Docker-based application automatically creates a proxy to virtual addresses in your Tailscale network based on Docker container labels. It simplifies traffic redirection to services running inside Docker containers, without the need for a separate Tailscale container for each service.
 
+## Documentation
+
+https://almeidapaulopt.github.io/tsdproxy/
+
 ## Features
 
 - Proxies traffic to virtual Tailscale addresses using Docker container labels.
