@@ -30,7 +30,7 @@ enableInlineShortcodes: true
 
 menu:
   main:
-    - name: Docs
+    - name: Documentation
       pageRef: /docs
       weight: 1
     - name: About

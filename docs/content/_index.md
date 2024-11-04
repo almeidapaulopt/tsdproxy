@@ -2,6 +2,7 @@
 title: TSDPRoxy
 layout: hextra-home
 ---
+{{< hextra/hero-container image="/images/tsdproxy.svg" >}}
 {{< hextra/hero-badge >}}
   <div class="hx-w-2 hx-h-2 hx-rounded-full hx-bg-primary-400"></div>
   <span>Free, open source</span>
@@ -23,6 +24,8 @@ layout: hextra-home
 <div class="hx-mb-6">
 {{< hextra/hero-button text="Get Started" link="docs" >}}
 </div>
+
+{{< /hextra/hero-container >}}
 
 <div class="hx-mt-6"></div>
 
