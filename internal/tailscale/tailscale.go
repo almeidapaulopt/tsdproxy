@@ -31,6 +31,7 @@ func NewTsNetServer(hostname string, config *core.Config, logger *core.Logger, c
 		RunWebClient: ct.WebClient,
 		UserLogf:     logger.Info().Msgf,
 		Logf:         logger.Trace().Msgf,
+		ControlURL:   config.ControlURL,
 	}
 
 	if ct.TsnetVerbose {

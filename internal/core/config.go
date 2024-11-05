@@ -26,6 +26,7 @@ type (
 		AuthKey     string
 		AuthKeyFile string
 		Hostname    string `default:"127.0.0.1"`
+		ControlURL  string
 
 		Log  LogConfig
 		HTTP HTTPConfig

@@ -1,7 +1,6 @@
 ---
 title: Dashboard
 prev: /docs/advanced
-# next: /docs/advanced/host-mode
 ---
 
 {{< callout type="warning" >}}
