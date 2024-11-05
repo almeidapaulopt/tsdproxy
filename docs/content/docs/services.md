@@ -50,4 +50,37 @@ labels:
 Note that the port used in the `tsdproxy.container_port` label is the port used internal in the container and not the exposed port.
 {{< /callout >}}
 
+### tsdproxy.ephemeral
+
+If you want to use an ephemeral container, you can define it with the label `tsdproxy.ephemeral`.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "myserver"
+  tsdproxy.ephemeral: "true"
+```
+
+### tsdproxy.webclient
+
+If you want to enable the Tailscale webclient (port 5252), you can define it with the label `tsdproxy.webclient`.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "myserver"
+  tsdproxy.webclient: "true"
+```
+
+### tsdproxy.tsnet_verbose
+
+If you want to enable Tailscale's verbose mode, you can define it with the label `tsdproxy.tsnet_verbose`.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "myserver"
+  tsdproxy.tsnet_verbose: "true"
+```
+
 {{% /steps %}}

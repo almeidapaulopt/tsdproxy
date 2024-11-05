@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/docker/docker/api/types"
@@ -19,12 +20,18 @@ const (
 	LabelEnable        = LabelPrefix + "enable"
 	LabelName          = LabelPrefix + "name"
 	LabelContainerPort = LabelPrefix + "container_port"
+	LabelEphemeral     = LabelPrefix + "ephemeral"
+	LabelWebClient     = LabelPrefix + "webclient"
+	LabelTsnetVerbose  = LabelPrefix + "tsnet_verbose"
 )
 
 type Container struct {
 	Info           types.ContainerJSON
 	ID             string
 	TargetHostname string
+	Ephemeral      bool
+	WebClient      bool
+	TsnetVerbose   bool
 }
 
 func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string) (*Container, error) {
@@ -40,6 +47,11 @@ func NewContainer(ctx context.Context, containerID string, docker *client.Client
 	}
 
 	container.TargetHostname = container.getTargetHostname(hostname)
+
+	container.Ephemeral = container.getLabelBool(LabelEphemeral, true)
+	container.WebClient = container.getLabelBool(LabelWebClient, false)
+	container.TsnetVerbose = container.getLabelBool(LabelTsnetVerbose, false)
+
 	return container, nil
 }
 
@@ -106,4 +118,19 @@ func (c *Container) GetProxyURL() (*url.URL, error) {
 	// validate url
 	//
 	return url.Parse(fmt.Sprintf("https://%s", name))
+}
+
+func (c *Container) getLabelBool(label string, defaultValue bool) bool {
+	// Set default value
+	value := defaultValue
+	if valueString, ok := c.Info.Config.Labels[label]; ok {
+		valueBool, err := strconv.ParseBool(valueString)
+		// set value only if no error
+		// if error, keep default
+		//
+		if err == nil {
+			value = valueBool
+		}
+	}
+	return value
 }

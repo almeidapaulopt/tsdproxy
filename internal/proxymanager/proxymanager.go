@@ -148,7 +148,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 
 	// Create the tsnet server
 	//
-	server, err := tailscale.NewTsNetServer(proxyURL.Hostname(), pm.config, pm.Log)
+	server, err := tailscale.NewTsNetServer(proxyURL.Hostname(), pm.config, pm.Log, container)
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error starting server")
 		return
