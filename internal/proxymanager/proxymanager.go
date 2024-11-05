@@ -157,7 +157,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 
 	// Create the TLS listener
 	//
-	ln, err := server.TsServer.ListenTLS("tcp", ":443")
+	ln, err := server.GetListen(container)
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error listening on TLS")
 		return

@@ -23,6 +23,7 @@ const (
 	LabelEphemeral     = LabelPrefix + "ephemeral"
 	LabelWebClient     = LabelPrefix + "webclient"
 	LabelTsnetVerbose  = LabelPrefix + "tsnet_verbose"
+	LabelFunnel        = LabelPrefix + "funnel"
 )
 
 type Container struct {
@@ -32,6 +33,7 @@ type Container struct {
 	Ephemeral      bool
 	WebClient      bool
 	TsnetVerbose   bool
+	Funnel         bool
 }
 
 func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string) (*Container, error) {
@@ -51,6 +53,7 @@ func NewContainer(ctx context.Context, containerID string, docker *client.Client
 	container.Ephemeral = container.getLabelBool(LabelEphemeral, true)
 	container.WebClient = container.getLabelBool(LabelWebClient, false)
 	container.TsnetVerbose = container.getLabelBool(LabelTsnetVerbose, false)
+	container.Funnel = container.getLabelBool(LabelFunnel, false)
 
 	return container, nil
 }

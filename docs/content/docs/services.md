@@ -83,4 +83,15 @@ labels:
   tsdproxy.tsnet_verbose: "true"
 ```
 
+### tsdproxy.funnel
+
+To enable funnel mode, you can define it with the label `tsdproxy.funnel`.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "myserver"
+  tsdproxy.funnel: "true"
+```
+
 {{% /steps %}}

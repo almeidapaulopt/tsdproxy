@@ -2,6 +2,7 @@ package tailscale
 
 import (
 	"fmt"
+	"net"
 	"path/filepath"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/containers"
@@ -53,7 +54,10 @@ func (tn *TsNetServer) Close() error {
 	return tn.TsServer.Close()
 }
 
-// func (tn *TsNetServer) GetListen() error {
-// 	ln, err := tn.TsServer.ListenTLS("tcp", ":443")
-// 	return tn.TsServer.Run()
-// }
+func (tn *TsNetServer) GetListen(ct *containers.Container) (net.Listener, error) {
+	if ct.Funnel {
+		return tn.TsServer.ListenFunnel("tcp", ":443")
+	}
+
+	return tn.TsServer.ListenTLS("tcp", ":443")
+}
