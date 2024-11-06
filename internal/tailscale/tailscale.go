@@ -19,23 +19,23 @@ type TsNetServer struct {
 func NewTsNetServer(hostname string, config *core.Config, logger *core.Logger, ct *containers.Container) (*TsNetServer, error) {
 	logger.Debug().
 		Str("hostname", hostname).
-		Bool("ephemeral", ct.Ephemeral).
-		Bool("webclient", ct.WebClient).
-		Bool("runWebClient", ct.WebClient).
+		Bool("ephemeral", ct.Labels.Ephemeral).
+		Bool("webclient", ct.Labels.WebClient).
+		Bool("runWebClient", ct.Labels.WebClient).
 		Msg("Setting up tailscale server")
 
 	tserver := &tsnet.Server{
 		Hostname:     hostname,
 		AuthKey:      config.AuthKey,
 		Dir:          filepath.Join(config.DataDir, hostname),
-		Ephemeral:    ct.Ephemeral,
-		RunWebClient: ct.WebClient,
+		Ephemeral:    ct.Labels.Ephemeral,
+		RunWebClient: ct.Labels.WebClient,
 		UserLogf:     logger.Info().Msgf,
 		Logf:         logger.Trace().Msgf,
 		ControlURL:   config.ControlURL,
 	}
 
-	if ct.TsnetVerbose {
+	if ct.Labels.TsnetVerbose {
 		tserver.Logf = logger.Info().Msgf
 	}
 
@@ -55,7 +55,7 @@ func (tn *TsNetServer) Close() error {
 }
 
 func (tn *TsNetServer) GetListen(ct *containers.Container) (net.Listener, error) {
-	if ct.Funnel {
+	if ct.Labels.Funnel {
 		return tn.TsServer.ListenFunnel("tcp", ":443")
 	}
 

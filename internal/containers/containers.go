@@ -30,10 +30,14 @@ type Container struct {
 	Info           types.ContainerJSON
 	ID             string
 	TargetHostname string
-	Ephemeral      bool
-	WebClient      bool
-	TsnetVerbose   bool
-	Funnel         bool
+	Labels         labels
+}
+
+type labels struct {
+	Ephemeral    bool
+	WebClient    bool
+	TsnetVerbose bool
+	Funnel       bool
 }
 
 func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string) (*Container, error) {
@@ -50,10 +54,10 @@ func NewContainer(ctx context.Context, containerID string, docker *client.Client
 
 	container.TargetHostname = container.getTargetHostname(hostname)
 
-	container.Ephemeral = container.getLabelBool(LabelEphemeral, true)
-	container.WebClient = container.getLabelBool(LabelWebClient, false)
-	container.TsnetVerbose = container.getLabelBool(LabelTsnetVerbose, false)
-	container.Funnel = container.getLabelBool(LabelFunnel, false)
+	container.Labels.Ephemeral = container.getLabelBool(LabelEphemeral, true)
+	container.Labels.WebClient = container.getLabelBool(LabelWebClient, false)
+	container.Labels.TsnetVerbose = container.getLabelBool(LabelTsnetVerbose, false)
+	container.Labels.Funnel = container.getLabelBool(LabelFunnel, false)
 
 	return container, nil
 }
