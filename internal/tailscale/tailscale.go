@@ -3,6 +3,7 @@ package tailscale
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"path/filepath"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/containers"
@@ -12,8 +13,9 @@ import (
 )
 
 type TsNetServer struct {
-	TsServer    *tsnet.Server
-	LocalClient *tsclient.LocalClient
+	TsServer     *tsnet.Server
+	LocalClient  *tsclient.LocalClient
+	HTTPListener net.Listener
 }
 
 func NewTsNetServer(hostname string, config *core.Config, logger *core.Logger, ct *containers.Container) (*TsNetServer, error) {
@@ -45,12 +47,40 @@ func NewTsNetServer(hostname string, config *core.Config, logger *core.Logger, c
 	}
 
 	return &TsNetServer{
-		tserver,
-		lc,
+		TsServer:     tserver,
+		LocalClient:  lc,
+		HTTPListener: nil,
 	}, nil
 }
 
+func (tn *TsNetServer) StartRedirectServer() error {
+	var err error
+	tn.HTTPListener, err = tn.TsServer.Listen("tcp", ":80")
+	if err != nil {
+		return fmt.Errorf("error creating HTTP listener: %w", err)
+	}
+
+	go func() {
+		httpServer := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				target := "https://" + r.Host + r.URL.RequestURI()
+				http.Redirect(w, r, target, http.StatusMovedPermanently)
+			}),
+		}
+		err := httpServer.Serve(tn.HTTPListener)
+		if err != nil && err != http.ErrServerClosed {
+			// Log the error, but don't stop the main server
+			fmt.Printf("HTTP redirect server error: %v\n", err)
+		}
+	}()
+
+	return nil
+}
+
 func (tn *TsNetServer) Close() error {
+	if tn.HTTPListener != nil {
+		tn.HTTPListener.Close()
+	}
 	return tn.TsServer.Close()
 }
 
