@@ -7,6 +7,7 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      #- ./config:/config
       - datadir:/data
     restart: unless-stopped
     environment:

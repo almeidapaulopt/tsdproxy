@@ -4,15 +4,19 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
 	"github.com/creasty/defaults"
 
+	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/v2"
 
 	"github.com/knadh/koanf/providers/env"
+	"github.com/knadh/koanf/providers/file"
 )
 
 const prefix = "TSDPROXY_"
@@ -85,6 +89,11 @@ func GetConfig() (*Config, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal config failed: %w", err)
+	}
+
+	err = k.Load(file.Provider("config/tsdproxy.yml"), yaml.Parser())
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("cannot load config from file config/tsdproxy.yml: %w", err)
 	}
 
 	// Read auth key from file (for example docker secret)
