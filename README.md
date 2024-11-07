@@ -122,10 +122,10 @@ services:
       # - "tsdproxy.name=my-custom-name"
       # - "tsdproxy.container_port=2000"
       # - "tsdproxy.funnel=false"
-    ports:
-      - "80:8080"
-      - "443:8443"
-      - "2000:8888"
+    ports: # external:internal
+      - "8080:80"
+      - "8443:443"
+      - "8888:2000"
 ```
 
 ##### Labels Explanation
