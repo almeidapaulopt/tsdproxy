@@ -1,4 +1,4 @@
-default: dev
+default: dev_docker
 
 # Change these variables as necessary.
 MAIN_PACKAGE_PATH := "cmd/server/main.go"
@@ -109,6 +109,22 @@ server_start:
 docker_start:
 	cd dev && docker compose -f docker-compose-local.yaml up -d
 
+## dev_docker: start the dev docker containers
+.PHONY: dev_docker
+dev_docker:
+	CURRENT_UID=$(shell id -u):$(shell id -g) docker compose -f dev/docker-compose-dev.yaml up
+
+## dev_docker_stop: stop the dev docker containers
+.PHONY: dev_docker_stop
+dev_docker_stop:
+	CURRENT_UID=$(shell id -u):$(shell id -g) docker compose -f dev/docker-compose-dev.yaml down
+
+
+## dev_image: generate docker development image
+.PHONY: dev_image
+dev_image:
+	docker build --build-arg UID=$(shell id -u) --build-arg GID=$(shell id -g) -f dev/Dockerfile.dev -t devimage .
+
 ## docker_stop: stop the docker containers
 .PHONY: docker_stop
 docker_stop:
@@ -118,6 +134,7 @@ docker_stop:
 ## stop: stop the dev server
 .PHONY: stop
 stop: dev_kill docker_stop
+
 
 ## docker_image: Create docker image
 .PHONY: docker_image

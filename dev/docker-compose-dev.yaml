@@ -1,0 +1,21 @@
+services:
+  dev:
+    image: devimage
+    ports:
+      - "8080:8080"
+    volumes:
+      - ..:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    restart: unless-stopped
+    #    user: ${CURRENT_UID}
+    secrets:
+      - authkey
+
+volumes:
+  tsdata:
+  tmp:
+
+secrets:
+  authkey:
+    file: ./KEY_FILE

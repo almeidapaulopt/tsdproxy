@@ -5,7 +5,9 @@ services:
       - 81:80
     labels:
       - tsdproxy.enable=true
-      - tsdproxy.name=teste
+      - tsdproxy.name=testeff
+      - tsdproxy.ephemeral=true
+      - tsdproxy.funnel=true
     networks:
       - c1
 
