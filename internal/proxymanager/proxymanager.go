@@ -113,7 +113,7 @@ func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
 
 	// Create a new container
 	//
-	container, err := containers.NewContainer(ctx, containerID, pm.docker, pm.config.Hostname)
+	container, err := containers.NewContainer(ctx, containerID, pm.docker, pm.config.Hostname, pm.config.AuthKey)
 	if err != nil {
 		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error creating container")
 		return

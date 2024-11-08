@@ -28,7 +28,7 @@ func NewTsNetServer(hostname string, config *core.Config, logger *core.Logger, c
 
 	tserver := &tsnet.Server{
 		Hostname:     hostname,
-		AuthKey:      config.AuthKey,
+		AuthKey:      ct.Labels.Authkey,
 		Dir:          filepath.Join(config.DataDir, hostname),
 		Ephemeral:    ct.Labels.Ephemeral,
 		RunWebClient: ct.Labels.WebClient,

@@ -24,6 +24,8 @@ const (
 	LabelWebClient     = LabelPrefix + "webclient"
 	LabelTsnetVerbose  = LabelPrefix + "tsnet_verbose"
 	LabelFunnel        = LabelPrefix + "funnel"
+	LabelAuthKey       = LabelPrefix + "authkey"
+	LabelAuthKeyFile   = LabelPrefix + "authkeyfile"
 )
 
 type Container struct {
@@ -34,13 +36,14 @@ type Container struct {
 }
 
 type labels struct {
+	Authkey      string
 	Ephemeral    bool
 	WebClient    bool
 	TsnetVerbose bool
 	Funnel       bool
 }
 
-func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string) (*Container, error) {
+func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string, defaultAuthkey string) (*Container, error) {
 	// Get the container info
 	containerInfo, err := docker.ContainerInspect(ctx, containerID)
 	if err != nil {
@@ -58,7 +61,10 @@ func NewContainer(ctx context.Context, containerID string, docker *client.Client
 	container.Labels.WebClient = container.getLabelBool(LabelWebClient, false)
 	container.Labels.TsnetVerbose = container.getLabelBool(LabelTsnetVerbose, false)
 	container.Labels.Funnel = container.getLabelBool(LabelFunnel, false)
-
+	container.Labels.Authkey = container.getLabelString(LabelAuthKey, defaultAuthkey)
+	if err := container.setAuthKeyFromAuthFile(); err != nil {
+		return nil, fmt.Errorf("error setting auth key from file : %w", err)
+	}
 	return container, nil
 }
 
@@ -140,4 +146,27 @@ func (c *Container) getLabelBool(label string, defaultValue bool) bool {
 		}
 	}
 	return value
+}
+
+func (c *Container) getLabelString(label string, defaultValue string) string {
+	// Set default value
+	value := defaultValue
+	if valueString, ok := c.Info.Config.Labels[label]; ok {
+		value = valueString
+	}
+	return value
+}
+
+func (c *Container) setAuthKeyFromAuthFile() error {
+	authKeyFile, ok := c.Info.Config.Labels[LabelAuthKeyFile]
+	if !ok || authKeyFile == "" {
+		// authkeyfile label not defined
+		return nil
+	}
+	authKey, err := os.ReadFile(authKeyFile)
+	if err != nil {
+		return fmt.Errorf("read auth key from file: %w", err)
+	}
+	c.Labels.Authkey = strings.TrimSpace(string(authKey))
+	return nil
 }
