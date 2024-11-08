@@ -4,4 +4,4 @@ dashboard:
   name: DASH1
 datadir: ./dev/data
 log:
-  level: debug
+  level: info

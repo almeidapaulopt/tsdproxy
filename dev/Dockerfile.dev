@@ -1,0 +1,21 @@
+# Dockerfile.dev
+#
+FROM golang:1.23.3
+
+WORKDIR /app
+
+#ARG UID=1000
+#ARG GID=1000
+
+#RUN groupadd -g $GID appgroup && useradd -l -m -u $UID -g appgroup appuser
+
+
+#USER appuser
+RUN go install github.com/bokwoon95/wgo@latest
+
+COPY go.mod go.sum /app/
+
+RUN go mod download
+
+CMD ["wgo", "run", "cmd/server/main.go"]
+

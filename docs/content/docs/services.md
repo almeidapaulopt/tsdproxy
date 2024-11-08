@@ -94,4 +94,27 @@ labels:
   tsdproxy.funnel: "true"
 ```
 
+### tsdproxy.authkey
+
+Enable TSDProxy authentication with a different Authkey.
+This give the possibility to add tags on your containers if were defined when
+created the Authkey.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.authkey: "YOUR_AUTHKEY_HERE"
+```
+
+### tsdproxy.authkeyfile
+
+Authkeyfile is the path to your Authkey. This is useful if you want to use
+docker secrets.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.authkey: "/run/secrets/authkey"
+```
+
 {{% /steps %}}

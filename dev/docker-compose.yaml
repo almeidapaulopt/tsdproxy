@@ -12,9 +12,12 @@ services:
     environment:
       - TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
       - DOCKER_HOST=unix:///var/run/docker.sock
-      - TSDPROXY_HOSTNAME=192.168.43.149
+      - TSDPROXY_LOG_LEVEL=trace
     secrets:
       - authkey
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=dash-dev
 
   c1:
     image: nginx
