@@ -3,6 +3,7 @@ package containers
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -43,7 +44,7 @@ type labels struct {
 	Funnel       bool
 }
 
-func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string, defaultAuthkey string) (*Container, error) {
+func NewContainer(ctx context.Context, containerID string, docker *client.Client, hostname string, defaultAuthkey string, ingressNetwork string) (*Container, error) {
 	// Get the container info
 	containerInfo, err := docker.ContainerInspect(ctx, containerID)
 	if err != nil {
@@ -55,7 +56,7 @@ func NewContainer(ctx context.Context, containerID string, docker *client.Client
 		ID:   containerID,
 	}
 
-	container.TargetHostname = container.getTargetHostname(hostname)
+	container.TargetHostname = container.getTargetHostname(ingressNetwork, hostname)
 
 	container.Labels.Ephemeral = container.getLabelBool(LabelEphemeral, true)
 	container.Labels.WebClient = container.getLabelBool(LabelWebClient, false)
@@ -88,10 +89,25 @@ func (c *Container) GetPort() (string, bool) {
 	return "", false
 }
 
-func (c *Container) getTargetHostname(hostname string) string {
+func (c *Container) getTargetHostname(ingressNetwork, hostname string) string {
 	// return container IP address if defined
 	if len(c.Info.NetworkSettings.IPAddress) > 0 {
 		return c.Info.NetworkSettings.IPAddress
+	}
+
+	if ingressNetwork != "" && c.Info.NetworkSettings.Networks[ingressNetwork] != nil {
+		dns := c.Info.NetworkSettings.Networks[ingressNetwork].DNSNames[0]
+
+		// Check if the service name is available
+		_, err := net.LookupIP(dns)
+
+		if err != nil {
+			// TODO: Improve error handling
+			// This should never happen if TSDPROXY_INGRESSNETWORK is defined and the container is part of this network
+			fmt.Fprintf(os.Stderr, "Could not resolve hostname %s: %v\n", dns, err)
+		} else {
+			return dns
+		}
 	}
 
 	// return localhost if container same as host to serve the dashboard

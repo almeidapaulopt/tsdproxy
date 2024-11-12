@@ -25,12 +25,13 @@ type (
 	// Config stores complete configuration.
 	//
 	Config struct {
-		PublicURL   string `default:"http://localhost:8080"`
-		DataDir     string `default:"/data/"`
-		AuthKey     string
-		AuthKeyFile string
-		Hostname    string `default:"127.0.0.1"`
-		ControlURL  string
+		PublicURL      string `default:"http://localhost:8080"`
+		DataDir        string `default:"/data/"`
+		AuthKey        string
+		AuthKeyFile    string
+		Hostname       string `default:"127.0.0.1"`
+		ControlURL     string
+		IngressNetwork string
 
 		Log  LogConfig
 		HTTP HTTPConfig
