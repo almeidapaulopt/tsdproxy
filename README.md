@@ -85,7 +85,7 @@ services:
       TSDPROXY_HOSTNAME: 10.0.10.0
       # TSDPROXY_AUTHKEYFILE: /run/secrets/authkey
       # TSDPROXY_DATADIR: /data
-      # TSDPROXY_LOGLEVEL: info
+      # TSDPROXY_LOG_LEVEL: info
       # TSDPROXY_CONTAINERACCESSLOG: true
 
     # secrets:
@@ -108,7 +108,7 @@ volumes:
 | TSDPROXY_HOSTNAME           | Yes      | LAN IP address or name of docker host machine (cannot use localhost or 127.0.0.1 if using bridge network) |
 | TSDPROXY_AUTHKEYFILE        | No       | Path to file containing the authkey (incompatible with Docker Secrets)                                    |
 | TSDPROXY_DATADIR            | No       | Custom internal directory for data (defaults to /data)                                                    |
-| TSDPROXY_LOGLEVEL           | No       | Log level (defaults to info)                                                                              |
+| TSDPROXY_LOG_LEVEL          | No       | Log level (defaults to info)                                                                              |
 | TSDPROXY_CONTAINERACCESSLOG | No       | Enable proxy access log for tagged containers (defaults to true)                                          |
 
 #### Example target container using TsDProxy
