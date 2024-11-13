@@ -94,6 +94,13 @@ func (c *Container) getTargetHostname(hostname string) string {
 		return c.Info.NetworkSettings.IPAddress
 	}
 
+	// Check for network aliases and return the first available alias
+	for _, network := range c.Info.NetworkSettings.Networks {
+		if len(network.Aliases) > 0 {
+			return network.Aliases[0]
+		}
+	}
+
 	// return localhost if container same as host to serve the dashboard
 	//
 	osname, err := os.Hostname()
