@@ -26,6 +26,7 @@ const (
 	LabelFunnel        = LabelPrefix + "funnel"
 	LabelAuthKey       = LabelPrefix + "authkey"
 	LabelAuthKeyFile   = LabelPrefix + "authkeyfile"
+	LabelContainerHost  = LabelPrefix + "container_host"
 )
 
 type Container struct {
@@ -65,6 +66,13 @@ func NewContainer(ctx context.Context, containerID string, docker *client.Client
 	if err := container.setAuthKeyFromAuthFile(); err != nil {
 		return nil, fmt.Errorf("error setting auth key from file : %w", err)
 	}
+
+	// Override TargetHostname if LabelContainerHost is defined
+	containerHost := container.getLabelString(LabelContainerHost, "")
+	if containerHost != "" {
+		container.TargetHostname = containerHost
+	}
+	
 	return container, nil
 }
 
