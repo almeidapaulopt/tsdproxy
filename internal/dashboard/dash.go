@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
 package dashboard
 
 import (
@@ -5,20 +7,19 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
+	"github.com/rs/zerolog"
 )
 
 type Dashboard struct {
-	Log     *core.Logger
+	Log     zerolog.Logger
 	HTTP    *core.HTTPServer
-	Config  *core.Config
 	proxies proxymanager.ProxyList
 }
 
-func NewDashboard(http *core.HTTPServer, log *core.Logger, cfg *core.Config, pl proxymanager.ProxyList) *Dashboard {
+func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pl proxymanager.ProxyList) *Dashboard {
 	return &Dashboard{
-		Log:     log,
+		Log:     log.With().Str("module", "dashboard").Logger(),
 		HTTP:    http,
-		Config:  cfg,
 		proxies: pl,
 	}
 }
@@ -28,16 +29,16 @@ func (dash *Dashboard) AddRoutes() {
 }
 
 func (dash *Dashboard) index() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<!DOCTYPE html>
+	return func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`<!DOCTYPE html>
 		<html>
 			<head>
 				<meta charset="utf-8">
 			</head>
 			<body>`))
 		for _, p := range dash.proxies {
-			w.Write([]byte(p.URL.String() + "\n"))
+			_, _ = w.Write([]byte(p.URL.String() + "\n"))
 		}
-		w.Write([]byte(`</body></html>`))
+		_, _ = w.Write([]byte(`</body></html>`))
 	}
 }

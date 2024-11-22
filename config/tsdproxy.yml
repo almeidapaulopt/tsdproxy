@@ -1,7 +1,0 @@
-authkeyfile: ./dev/KEY_FILE
-dashboard:
-  enabled: "true"
-  name: DASH1
-datadir: ./dev/data
-log:
-  level: info

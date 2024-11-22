@@ -1,5 +1,5 @@
-//  SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
-//  SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
 
 package core
 
@@ -32,20 +32,22 @@ func GetVersion() string {
 }
 
 func getIsDirty() bool {
-	if isDirty == nil {
-		bi, ok := debug.ReadBuildInfo()
-		if ok {
-			modified := false
+	if isDirty != nil {
+		return *isDirty
+	}
 
-			for _, v := range bi.Settings {
-				if v.Key == "vcs.modified" {
-					if v.Value == "true" {
-						modified = true
-					}
+	bi, ok := debug.ReadBuildInfo()
+	if ok {
+		modified := false
+
+		for _, v := range bi.Settings {
+			if v.Key == "vcs.modified" {
+				if v.Value == "true" {
+					modified = true
 				}
 			}
-			isDirty = &modified
 		}
+		isDirty = &modified
 	}
 	return *isDirty
 }

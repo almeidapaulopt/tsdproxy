@@ -1,5 +1,5 @@
-//  SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
-//  SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
 
 package core
 
@@ -12,34 +12,32 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
 )
 
-type Logger struct {
-	zerolog.Logger
-}
-
-func NewLog(cfg *Config) *Logger {
+func NewLog() zerolog.Logger {
 	println("Setting up logger")
 
 	var logger zerolog.Logger
 
-	if cfg.Log.JSON {
+	if config.Config.Log.JSON {
 		logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 	} else {
 		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
 	}
 
 	log.Logger = logger
-	logLevel, err := zerolog.ParseLevel(cfg.Log.Level)
+	logLevel, err := zerolog.ParseLevel(config.Config.Log.Level)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Could not parse log level")
 	}
 
 	zerolog.SetGlobalLevel(logLevel)
-	logger.Info().Str("Log level", cfg.Log.Level).Msg("Log Settings")
-	l := &Logger{Logger: logger}
+	logger.Info().Str("Log level", config.Config.Log.Level).Msg("Log Settings")
+	// l := &Logger{Logger: logger}
 
-	return l
+	return logger
 }
 
 // LogRecord warps a http.ResponseWriter and records the status.
@@ -73,7 +71,7 @@ func (r *LogRecord) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 // LoggerMiddleware is a middleware function that logs incoming HTTP requests.
-func (l *Logger) LoggerMiddleware(next http.Handler) http.Handler {
+func LoggerMiddleware(l zerolog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lw := &LogRecord{
 			ResponseWriter: w,
