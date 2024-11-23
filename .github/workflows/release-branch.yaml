@@ -51,7 +51,7 @@ jobs:
           distribution: goreleaser
           # 'latest', 'nightly', or a semver
           version: "~> v2"
-          args: release -f .goreleaser-branch.yaml --clean
+          args: release -f ${{ github.workspace }}/.goreleaser-branch.yaml --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKER_PASSWORD: $${{ secrets.DOCKER_PASSWORD }}
