@@ -58,14 +58,21 @@ func (c *Client) NewProxy(config *proxyconfig.Config) (proxyproviders.Proxy, err
 		Dir:          datadir,
 		Ephemeral:    config.Tailscale.Ephemeral,
 		RunWebClient: config.Tailscale.RunWebClient,
-		// TODO:  verify log funcs
-		UserLogf: c.log.Printf,
-		// Logf:       c.log.Trace().
+		UserLogf: func(format string, args ...any) {
+			c.log.Info().Msgf(format, args...)
+		},
+		Logf: func(format string, args ...any) {
+			c.log.Trace().Msgf(format, args...)
+		},
+
 		ControlURL: c.getControlURL(config),
 	}
 
+	// if verbose is set, use the info log level
 	if config.Tailscale.TsnetVerbose {
-		tserver.Logf = c.log.Printf
+		tserver.Logf = func(format string, args ...any) {
+			c.log.Info().Msgf(format, args...)
+		}
 	}
 
 	return &Proxy{

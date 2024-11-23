@@ -19,6 +19,7 @@ type Proxy struct {
 
 // Start method implements proxyconfig.Proxy Start method.
 func (p *Proxy) Start() error {
+	// TODO: ADD status monitoring
 	_, err := p.tsServer.Up(context.Background())
 	return err
 }
