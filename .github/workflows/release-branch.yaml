@@ -12,10 +12,6 @@ permissions:
   issues: write
   id-token: write
 
-defaults:
- run:
-  working-directory: ./app
-
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
