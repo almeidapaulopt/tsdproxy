@@ -52,13 +52,6 @@ func newContainer(dcontainer types.ContainerJSON, targetprovider string, default
 
 // newProxyConfig method returns a new proxyconfig.Config.
 func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
-	authKey := c.getLabelString(LabelAuthKey, "")
-
-	authKey, err := c.getAuthKeyFromAuthFile(authKey)
-	if err != nil {
-		return nil, fmt.Errorf("error setting auth key from file : %w", err)
-	}
-
 	// Get the proxy URL
 	//
 	proxyURL, err := c.getProxyURL()
@@ -72,15 +65,10 @@ func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
 		return nil, fmt.Errorf("error parsing target hostname: %w", err)
 	}
 
-	tailscale := &proxyconfig.Tailscale{
-		Ephemeral:    c.getLabelBool(LabelEphemeral, proxyconfig.TailscaleEphemeral),
-		RunWebClient: c.getLabelBool(LabelRunWebClient, proxyconfig.TailscaleRunWebClient),
-		TsnetVerbose: c.getLabelBool(LabelTsnetVerbose, proxyconfig.TailscaleVerbose),
-		Funnel:       c.getLabelBool(LabelFunnel, proxyconfig.TailscaleFunnel),
-		AuthKey:      authKey,
-		// TODO: add controlURL
-		// ControlURL:         c.,
-
+	// Get the Tailscale configuration
+	tailscale, err := c.getTailscaleConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	return &proxyconfig.Config{
@@ -92,6 +80,26 @@ func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
 		Tailscale:      tailscale,
 		ProxyProvider:  c.getLabelString(LabelProxyProvider, proxyconfig.ProxyProvider),
 		ProxyAccessLog: c.getLabelBool(LabelContainerAccessLog, proxyconfig.ProxyAccessLog),
+	}, nil
+}
+
+// getTailscaleConfig method returns the tailscale configuration.
+func (c *container) getTailscaleConfig() (*proxyconfig.Tailscale, error) {
+	authKey := c.getLabelString(LabelAuthKey, "")
+
+	authKey, err := c.getAuthKeyFromAuthFile(authKey)
+	if err != nil {
+		return nil, fmt.Errorf("error setting auth key from file : %w", err)
+	}
+
+	return &proxyconfig.Tailscale{
+		Ephemeral:    c.getLabelBool(LabelEphemeral, proxyconfig.TailscaleEphemeral),
+		RunWebClient: c.getLabelBool(LabelRunWebClient, proxyconfig.TailscaleRunWebClient),
+		TsnetVerbose: c.getLabelBool(LabelTsnetVerbose, proxyconfig.TailscaleVerbose),
+		Funnel:       c.getLabelBool(LabelFunnel, proxyconfig.TailscaleFunnel),
+		AuthKey:      authKey,
+		// TODO: add controlURL
+		// ControlURL:         c.,
 	}, nil
 }
 
