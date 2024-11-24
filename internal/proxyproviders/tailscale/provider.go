@@ -5,6 +5,7 @@ package tailscale
 import (
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"tailscale.com/tsnet"
@@ -28,9 +29,10 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	datadir := filepath.Join(config.Config.Tailscale.DataDir, name)
 
 	return &Client{
-		log:        log.With().Str("tailscale", name).Logger(),
-		Hostname:   name,
-		AuthKey:    provider.AuthKey,
+		log:      log.With().Str("tailscale", name).Logger(),
+		Hostname: name,
+		// make sure the auth key is trimmed
+		AuthKey:    strings.TrimSpace(provider.AuthKey),
 		datadir:    datadir,
 		controlURL: provider.ControlURL,
 	}, nil
