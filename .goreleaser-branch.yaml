@@ -43,7 +43,7 @@ builds:
       - goarch: arm64
         goos: freebsd
     ldflags:
-      - -s -w -X "github.com/almeidapaulopt/tsdproxy/internal/core.buildString={{ .Tag }} ({{ .ShortCommit }} {{ .Date }}, {{ .Os }}/{{ .Arch }})" -X "github.com/almeidapaulopt/tsdproxy/core.version={{ .Tag }}"
+      - -s -w -X "github.com/almeidapaulopt/tsdproxy/internal/core.buildString={{ .Branch }} ({{ .ShortCommit }} {{ .Date }}, {{ .Os }}/{{ .Arch }})" -X "github.com/almeidapaulopt/tsdproxy/core.version={{ .Branch }}"
 
   - id: healthcheck
     main: ./cmd/healthcheck/main.go
