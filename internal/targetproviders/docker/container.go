@@ -157,6 +157,10 @@ func (c *container) getIntenalPort() (string, bool) {
 		return customContainerPort, true
 	}
 
+	for p := range c.container.NetworkSettings.Ports {
+		return p.Port(), true
+	}
+	// in network_mode=host
 	for p := range c.container.HostConfig.PortBindings {
 		return p.Port(), true
 	}
@@ -201,43 +205,51 @@ func (c *container) getName() string {
 
 // getTargetURL method returns the container target URL
 func (c *container) getTargetURL(hostname string) (*url.URL, error) {
-	tempHost := hostname
-	// return localhost if container same as host to serve the dashboard
-	if osname, err := os.Hostname(); err == nil && strings.HasPrefix(c.container.ID, osname) {
-		tempHost = "127.0.0.1"
-	}
-
-	// Set default proxy URL (virtual server in Tailscale)
-	exposedPort, ok := c.getExposedPort()
-	internalPort, ok1 := c.getIntenalPort()
-	if !ok && !ok1 {
+	exposedPort, hasExposedPort := c.getExposedPort()
+	internalPort, hasInternalPort := c.getIntenalPort()
+	if !hasExposedPort && !hasInternalPort {
 		return nil, errors.New("no port found in container")
 	}
 
+	// return localhost if container same as host to serve the dashboard
+	if osname, err := os.Hostname(); err == nil && strings.HasPrefix(c.container.ID, osname) {
+		return url.Parse("http://127.0.0.1:" + internalPort)
+	}
+
 	// test connection with the container using docker networking
-	// try connecting to internal ip's and internal port
-	for _, y := range c.container.NetworkSettings.Networks {
-		if err := c.dial(y.IPAddress, internalPort); err == nil {
-			c.log.Info().Msgf("Successfully connected to %s:%s", y.IPAddress, internalPort)
-			return url.Parse(fmt.Sprintf("http://%s:%s", y.IPAddress, internalPort))
+	// try connecting to internal ip and internal port
+	if hasInternalPort {
+		for _, network := range c.container.NetworkSettings.Networks {
+			if network.IPAddress == "" {
+				continue
+			}
+			if err := c.dial(network.IPAddress, internalPort); err == nil {
+				c.log.Info().Msgf("Successfully connected to %s:%s", network.IPAddress, internalPort)
+				return url.Parse(fmt.Sprintf("http://%s:%s", network.IPAddress, internalPort))
+			}
+		}
+		if err := c.dial(hostname, internalPort); err == nil {
+			c.log.Info().Msgf("Successfully connected to %s:%s", hostname, internalPort)
+			return url.Parse(fmt.Sprintf("http://%s:%s", hostname, internalPort))
 		}
 	}
 
 	// try connecting to internal gateway and exposed port
-	for _, y := range c.container.NetworkSettings.Networks {
-		if err := c.dial(y.Gateway, exposedPort); err == nil {
-			c.log.Info().Msgf("Successfully connected to %s:%s", y.Gateway, exposedPort)
-			return url.Parse(fmt.Sprintf("http://%s:%s", y.Gateway, exposedPort))
+	if hasExposedPort {
+		for _, network := range c.container.NetworkSettings.Networks {
+			if err := c.dial(network.Gateway, exposedPort); err == nil {
+				c.log.Info().Msgf("Successfully connected to %s:%s", network.Gateway, exposedPort)
+				return url.Parse(fmt.Sprintf("http://%s:%s", network.Gateway, exposedPort))
+			}
+		}
+		// try connecting to configured host and exposed port
+		if err := c.dial(hostname, exposedPort); err == nil {
+			c.log.Info().Msgf("Successfully connected to %s:%s", hostname, exposedPort)
+			return url.Parse(fmt.Sprintf("http://%s:%s", hostname, exposedPort))
 		}
 	}
 
-	// try connecting to configured host and exposed port
-	if err := c.dial(tempHost, exposedPort); err != nil {
-		c.log.Info().Msgf("Successfully connected to %s:%s", tempHost, exposedPort)
-		return url.Parse(fmt.Sprintf("http://%s:%s", tempHost, exposedPort))
-	}
-
-	return nil, errors.New("no valid target found")
+	return nil, errors.New("no valid target found for " + c.container.Name)
 }
 
 func (c *container) dial(host, port string) error {
