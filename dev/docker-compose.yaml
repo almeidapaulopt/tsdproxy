@@ -2,17 +2,21 @@ services:
   tailscale-docker-proxy:
     image: tsdproxy:latest
     container_name: tailscale-docker-proxy
+    # network_mode: host
+    user: root
     ports:
       - "8080:8080"
     volumes:
       - tmp:/tmp
+      - .:/config
+      - data:/data
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
+      # - /run/user/1000/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-    environment:
-      - TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
-      - DOCKER_HOST=unix:///var/run/docker.sock
-      - TSDPROXY_LOG_LEVEL=trace
+    # environment:
+    # - TSDPROXY_AUTHKEYFILE=/run/secrets/authkey
+    # - DOCKER_HOST=unix:///run/user/1000/docker.sock
+    # - TSDPROXY_LOG_LEVEL=trace
     secrets:
       - authkey
     labels:
@@ -50,6 +54,7 @@ services:
 volumes:
   tsdata:
   tmp:
+  data:
 
 secrets:
   authkey:

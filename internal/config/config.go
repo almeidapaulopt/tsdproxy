@@ -72,7 +72,7 @@ type (
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration
 	TailscaleProxyProviderConfig struct {
 		Providers map[string]*TailscaleServerConfig `validate:"dive"`
-		DataDir   string                            `default:"./dev/data/" validate:"dir"`
+		DataDir   string                            `default:"/data/" validate:"dir"`
 	}
 
 	// TailscaleServerConfig struct stores Tailscale Server configuration
@@ -93,7 +93,7 @@ func InitializeConfig() error {
 	Config.Docker = make(map[string]*DockerTargetProviderConfig)
 	Config.File = make(map[string]FileTargetProviderConfig)
 
-	file := flag.String("config", "./config/tsdproxy.yaml", "loag configuration from file")
+	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
 	filename := strings.TrimSuffix(filepath.Base(*file), filepath.Ext(*file))

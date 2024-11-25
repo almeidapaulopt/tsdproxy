@@ -5,8 +5,9 @@ services:
       - "8080:8080"
     volumes:
       - ..:/app
+      - .:/config
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
+      - data:/data
     restart: unless-stopped
     #    user: ${CURRENT_UID}
     secrets:
@@ -15,6 +16,7 @@ services:
 volumes:
   tsdata:
   tmp:
+  data:
 
 secrets:
   authkey:
