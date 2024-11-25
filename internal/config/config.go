@@ -49,7 +49,7 @@ type (
 	// DockerTargetProviderConfig struct stores Docker target provider configuration.
 	DockerTargetProviderConfig struct {
 		Host                 string `default:"unix:///var/run/docker.sock" validate:"required,uri"`
-		TargetHostname       string `default:"127.0.0.1" validate:"ip|hostname"`
+		TargetHostname       string `default:"172.31.0.1" validate:"ip|hostname"`
 		DefaultProxyProvider string
 	}
 

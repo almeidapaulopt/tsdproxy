@@ -22,6 +22,8 @@ services:
     labels:
       - tsdproxy.enable=true
       - tsdproxy.name=dash-dev
+    networks:
+      c1:
 
   c1:
     image: nginx

@@ -1,13 +1,12 @@
-ProxyAccessLog: true # set to true to enable container access log
+#ProxyAccessLog: true # set to true to enable container access log
 Hostname: 127.0.0.1
-PublicURL: http://localhost:8080 # set the public url of tsdproxy webserver
 
-Log:
-  JSON: false # set to true to enable json logging
-  Level: debug # set logging level
+#Log:
+#  JSON: false # set to true to enable json logging
+#  Level: debug # set logging level
 
 Tailscale:
-  DataDir: /data/
+  #  DataDir: /data/
   Providers:
     Default: # name of the provider
       Authkey: "YOUR_TAILSCALE_AUTHKEY_HERE" # define authkey here
@@ -16,6 +15,6 @@ Tailscale:
 
 Docker:
   Local: # name of the docker provider
-    Host: "unix:///var/run/docker.sock" # host of the docker socket or daemon
-    TargetHostname: "127.0.0.1" # hostname or IP of docker server
+    #    Host: "unix:///var/run/docker.sock" # host of the docker socket or daemon
+    # TargetHostname: "172.31.0.1" # hostname or IP of docker server
     DefaultProxyProvider: Default # name of which proxy provider to use

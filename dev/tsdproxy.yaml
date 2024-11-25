@@ -1,21 +1,23 @@
-ProxyAccessLog: true # set to true to enable container access log
-Hostname: 127.0.0.1
-PublicURL: http://localhost:8080 # set the public url of tsdproxy webserver
+#ProxyAccessLog: true # set to true to enable container access log
+#Hostname: 127.0.0.1
 
-Log:
-  JSON: false # set to true to enable json logging
-  Level: debug # set logging level
+#Log:
+#  JSON: false # set to true to enable json logging
+#  Level: debug # set logging level
 
 Tailscale:
+  # DataDir: /data/
   DataDir: ./dev/data/
   Providers:
     Default: # name of the provider
-      # Authkey: "" # define authkey here
+      # Authkey: "12" # define authkey here
+      #
+      # AuthkeyFile: "./run/secrets/authkey"
       AuthkeyFile: "./dev/KEY_FILE" # use this to load authkey from file. If this is defined, Authkey is ignored
       # ControlURL: "" # use this to override the default control URL
 
 Docker:
   Local: # name of the docker provider
-    Host: "unix:///run/user/1000/docker.sock" # host of the docker socket or daemon
-    TargetHostname: "127.0.0.1" # hostname or IP of docker server
+    # Host: "unix:///var/run/docker.sock" # host of the docker socket or daemon
+    #TargetHostname: "172.31.0.1" # hostname or IP of docker server
     DefaultProxyProvider: Default # name of which proxy provider to use
