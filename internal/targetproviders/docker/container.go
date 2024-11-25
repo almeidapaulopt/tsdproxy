@@ -5,12 +5,15 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyconfig"
 )
@@ -32,18 +35,23 @@ const (
 	LabelAuthKeyFile        = LabelPrefix + "authkeyfile"
 	LabelContainerAccessLog = LabelPrefix + "containeraccesslog"
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
+
+	//
+	dialTimeout = 3 * time.Second
 )
 
 // container struct stores the data from the docker container.
 type container struct {
+	log                   zerolog.Logger
 	container             types.ContainerJSON
 	defaultTargetHostname string
 	targetprovider        string
 }
 
 // newContainer function returns a new container.
-func newContainer(dcontainer types.ContainerJSON, targetprovider string, defaultTargetHostname string) *container {
+func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON, targetprovider string, defaultTargetHostname string) *container {
 	return &container{
+		log:                   logger.With().Str("container", dcontainer.Name).Logger(),
 		container:             dcontainer,
 		defaultTargetHostname: defaultTargetHostname,
 		targetprovider:        targetprovider,
@@ -143,15 +151,30 @@ func (c *container) getAuthKeyFromAuthFile(authKey string) (string, error) {
 	return strings.TrimSpace(string(temp)), nil
 }
 
-// getTargetPort method returns the container port
-func (c *container) getTargetPort() (string, bool) {
+func (c *container) getIntenalPort() (string, bool) {
 	// If Label is defined, get the container port
 	if customContainerPort, ok := c.container.Config.Labels[LabelContainerPort]; ok {
 		return customContainerPort, true
 	}
 
-	for port := range c.container.Config.ExposedPorts {
-		return strconv.Itoa(port.Int()), true
+	for p := range c.container.HostConfig.PortBindings {
+		return p.Port(), true
+	}
+
+	return "", false
+}
+
+// getExposedPort method returns the container port
+func (c *container) getExposedPort() (string, bool) {
+	// If Label is defined, get the container port
+	if customContainerPort, ok := c.container.Config.Labels[LabelContainerPort]; ok {
+		return customContainerPort, true
+	}
+
+	for _, bindings := range c.container.HostConfig.PortBindings {
+		if len(bindings) > 0 {
+			return bindings[0].HostPort, true
+		}
 	}
 
 	return "", false
@@ -178,20 +201,51 @@ func (c *container) getName() string {
 
 // getTargetURL method returns the container target URL
 func (c *container) getTargetURL(hostname string) (*url.URL, error) {
-	temp := hostname
+	tempHost := hostname
 	// return localhost if container same as host to serve the dashboard
-	osname, err := os.Hostname()
-	if err == nil {
-		if strings.HasPrefix(c.container.ID, osname) {
-			temp = "127.0.0.1"
-		}
+	if osname, err := os.Hostname(); err == nil && strings.HasPrefix(c.container.ID, osname) {
+		tempHost = "127.0.0.1"
 	}
 
 	// Set default proxy URL (virtual server in Tailscale)
-	containerPort, ok := c.getTargetPort()
-	if !ok {
+	exposedPort, ok := c.getExposedPort()
+	internalPort, ok1 := c.getIntenalPort()
+	if !ok && !ok1 {
 		return nil, errors.New("no port found in container")
 	}
 
-	return url.Parse(fmt.Sprintf("http://%s:%s", temp, containerPort))
+	// test connection with the container using docker networking
+	// try connecting to internal ip's and internal port
+	for _, y := range c.container.NetworkSettings.Networks {
+		if err := c.dial(y.IPAddress, internalPort); err == nil {
+			c.log.Info().Msgf("Successfully connected to %s:%s", y.IPAddress, internalPort)
+			return url.Parse(fmt.Sprintf("http://%s:%s", y.IPAddress, internalPort))
+		}
+	}
+
+	// try connecting to internal gateway and exposed port
+	for _, y := range c.container.NetworkSettings.Networks {
+		if err := c.dial(y.Gateway, exposedPort); err == nil {
+			c.log.Info().Msgf("Successfully connected to %s:%s", y.Gateway, exposedPort)
+			return url.Parse(fmt.Sprintf("http://%s:%s", y.Gateway, exposedPort))
+		}
+	}
+
+	// try connecting to configured host and exposed port
+	if err := c.dial(tempHost, exposedPort); err != nil {
+		c.log.Info().Msgf("Successfully connected to %s:%s", tempHost, exposedPort)
+		return url.Parse(fmt.Sprintf("http://%s:%s", tempHost, exposedPort))
+	}
+
+	return nil, errors.New("no valid target found")
+}
+
+func (c *container) dial(host, port string) error {
+	target := fmt.Sprintf("%s:%s", host, port)
+	conn, err := net.DialTimeout("tcp", target, dialTimeout)
+	if err != nil {
+		return fmt.Errorf("error dialing %s: %w", target, err)
+	}
+	conn.Close()
+	return nil
 }

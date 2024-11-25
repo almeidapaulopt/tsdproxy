@@ -100,7 +100,7 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 
 // newProxyConfig method returns a new proxyconfig.Config
 func (c *Client) newProxyConfig(dcontainer types.ContainerJSON) (*proxyconfig.Config, error) {
-	ctn := newContainer(dcontainer, c.name, c.defaultTargetHostname)
+	ctn := newContainer(c.log, dcontainer, c.name, c.defaultTargetHostname)
 
 	pcfg, err := ctn.newProxyConfig()
 	if err != nil {
