@@ -260,13 +260,12 @@ func (pm *ProxyManager) HandleContainerEvent(event targetproviders.TargetEvent) 
 		pm.log.Debug().Str("targetID", event.ID).Msg("Stopping target")
 		proxy := pm.getProxyByTargetID(event.ID)
 		if proxy == nil {
-			pm.log.Error().Str("target", event.ID).Msg("No proxy found for target")
+			pm.log.Error().Int("action", int(event.Action)).Str("target", event.ID).Msg("No proxy found for target")
 		} else {
 			targetprovider := pm.TargetProviders[proxy.Config.TargetProvider]
 			if err := targetprovider.DeleteProxy(event.ID); err != nil {
 				pm.log.Error().Err(err).Msg("No proxy found for target")
 			}
-			proxy.Close()
 
 			pm.removeProxy(proxy.Config.Hostname)
 		}
