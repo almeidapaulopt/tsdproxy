@@ -4,13 +4,16 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/docker/docker/api/types"
 	ctypes "github.com/docker/docker/api/types/container"
 	devents "github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/rs/zerolog"
 
@@ -29,6 +32,7 @@ type (
 		host                  string
 		defaultTargetHostname string
 		defaultProxyProvider  string
+		defaultBridgeAdress   string
 
 		mutex sync.Mutex
 	}
@@ -46,7 +50,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		return nil, err
 	}
 
-	return &Client{
+	c := &Client{
 		docker:                docker,
 		log:                   newlog,
 		name:                  name,
@@ -54,7 +58,17 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		defaultTargetHostname: provider.TargetHostname,
 		defaultProxyProvider:  provider.DefaultProxyProvider,
 		containers:            make(map[string]*container),
-	}, nil
+	}
+
+	var addr string
+
+	if addr, err = c.getDefaultBridgeAddress(); err != nil {
+		return nil, err
+	}
+
+	c.defaultBridgeAdress = strings.TrimSpace(addr)
+
+	return c, nil
 }
 
 // Close method implements TargetProvider Close method.
@@ -100,7 +114,7 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 
 // newProxyConfig method returns a new proxyconfig.Config
 func (c *Client) newProxyConfig(dcontainer types.ContainerJSON) (*proxyconfig.Config, error) {
-	ctn := newContainer(c.log, dcontainer, c.name, c.defaultTargetHostname)
+	ctn := newContainer(c.log, dcontainer, c.name, c.defaultBridgeAdress, c.defaultTargetHostname)
 
 	pcfg, err := ctn.newProxyConfig()
 	if err != nil {
@@ -202,4 +216,26 @@ func (c *Client) deleteContainer(name string) {
 	defer c.mutex.Unlock()
 
 	delete(c.containers, name)
+}
+
+// getDefaultBridgeAddress method returns the default bridge network address
+func (c *Client) getDefaultBridgeAddress() (string, error) {
+	filter := filters.NewArgs()
+	networks, err := c.docker.NetworkList(context.Background(), network.ListOptions{
+		Filters: filter,
+	})
+	if err != nil {
+		c.log.Error().Err(err).Msg("Error listing Docker networks")
+		return "", err
+	}
+
+	for _, network := range networks {
+		if network.Options["com.docker.network.bridge.default_bridge"] == "true" {
+			c.log.Info().Str("defaultIPAdress", network.IPAM.Config[0].Gateway).Msg("Default Network found")
+
+			return network.IPAM.Config[0].Gateway, nil
+		}
+	}
+
+	return "", errors.New("could not find default bridge network")
 }

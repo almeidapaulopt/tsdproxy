@@ -248,15 +248,16 @@ func (pm *ProxyManager) HandleContainerEvent(event targetproviders.TargetEvent) 
 	case targetproviders.ActionStart:
 
 		go func() {
+			pm.log.Debug().Str("targetID", event.ID).Msg("Adding target")
 			pcfg, err := event.TargetProvider.AddTarget(event.ID)
 			if err != nil {
 				pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error adding target")
+				return
 			}
 			pm.newAndStartProxy(pcfg.Hostname, pcfg, event.TargetProvider)
 		}()
-		// go pm.newProxy(name string, proxyConfig *proxyconfig.Config, tartargetproviders targetproviders.TargetProvider)
-		// go pm.SetupProxy(ctx)
 	case targetproviders.ActionStop:
+		pm.log.Debug().Str("targetID", event.ID).Msg("Stopping target")
 		proxy := pm.getProxyByTargetID(event.ID)
 		if proxy == nil {
 			pm.log.Error().Str("target", event.ID).Msg("No proxy found for target")

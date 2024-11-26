@@ -9,14 +9,16 @@ import (
 	"github.com/creasty/defaults"
 )
 
-const Legacy = "_legacy_"
+const (
+	DockerLegacy    = "local"
+	TailscaleLegacy = "default"
+)
 
 // loadLegacyConfig method    Generate the config from environment variables
 // used in 0.x.x versions
 func (c *config) loadLegacyConfig() {
 	// Legacy Hostname from DOCKER_HOST from environment
 	//
-
 	if os.Getenv("DOCKER_HOST") != "" {
 		println("DOCKER_HOST is deprecated, use ./config/tsdproxy.yaml file instead")
 		c.loadLegacyDockerConfig()
@@ -38,7 +40,7 @@ func (c *config) loadLegacyDockerConfig() {
 		fmt.Printf("Error loading defaults: %v", err)
 	}
 	docker.Host = os.Getenv("DOCKER_HOST")
-	c.Docker[Legacy] = docker
+	c.Docker[DockerLegacy] = docker
 
 	if os.Getenv("TSDPROXY_HOSTNAME") != "" {
 		docker.TargetHostname = os.Getenv("TSDPROXY_HOSTNAME")
@@ -76,5 +78,5 @@ func (c *config) loadLegacyTailscaleConfig() {
 		c.Tailscale.DataDir = dataDir
 	}
 
-	c.Tailscale.Providers[Legacy] = ts
+	c.Tailscale.Providers[TailscaleLegacy] = ts
 }

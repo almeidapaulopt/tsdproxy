@@ -1,9 +1,9 @@
 #ProxyAccessLog: true # set to true to enable container access log
 #Hostname: 127.0.0.1
 
-#Log:
-#  JSON: false # set to true to enable json logging
-#  Level: debug # set logging level
+Log:
+  JSON: false # set to true to enable json logging
+  Level: debug # set logging level
 
 Tailscale:
   # DataDir: /data/
