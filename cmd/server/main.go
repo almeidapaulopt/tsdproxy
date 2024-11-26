@@ -1,10 +1,9 @@
-//  SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
-//  SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
 
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,15 +12,16 @@ import (
 	"syscall"
 
 	"github.com/docker/docker/client"
+	"github.com/rs/zerolog"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/dashboard"
 	pm "github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
 )
 
 type WebApp struct {
-	Config       *core.Config
-	Log          *core.Logger
+	Log          zerolog.Logger
 	HTTP         *core.HTTPServer
 	Health       *core.Health
 	Docker       *client.Client
@@ -30,35 +30,26 @@ type WebApp struct {
 }
 
 func InitializeApp() (*WebApp, error) {
-	config, err := core.GetConfig()
+	err := config.InitializeConfig()
 	if err != nil {
 		return nil, err
 	}
-	logger := core.NewLog(config)
+	logger := core.NewLog()
 	httpServer := core.NewHTTPServer(logger)
 	health := core.NewHealthHandler(httpServer, logger)
 
-	// Docker client
-	//
-	docker, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		logger.Fatal().Err(err).Msg("Error creating Docker client")
-	}
-
 	// Start ProxyManager
 	//
-	proxymanager := pm.NewProxyManager(docker, logger, config)
+	proxymanager := pm.NewProxyManager(logger)
 
 	// init Dashboard
 	//
-	dash := dashboard.NewDashboard(httpServer, logger, config, proxymanager.Proxies)
+	dash := dashboard.NewDashboard(httpServer, logger, proxymanager.Proxies)
 
 	webApp := &WebApp{
-		Config:       config,
 		Log:          logger,
 		HTTP:         httpServer,
 		Health:       health,
-		Docker:       docker,
 		ProxyManager: proxymanager,
 		Dashboard:    dash,
 	}
@@ -89,18 +80,15 @@ func (app *WebApp) Start() {
 	app.Log.Info().
 		Str("Version", core.GetVersion()).Msg("Starting server")
 
-	ctx := context.Background()
-
 	// Setup proxy for existing containers
 	//
-	app.Log.Info().Msg("Setting up proxy for existing containers")
-	if err := app.ProxyManager.SetupExistingContainers(ctx); err != nil {
-		app.Log.Fatal().Err(err).Msg("Error setting up existing containers")
-	}
+	app.Log.Info().Msg("Setting up proxy proxies")
+
+	app.ProxyManager.Start()
 
 	// Start watching docker events
 	//
-	go app.ProxyManager.WatchDockerEvents(ctx)
+	go app.ProxyManager.WatchEvents()
 
 	// Start Dashboard
 	//
@@ -114,7 +102,7 @@ func (app *WebApp) Start() {
 		// Start the webserver
 		//
 		srv := http.Server{
-			Addr:              fmt.Sprintf("%s:%d", app.Config.HTTP.Hostname, app.Config.HTTP.Port),
+			Addr:              fmt.Sprintf("%s:%d", config.Config.HTTP.Hostname, config.Config.HTTP.Port),
 			ReadHeaderTimeout: core.ReadHeaderTimeout,
 		}
 
@@ -133,7 +121,7 @@ func (app *WebApp) Stop() {
 
 	// Shutdown things here
 	//
-	app.ProxyManager.StopAll()
+	app.ProxyManager.StopAllProxies()
 
 	app.Log.Info().Msg("Server was shutdown successfully")
 }

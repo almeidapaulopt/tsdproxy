@@ -5,17 +5,57 @@ services:
       - "8080:8080"
     volumes:
       - ..:/app
+      - .:/config
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
+      - data:/data
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=dash-dev
     restart: unless-stopped
-    #    user: ${CURRENT_UID}
     secrets:
       - authkey
+    networks:
+      - c1
+      - c2
 
-volumes:
-  tsdata:
-  tmp:
+  c1:
+    image: nginx
+    # ports:
+    #   - 81:80
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=testeff
+      - tsdproxy.ephemeral=true
+      - tsdproxy.funnel=true
+      - tsdproxy.authkeyfile=./dev/KEY_FILE
+    networks:
+      - c1
+
+  c2:
+    image: nginx
+    # ports:
+    #   - 82:80
+    labels:
+      - tsdproxy.enable=true
+    networks:
+      - c2
+
+  c3:
+    image: nginx
+    network_mode: host
+    ports:
+      - 83:80
+    labels:
+      - tsdproxy.enable=true
 
 secrets:
   authkey:
     file: ./KEY_FILE
+
+volumes:
+  tmp:
+  data:
+
+networks:
+  c1:
+  c2:

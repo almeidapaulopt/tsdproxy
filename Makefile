@@ -1,4 +1,4 @@
-default: dev_docker
+default: dev
 
 # Change these variables as necessary.
 MAIN_PACKAGE_PATH := "cmd/server/main.go"
@@ -98,11 +98,15 @@ dev: docker_start server_start
 ## server_start: start the server
 .PHONY: server_start
 server_start:
-	TSDPROXY_DataDir=./dev/data TSDPROXY_LOG_LEVEL=debug DOCKER_HOST=unix:///var/run/docker.sock \
-		TSDPROXY_AUTHKEYFILE=./dev/KEY_FILE \
-		TSDPROXY_DASHBOARD_ENABLED=true \
-		TSDPROXY_DASHBOARD_NAME=DASH1 \
-		wgo run -file=.go -file=.yaml -file=.env -file=.json -file=.toml ${MAIN_PACKAGE_PATH}
+	# TSDPROXY_DataDir=./dev/data TSDPROXY_LOG_LEVEL=debug  \
+	# 	TSDPROXY_AUTHKEYFILE=./dev/KEY_FILE \
+	# 	TSDPROXY_DASHBOARD_ENABLED=true \
+	# 	TSDPROXY_DASHBOARD_NAME=DASH1 \
+	# 	DOCKER_HOST=unix:///run/user/1000/docker.sock \
+	# 	wgo run -file=.go -file=.yaml -file=.env -file=.json -file=.toml ${MAIN_PACKAGE_PATH} -config nonefile.yaml
+		wgo run -file=.go -file=.yaml -file=.env -file=.json -file=.toml ${MAIN_PACKAGE_PATH} -config ./dev/tsdproxy.yaml
+
+
 
 ## docker_start: start the docker containers
 .PHONY: docker_start

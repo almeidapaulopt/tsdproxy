@@ -1,0 +1,20 @@
+#ProxyAccessLog: true # set to true to enable container access log
+Hostname: 127.0.0.1
+
+#Log:
+#  JSON: false # set to true to enable json logging
+#  Level: debug # set logging level
+
+Tailscale:
+  #  DataDir: /data/
+  Providers:
+    Default: # name of the provider
+      Authkey: "YOUR_TAILSCALE_AUTHKEY_HERE" # define authkey here
+      # AuthkeyFile: "" # use this to load authkey from file. If this is defined, Authkey is ignored
+      # ControlURL: "" # use this to override the default control URL
+
+Docker:
+  Local: # name of the docker provider
+    #    Host: "unix:///var/run/docker.sock" # host of the docker socket or daemon
+    # TargetHostname: "172.31.0.1" # hostname or IP of docker server
+    DefaultProxyProvider: Default # name of which proxy provider to use

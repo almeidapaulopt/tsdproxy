@@ -1,11 +1,13 @@
-//  SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
-//  SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
 
 package core
 
 import (
 	"net/http"
 	"sync/atomic"
+
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -15,11 +17,11 @@ const (
 
 type Health struct {
 	HTTP  *HTTPServer
-	Log   *Logger
+	Log   zerolog.Logger
 	ready int32
 }
 
-func NewHealthHandler(http *HTTPServer, log *Logger) *Health {
+func NewHealthHandler(http *HTTPServer, log zerolog.Logger) *Health {
 	h := &Health{
 		HTTP: http,
 		Log:  log,

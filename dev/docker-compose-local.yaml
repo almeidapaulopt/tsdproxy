@@ -9,8 +9,6 @@ services:
       - tsdproxy.ephemeral=true
       - tsdproxy.funnel=true
       - tsdproxy.authkeyfile=./dev/KEY_FILE
-    networks:
-      - c1
 
   c2:
     image: nginx

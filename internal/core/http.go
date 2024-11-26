@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
 package core
 
 import (
@@ -5,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -14,13 +17,13 @@ type Middleware func(http.Handler) http.Handler
 
 // HTTPServer struct to hold our routes and middleware.
 type HTTPServer struct {
-	Log         *Logger
+	Log         zerolog.Logger
 	Mux         *http.ServeMux
 	middlewares []Middleware
 }
 
 // NewHTTPServer creates and returns a new App with an initialized ServeMux and middleware slice.
-func NewHTTPServer(log *Logger) *HTTPServer {
+func NewHTTPServer(log zerolog.Logger) *HTTPServer {
 	return &HTTPServer{
 		Mux:         http.NewServeMux(),
 		middlewares: []Middleware{},
@@ -46,7 +49,7 @@ func (a *HTTPServer) Handle(pattern string, handler http.Handler) {
 // StartServer starts a custom http server.
 func (a *HTTPServer) StartServer(s *http.Server) error {
 	// set Logger the first middlewares
-	s.Handler = a.Log.LoggerMiddleware(a.Mux)
+	s.Handler = LoggerMiddleware(a.Log, a.Mux)
 
 	if s.TLSConfig != nil {
 		// add logger middleware
@@ -90,16 +93,16 @@ func (a *HTTPServer) JSONResponseCode(w http.ResponseWriter, _ *http.Request, re
 	}
 }
 
-func (a *HTTPServer) ErrorResponse(w http.ResponseWriter, _ *http.Request, span trace.Span, error string, code int) {
+func (a *HTTPServer) ErrorResponse(w http.ResponseWriter, _ *http.Request, span trace.Span, returnError string, code int) {
 	data := struct {
 		Message string `json:"message"`
 		Code    int    `json:"code"`
 	}{
 		Code:    code,
-		Message: error,
+		Message: returnError,
 	}
 
-	span.SetStatus(codes.Error, error)
+	span.SetStatus(codes.Error, returnError)
 
 	body, err := json.Marshal(data)
 	if err != nil {

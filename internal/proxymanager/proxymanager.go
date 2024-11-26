@@ -1,236 +1,283 @@
+// SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
 package proxymanager
 
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net"
-	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"sync"
 
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
-	ctypes "github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/client"
-
-	"github.com/almeidapaulopt/tsdproxy/internal/containers"
-	"github.com/almeidapaulopt/tsdproxy/internal/core"
-	"github.com/almeidapaulopt/tsdproxy/internal/tailscale"
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/proxy"
+	"github.com/almeidapaulopt/tsdproxy/internal/proxyconfig"
+	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
+	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders/tailscale"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker"
 )
 
-type ProxyList map[string]*Proxy
+type (
+	ProxyList          map[string]*proxy.Proxy
+	TargetProviderList map[string]targetproviders.TargetProvider
+	ProxyProviderList  map[string]proxyproviders.Provider
 
-type ProxyManager struct {
-	Proxies ProxyList
-	docker  *client.Client
-	Log     *core.Logger
-	config  *core.Config
-	mutex   sync.Mutex
-}
+	// ProxyManager struct stores data that is required to manage all proxies
+	ProxyManager struct {
+		Proxies ProxyList
 
-type Proxy struct {
-	TsServer     *tailscale.TsNetServer
-	reverseProxy *httputil.ReverseProxy
-	container    *containers.Container
-	URL          *url.URL
-}
+		log zerolog.Logger
 
-func NewProxyManager(cli *client.Client, logger *core.Logger, config *core.Config) *ProxyManager {
+		TargetProviders TargetProviderList
+		ProxyProviders  ProxyProviderList
+
+		mutex sync.Mutex
+	}
+)
+
+// NewProxyManager function creates a new ProxyManager.
+func NewProxyManager(logger zerolog.Logger) *ProxyManager {
 	return &ProxyManager{
-		Proxies: make(ProxyList),
-		docker:  cli,
-		config:  config,
-		Log:     logger,
+		Proxies:         make(ProxyList),
+		TargetProviders: make(TargetProviderList),
+		ProxyProviders:  make(ProxyProviderList),
+		log:             logger.With().Str("module", "proxymanager").Logger(),
 	}
 }
 
-func (pm *ProxyManager) AddProxy(proxy *Proxy) {
+// addTargetProvider method adds a TargetProvider to the ProxyManager.
+func (pm *ProxyManager) addTargetProvider(provider targetproviders.TargetProvider, name string) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
-	pm.Proxies[proxy.container.ID] = proxy
+	pm.TargetProviders[name] = provider
 }
 
-func (pm *ProxyManager) RemoveProxy(containerID string) {
+// addProxyProvider method adds	a ProxyProvider to the ProxyManager.
+func (pm *ProxyManager) addProxyProvider(provider proxyproviders.Provider, name string) {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
-	if proxy, exists := pm.Proxies[containerID]; exists {
-		if err := proxy.TsServer.Close(); err != nil {
-			pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error shutting down proxy server")
+	pm.ProxyProviders[name] = provider
+}
+
+// Start method starts the ProxyManager.
+func (pm *ProxyManager) Start() {
+	// Add Providers
+	pm.addProxyProviders()
+	pm.addTargetProviders()
+
+	// Do not start without providers
+	if len(pm.ProxyProviders) == 0 {
+		pm.log.Error().Msg("No Proxy Providers found")
+		return
+	}
+
+	if len(pm.TargetProviders) == 0 {
+		pm.log.Error().Msg("No Target Providers found")
+		return
+	}
+
+	// Setup initial proxies
+	pm.setupInitialProxies()
+}
+
+// addTargetProviders method adds TargetProviders from configuration file.
+func (pm *ProxyManager) addTargetProviders() {
+	for name, provider := range config.Config.Docker {
+		if p, err := docker.New(pm.log, name, provider); err != nil {
+			pm.log.Error().Err(err).Msg("Error creating Docker provider")
 		} else {
-			pm.Log.Info().Str("containerID", containerID).Msg("Proxy server shut down successfully")
+			pm.addTargetProvider(p, name)
 		}
-
-		delete(pm.Proxies, containerID)
-		pm.Log.Info().Str("containerID", containerID[:12]).Msg("Removed proxy for container")
 	}
 }
 
-func (pm *ProxyManager) SetupExistingContainers(ctx context.Context) error {
-	// Filter containers with enable set to true
-	//
-	containerFilter := filters.NewArgs()
-	containerFilter.Add("label", containers.LabelIsEnabled)
-
-	containers, err := pm.docker.ContainerList(ctx, ctypes.ListOptions{
-		Filters: containerFilter,
-		All:     false,
-	})
-	if err != nil {
-		pm.Log.Error().Err(err).Msg("error listing containers")
-		return fmt.Errorf("error listing containers: %w", err)
-	}
-
-	// add proxies to existing Containers
-	//
-	for _, container := range containers {
-		go pm.SetupProxy(ctx, container.ID)
-	}
-
-	return nil
-}
-
-func (pm *ProxyManager) HandleContainerEvent(ctx context.Context, event events.Message) {
-	containerID := event.Actor.ID
-
-	pm.Log.Debug().Str("containerID", containerID).Str("event", string(event.Action)).Msg("Handling container event")
-
-	switch event.Action {
-	case events.ActionStart:
-		go pm.SetupProxy(ctx, containerID)
-	case events.ActionDie:
-		pm.RemoveProxy(containerID)
+// addProxyProviders method adds ProxyProviders from configuration file.
+func (pm *ProxyManager) addProxyProviders() {
+	pm.log.Debug().Msg("Setting up Tailscale Providers")
+	// add Tailscale Providers
+	for name, provider := range config.Config.Tailscale.Providers {
+		if p, err := tailscale.New(pm.log, name, provider); err != nil {
+			pm.log.Error().Err(err).Msg("Error creating Tailscale provider")
+		} else {
+			pm.log.Debug().Str("provider", name).Msg("Created Proxy provider")
+			pm.addProxyProvider(p, name)
+		}
 	}
 }
 
-func (pm *ProxyManager) SetupProxy(ctx context.Context, containerID string) {
-	pm.Log.Info().Str("containerID", containerID).Msg("setting up proxy for container")
+// addProxy method adds a Proxy to the ProxyManager.
+func (pm *ProxyManager) addProxy(proxy *proxy.Proxy) {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
 
-	// Create a new container
-	//
-	container, err := containers.NewContainer(ctx, containerID, pm.docker, pm.config.Hostname, pm.config.AuthKey)
-	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Msg("Error creating container")
+	pm.Proxies[proxy.Config.Hostname] = proxy
+}
+
+// removeProxy method removes a Proxy from the ProxyManager.
+func (pm *ProxyManager) removeProxy(hostname string) {
+	proxy, exists := pm.Proxies[hostname]
+	if !exists {
 		return
 	}
 
-	// Get the proxy URL
-	//
-	proxyURL, err := container.GetProxyURL()
-	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", container.ID).Str("containerName", container.GetName()).Msg("Error parsing hostname")
-		return
+	if err := proxy.Close(); err != nil {
+		pm.log.Error().Err(err).Str("proxy", hostname).Msg("Error shutting down proxy server")
+	} else {
+		pm.log.Info().Str("proxy", hostname).Msg("Proxy server shut down successfully")
 	}
 
-	// Get the target URL
-	//
-	targetURL, err := container.GetTargetURL()
-	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("error on proxy URL")
-		return
-	}
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+	delete(pm.Proxies, hostname)
 
-	pm.Log.Debug().
-		Str("containerID", containerID).
-		Str("containerName", container.GetName()).
-		Str("targetURL", targetURL.String()).
-		Str("proxyURL", proxyURL.String()).
-		Msg("initializing proxy for container")
+	pm.log.Info().Str("proxy", hostname).Msg("Removed proxy for container")
+}
 
-	// Create the reverse proxy
-	//
-	reverseProxy := httputil.NewSingleHostReverseProxy(targetURL)
+// StopAllProxies method shuts down all proxies.
+func (pm *ProxyManager) StopAllProxies() {
+	pm.log.Info().Msg("Shutdown all proxies")
 
-	// Create the tsnet server
-	//
-	server, err := tailscale.NewTsNetServer(proxyURL.Hostname(), pm.config, pm.Log, container)
-	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error starting server")
-		return
-	}
-	defer server.Close()
-
-	// Create the TLS listener
-	//
-	ln, err := server.GetListen(container)
-	if err != nil {
-		pm.Log.Error().Err(err).Str("containerID", containerID).Str("containerName", container.GetName()).Msg("Error listening on TLS")
-		return
-	}
-	defer ln.Close()
-
-	// AddProxy to the list
-	//
-	pm.AddProxy(&Proxy{
-		container:    container,
-		TsServer:     server,
-		URL:          proxyURL,
-		reverseProxy: reverseProxy,
-	})
-
-	// Create reverse proxy server
-	//
-	handler := pm.reverseProxyFunc(reverseProxy)
-
-	pm.Log.Debug().
-		Str("containerID", containerID).
-		Str("containerName", container.GetName()).
-		Msg("Proxy server created successfully")
-
-	// add logger to proxy
-	//
-	if pm.config.ContainerAccessLog {
-		handler = pm.Log.LoggerMiddleware(handler)
-	}
-
-	// start server
-	//
-	err = http.Serve(ln, handler)
-	defer log.Printf("Terminating server %s", proxyURL.Hostname())
-
-	if err != nil && !errors.Is(err, net.ErrClosed) {
-		pm.Log.Error().Err(err).Str("containerID", containerID[:12]).Msg("Error starting proxy server for container")
+	for id := range pm.Proxies {
+		pm.removeProxy(id)
 	}
 }
 
-func (pm *ProxyManager) WatchDockerEvents(ctx context.Context) {
-	// Filter Start/stop events for containers
+// setupInitialProxies method create proxies for all target providers on initial start.
+func (pm *ProxyManager) setupInitialProxies() {
+	for providerName, targetProvider := range pm.TargetProviders {
+		pm.log.Debug().Any("provider", providerName).Msg("Creating proxies for provider")
+
+		// get initial proxies for a target provider
+		proxies, err := targetProvider.GetAllProxies()
+		if err != nil {
+			pm.log.Warn().Err(err).Msg("Error getting proxies")
+		}
+		// create a start each proxy
+		for name, proxyConfig := range proxies {
+			go pm.newAndStartProxy(name, proxyConfig, targetProvider)
+		}
+	}
+}
+
+// newAndStartProxy method creates a new proxy and starts it.
+func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *proxyconfig.Config, targetproviders targetproviders.TargetProvider) {
+	pm.log.Debug().Str("proxy", name).Msg("Creating proxy")
+
+	proxyProvider, err := pm.getProxyProvider(proxyConfig)
+	if err != nil {
+		pm.log.Error().Err(err).Msg("Error to get ProxyProvider")
+		return
+	}
+
+	p, err := proxy.NewProxy(pm.log, proxyConfig, proxyProvider, targetproviders)
+	if err != nil {
+		pm.log.Error().Err(err).Msg("Error creating proxy")
+		return
+	}
+
+	pm.addProxy(p)
+	p.Start()
+}
+
+// getProxyProvider method returns a ProxyProvider.
+func (pm *ProxyManager) getProxyProvider(proxy *proxyconfig.Config) (proxyproviders.Provider, error) {
+	// return ProxyProvider defined in configurtion
 	//
-	eventsFilter := filters.NewArgs()
-	eventsFilter.Add("label", containers.LabelIsEnabled)
-	eventsFilter.Add("type", string(events.ContainerEventType))
-	eventsFilter.Add("event", string(events.ActionDie))
-	eventsFilter.Add("event", string(events.ActionStart))
+	if proxy.ProxyProvider != "" {
+		p, ok := pm.ProxyProviders[proxy.ProxyProvider]
+		if !ok {
+			return nil, errors.New("ProxyProvider not found")
+		}
+		return p, nil
+	}
 
-	eventsChan, errChan := pm.docker.Events(ctx, events.ListOptions{
-		Filters: eventsFilter,
-	})
+	// return defaul ProxyProvider defined in TargetProvider
+	targetProvider, ok := pm.TargetProviders[proxy.TargetProvider]
+	if !ok {
+		return nil, errors.New("TargetProvider not found")
+	}
+	if p, ok := pm.ProxyProviders[targetProvider.GetDefaultProxyProviderName()]; ok {
+		return p, nil
+	}
 
+	// return default ProxyProvider from global configurtion
+	//
+	if p, ok := pm.ProxyProviders[config.Config.DefaultProxyProvider]; ok {
+		return p, nil
+	}
+
+	// return the first ProxyProvider
+	//
+	return nil, errors.New("proxyprovider not found")
+}
+
+// WatchEvents method watches for events from all target providers.
+func (pm *ProxyManager) WatchEvents() {
+	for _, provider := range pm.TargetProviders {
+		go pm.watchTargetEventsEvents(provider)
+	}
+}
+
+// watchTargetEventsEvents method watches for events from a targetprovider.
+func (pm *ProxyManager) watchTargetEventsEvents(provider targetproviders.TargetProvider) {
+	ctx := context.Background()
+
+	eventsChan := make(chan targetproviders.TargetEvent)
+	errChan := make(chan error)
+	defer close(errChan)
+	defer close(eventsChan)
+
+	provider.WatchEvents(ctx, eventsChan, errChan)
 	for {
 		select {
 		case event := <-eventsChan:
-			pm.HandleContainerEvent(ctx, event)
+			pm.HandleContainerEvent(event)
 		case err := <-errChan:
-			log.Error().Err(err).Msg("Error watching Docker events")
+			pm.log.Err(err).Msg("Error watching Docker events")
 			return
 		}
 	}
 }
 
-func (pm *ProxyManager) StopAll() {
-	pm.Log.Info().Msg("Shutdown all proxies")
-	for id := range pm.Proxies {
-		pm.RemoveProxy(id)
+// HandleContainerEvent method handles events from a targetprovider
+func (pm *ProxyManager) HandleContainerEvent(event targetproviders.TargetEvent) {
+	switch event.Action {
+	case targetproviders.ActionStart:
+
+		go func() {
+			pm.log.Debug().Str("targetID", event.ID).Msg("Adding target")
+			pcfg, err := event.TargetProvider.AddTarget(event.ID)
+			if err != nil {
+				pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error adding target")
+				return
+			}
+			pm.newAndStartProxy(pcfg.Hostname, pcfg, event.TargetProvider)
+		}()
+	case targetproviders.ActionStop:
+		pm.log.Debug().Str("targetID", event.ID).Msg("Stopping target")
+		proxy := pm.getProxyByTargetID(event.ID)
+		if proxy == nil {
+			pm.log.Error().Int("action", int(event.Action)).Str("target", event.ID).Msg("No proxy found for target")
+		} else {
+			targetprovider := pm.TargetProviders[proxy.Config.TargetProvider]
+			if err := targetprovider.DeleteProxy(event.ID); err != nil {
+				pm.log.Error().Err(err).Msg("No proxy found for target")
+			}
+
+			pm.removeProxy(proxy.Config.Hostname)
+		}
 	}
 }
 
-func (pm *ProxyManager) reverseProxyFunc(p *httputil.ReverseProxy) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p.ServeHTTP(w, r)
-	})
+// getProxyByTargetID method returns a Proxy by TargetID.
+func (pm *ProxyManager) getProxyByTargetID(targetID string) *proxy.Proxy {
+	for _, p := range pm.Proxies {
+		if p.Config.TargetID == targetID {
+			return p
+		}
+	}
+	return nil
 }
