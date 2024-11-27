@@ -22,8 +22,8 @@ services:
   c3:
     image: nginx
     network_mode: host
-    ports:
-      - 83:80
+    # ports:
+    #   - 83:80
     labels:
       - tsdproxy.enable=true
 

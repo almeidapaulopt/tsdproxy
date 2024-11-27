@@ -47,19 +47,21 @@ const (
 type container struct {
 	log                   zerolog.Logger
 	container             types.ContainerJSON
+	image                 types.ImageInspect
 	defaultTargetHostname string
 	defaultBridgeAddress  string
 	targetProviderName    string
 }
 
 // newContainer function returns a new container.
-func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON,
+func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON, imageInfo types.ImageInspect,
 	targetproviderName string, defaultBridgeAddress string, defaultTargetHostname string,
 ) *container {
 	//
 	return &container{
 		log:                   logger.With().Str("container", dcontainer.Name).Logger(),
 		container:             dcontainer,
+		image:                 imageInfo,
 		defaultTargetHostname: defaultTargetHostname,
 		defaultBridgeAddress:  defaultBridgeAddress,
 		targetProviderName:    targetproviderName,
@@ -193,6 +195,13 @@ func (c *container) getExposedPort() (string, bool) {
 	return "", false
 }
 
+func (c *container) getImagePort() (string, bool) {
+	for p := range c.image.Config.ExposedPorts {
+		return p.Port(), true
+	}
+	return "", false
+}
+
 // getProxyURL method returns the proxy URL from the container label.
 func (c *container) getProxyURL() (*url.URL, error) {
 	// set default proxy URL
@@ -216,7 +225,8 @@ func (c *container) getName() string {
 func (c *container) getTargetURL(hostname string) (*url.URL, error) {
 	exposedPort, hasExposedPort := c.getExposedPort()
 	internalPort, hasInternalPort := c.getIntenalPort()
-	if !hasExposedPort && !hasInternalPort {
+	imagePort, hasImagePort := c.getImagePort()
+	if !hasExposedPort && !hasInternalPort && !hasImagePort {
 		return nil, errors.New("no port found in container")
 	}
 
@@ -246,6 +256,19 @@ func (c *container) getTargetURL(hostname string) (*url.URL, error) {
 			}
 			c.log.Debug().Err(err).Msg("Error connecting to exposed port")
 		}
+
+		if hasImagePort {
+			port, err := c.tryInternalPort(hostname, imagePort)
+			if err == nil {
+				return port, nil
+			}
+			port, err = c.tryExposedPort(hostname, imagePort)
+			if err == nil {
+				return port, nil
+			}
+
+			c.log.Debug().Err(err).Msg("Error to connect using image port")
+		}
 		// wait to container get ready
 		time.Sleep(autoDetectSleep)
 	}
@@ -265,13 +288,18 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 			c.log.Info().Str("address", network.IPAddress).Str("port", port).Msg("Successfully connected")
 			return url.Parse(fmt.Sprintf("http://%s:%s", network.IPAddress, port))
 		}
+		if err := c.dial(network.Gateway, port); err == nil {
+			c.log.Info().Str("address", network.IPAddress).Str("port", port).Msg("Successfully connected")
+			return url.Parse(fmt.Sprintf("http://%s:%s", network.IPAddress, port))
+		}
+
 		c.log.Debug().Str("address", network.IPAddress).Str("port", port).Msg("Failed to connect")
 	}
 	// if the container is running in host mode,
 	// try connecting to defaultBridgeAddress of the host and internal port.
 	if c.container.HostConfig.NetworkMode == "host" {
 		if err := c.dial(c.defaultBridgeAddress, port); err == nil {
-			c.log.Info().Msgf("Successfully connected to %s:%s", c.defaultBridgeAddress, port)
+			c.log.Info().Str("address", c.defaultBridgeAddress).Str("port", port).Msg("Successfully connected")
 			return url.Parse(fmt.Sprintf("http://%s:%s", c.defaultBridgeAddress, port))
 		}
 
@@ -280,7 +308,7 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 
 	// try connecting to configured host and exposed port
 	if err := c.dial(hostname, port); err == nil {
-		c.log.Info().Msgf("Successfully connected to %s:%s", hostname, port)
+		c.log.Info().Str("address", hostname).Str("port", port).Msg("Successfully connected")
 		return url.Parse(fmt.Sprintf("http://%s:%s", hostname, port))
 	}
 	c.log.Debug().Str("address", hostname).Str("port", port).Msg("Failed to connect")
@@ -292,7 +320,7 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 func (c *container) tryExposedPort(hostname, port string) (*url.URL, error) {
 	for _, network := range c.container.NetworkSettings.Networks {
 		if err := c.dial(network.Gateway, port); err == nil {
-			c.log.Info().Msgf("Successfully connected to %s:%s", network.Gateway, port)
+			c.log.Info().Str("address", network.Gateway).Str("port", port).Msg("Successfully connected")
 			return url.Parse(fmt.Sprintf("http://%s:%s", network.Gateway, port))
 		}
 
@@ -301,7 +329,7 @@ func (c *container) tryExposedPort(hostname, port string) (*url.URL, error) {
 
 	// try connecting to configured host and exposed port
 	if err := c.dial(hostname, port); err == nil {
-		c.log.Info().Msgf("Successfully connected to %s:%s", hostname, port)
+		c.log.Info().Str("address", hostname).Str("port", port).Msg("Successfully connected")
 		return url.Parse(fmt.Sprintf("http://%s:%s", hostname, port))
 	}
 

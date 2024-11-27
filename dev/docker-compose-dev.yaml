@@ -18,36 +18,36 @@ services:
       - c1
       - c2
 
-  c1:
-    image: nginx
-    # ports:
-    #   - 81:80
-    labels:
-      - tsdproxy.enable=true
-      - tsdproxy.name=testeff
-      - tsdproxy.ephemeral=true
-      - tsdproxy.funnel=true
-      - tsdproxy.authkeyfile=./dev/KEY_FILE
-    networks:
-      - c1
-
-  c2:
-    image: nginx
-    # ports:
-    #   - 82:80
-    labels:
-      - tsdproxy.enable=true
-    networks:
-      - c2
-
-  c3:
-    image: nginx
-    network_mode: host
-    ports:
-      - 83:80
-    labels:
-      - tsdproxy.enable=true
-
+  # c1:
+  #   image: nginx
+  #   # ports:
+  #   #   - 81:80
+  #   labels:
+  #     - tsdproxy.enable=true
+  #     - tsdproxy.name=testeff
+  #     - tsdproxy.ephemeral=true
+  #     - tsdproxy.funnel=true
+  #     - tsdproxy.authkeyfile=./dev/KEY_FILE
+  #   networks:
+  #     - c1
+  #
+  # c2:
+  #   image: nginx
+  #   # ports:
+  #   #   - 82:80
+  #   labels:
+  #     - tsdproxy.enable=true
+  #   networks:
+  #     - c2
+  #
+  # c3:
+  #   image: nginx
+  #   network_mode: host
+  #   ports:
+  #     - 83:80
+  #   labels:
+  #     - tsdproxy.enable=true
+  #
 secrets:
   authkey:
     file: ./KEY_FILE

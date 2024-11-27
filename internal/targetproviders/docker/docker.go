@@ -95,9 +95,14 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 		return nil, fmt.Errorf("error listing containers: %w", err)
 	}
 
+	var wg sync.WaitGroup
 	for _, container := range containers {
 		// create the proxy configs in parallel.
+		wg.Add(1)
+
 		go func() {
+			defer wg.Done()
+
 			ctn, err := c.docker.ContainerInspect(ctx, container.ID)
 			if err != nil {
 				c.log.Error().Err(err).Str("containerID", container.ID).Msg("error inspecting container")
@@ -111,13 +116,18 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 			}
 		}()
 	}
+	wg.Wait()
 
 	return proxies, nil
 }
 
 // newProxyConfig method returns a new proxyconfig.Config
 func (c *Client) newProxyConfig(dcontainer types.ContainerJSON) (*proxyconfig.Config, error) {
-	ctn := newContainer(c.log, dcontainer, c.name, c.defaultBridgeAdress, c.defaultTargetHostname)
+	imageInfo, _, err := c.docker.ImageInspectWithRaw(context.Background(), dcontainer.Config.Image)
+	if err != nil {
+		return nil, fmt.Errorf("error getting image info: %w", err)
+	}
+	ctn := newContainer(c.log, dcontainer, imageInfo, c.name, c.defaultBridgeAdress, c.defaultTargetHostname)
 
 	pcfg, err := ctn.newProxyConfig()
 	if err != nil {
@@ -129,8 +139,7 @@ func (c *Client) newProxyConfig(dcontainer types.ContainerJSON) (*proxyconfig.Co
 
 // AddTarget method implements TargetProvider AddTarget method
 func (c *Client) AddTarget(id string) (*proxyconfig.Config, error) {
-	ctx := context.Background()
-	dcontainer, err := c.docker.ContainerInspect(ctx, id)
+	dcontainer, err := c.docker.ContainerInspect(context.Background(), id)
 	if err != nil {
 		return nil, fmt.Errorf("error inspecting container: %w", err)
 	}
