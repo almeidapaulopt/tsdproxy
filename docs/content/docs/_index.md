@@ -13,7 +13,7 @@ It simplifies traffic redirection to services running inside Docker containers,
 without the need for a separate Tailscale container for each service.
 
 {{< callout type="info" >}}
-TSPProxy just needs a label in a your new docker service and it will be automatically
+TSDProxy just needs a label in your new docker service and it will be automatically
 created in your Tailscale network and the proxy will be ready to be used.
 
 {{< /callout >}}
