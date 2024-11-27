@@ -96,17 +96,20 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 	}
 
 	for _, container := range containers {
-		ctn, err := c.docker.ContainerInspect(ctx, container.ID)
-		if err != nil {
-			c.log.Error().Err(err).Str("containerID", container.ID).Msg("error inspecting container")
-		} else {
-			pcfg, err := c.newProxyConfig(ctn)
-			if err == nil {
-				proxies[pcfg.Hostname] = pcfg
+		// create the proxy configs in parallel.
+		go func() {
+			ctn, err := c.docker.ContainerInspect(ctx, container.ID)
+			if err != nil {
+				c.log.Error().Err(err).Str("containerID", container.ID).Msg("error inspecting container")
 			} else {
-				c.log.Error().Err(err).Msg("error initializing proxy for container")
+				pcfg, err := c.newProxyConfig(ctn)
+				if err == nil {
+					proxies[pcfg.Hostname] = pcfg
+				} else {
+					c.log.Error().Err(err).Msg("error initializing proxy for container")
+				}
 			}
-		}
+		}()
 	}
 
 	return proxies, nil
