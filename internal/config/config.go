@@ -13,6 +13,7 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 const prefix = "TSDPROXY"
@@ -21,7 +22,6 @@ type (
 	// config stores complete configuration.
 	//
 	config struct {
-		PublicURL            string `default:"http://localhost:8080" validate:"url"`
 		DefaultProxyProvider string
 
 		Docker    map[string]*DockerTargetProviderConfig `validate:"dive"`
@@ -77,7 +77,7 @@ type (
 
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
-		AuthKey     string `validate:"omitempty"`
+		AuthKey     string `default:"your-authkey" validate:"omitempty"`
 		AuthKeyFile string `validate:"omitempty"`
 		ControlURL  string `default:"https://controlplane.tailscale.com" validate:"uri"`
 	}
@@ -96,10 +96,49 @@ func InitializeConfig() error {
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
+	if _, err := NewViper(file); err != nil {
+		return err
+	}
+
+	// load default values
+	if err := defaults.Set(Config); err != nil {
+		fmt.Printf("Error loading defaults: %v", err)
+	}
+
+	// generate Providers
+	if _, err := os.Stat(*file); os.IsNotExist(err) {
+		Config.generateDefaultProviders()
+	}
+
+	// load auth keys from files
+	for _, d := range Config.Tailscale.Providers {
+		if d.AuthKeyFile != "" {
+			authkey, err := Config.getAuthKeyFromFile(d.AuthKeyFile)
+			if err != nil {
+				return err
+			}
+			d.AuthKey = authkey
+		}
+	}
+
+	// validate config
+	if err := Config.validate(); err != nil {
+		return err
+	}
+
+	// save default config if config file does not exist
+	if _, err := os.Stat(*file); os.IsNotExist(err) {
+		if err := Config.save(file); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func NewViper(file *string) (*viper.Viper, error) {
 	filename := strings.TrimSuffix(filepath.Base(*file), filepath.Ext(*file))
-
 	dir, _ := filepath.Split(*file)
-
 	filetype := strings.TrimPrefix(filepath.Ext(*file), ".")
 
 	println("loading configuration from:", *file)
@@ -115,45 +154,36 @@ func InitializeConfig() error {
 	_ = v.ReadInConfig()
 
 	if err := v.Unmarshal(&Config); err != nil {
-		return err
-	}
-
-	// load default values
-	//
-	if err := defaults.Set(Config); err != nil {
-		fmt.Printf("Error loading defaults: %v", err)
-	}
-
-	// add legacy configuration to the new format
-	//
-	Config.loadLegacyConfig()
-
-	// load auth keys from files
-	//
-	for _, d := range Config.Tailscale.Providers {
-		if d.AuthKeyFile != "" {
-			authkey, err := Config.getAuthKeyFromFile(d.AuthKeyFile)
-			if err != nil {
-				return err
-			}
-			d.AuthKey = authkey
-		}
-	}
-
-	// validate config
-	//
-	if err := Config.validate(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// watch if config file changes
-	//
 	v.WatchConfig()
-	v.OnConfigChange(func(in fsnotify.Event) {
-		println("Config file changed: ", in.String())
-	})
+	v.OnConfigChange(Config.watchConfig)
 
+	// generate the config file if it does not exist
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err1 := os.MkdirAll(dir, os.ModeDir); err1 != nil {
+			return nil, err1
+		}
+	}
+
+	return v, nil
+}
+
+func (c *config) save(file *string) error {
+	yaml, err := yaml.Marshal(Config)
+	if err != nil {
+		return err
+	}
+	if err1 := os.WriteFile(*file, yaml, 0644); err1 != nil {
+		return err1
+	}
 	return nil
+}
+
+func (c *config) watchConfig(in fsnotify.Event) {
+	println("Config file changed: ", in.String())
 }
 
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {

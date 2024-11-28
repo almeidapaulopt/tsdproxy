@@ -10,28 +10,22 @@ import (
 )
 
 const (
-	DockerLegacy    = "local"
-	TailscaleLegacy = "default"
+	DockerDefaultName            = "local"
+	TailscaleDefaultProviderName = "default"
 )
 
-// loadLegacyConfig method    Generate the config from environment variables
+// generateDefaultProviders method Generate the config from environment variables
 // used in 0.x.x versions
-func (c *config) loadLegacyConfig() {
+func (c *config) generateDefaultProviders() {
 	// Legacy Hostname from DOCKER_HOST from environment
 	//
-	if os.Getenv("DOCKER_HOST") != "" {
-		println("DOCKER_HOST is deprecated, use ./config/tsdproxy.yaml file instead")
-		c.loadLegacyDockerConfig()
-	}
+	c.generateDockerConfig()
 
-	if os.Getenv("TSDPROXY_AUTHKEYFILE") != "" || os.Getenv("TSDPROXY_AUTHKEY") != "" {
-		println("TSDPROXY_AUTHKEY and TSDPROXY_AUTHKEYFILE are deprecated, use ./config/tsdproxy.yaml file instead")
-		c.loadLegacyTailscaleConfig()
-	}
+	c.generateTailscaleConfig()
 }
 
-// loadLegacyDockerConfig method    generate the Docker Config provider from environment variables
-func (c *config) loadLegacyDockerConfig() {
+// generateDockerConfig method generate the Docker Config provider from environment variables
+func (c *config) generateDockerConfig() {
 	// Legacy Hostname from DOCKER_HOST from environment
 	//
 	docker := new(DockerTargetProviderConfig)
@@ -39,16 +33,19 @@ func (c *config) loadLegacyDockerConfig() {
 	if err := defaults.Set(docker); err != nil {
 		fmt.Printf("Error loading defaults: %v", err)
 	}
-	docker.Host = os.Getenv("DOCKER_HOST")
-	c.Docker[DockerLegacy] = docker
+	if os.Getenv("DOCKER_HOST") != "" {
+		docker.Host = os.Getenv("DOCKER_HOST")
+	}
 
 	if os.Getenv("TSDPROXY_HOSTNAME") != "" {
 		docker.TargetHostname = os.Getenv("TSDPROXY_HOSTNAME")
 	}
+
+	c.Docker[DockerDefaultName] = docker
 }
 
-// loadLegacyTailscaleConfig method  generate the Tailscale Config provider from environment variables
-func (c *config) loadLegacyTailscaleConfig() {
+// generateTailscaleConfig method  generate the Tailscale Config provider from environment variables
+func (c *config) generateTailscaleConfig() {
 	ts := new(TailscaleServerConfig)
 	// set TailscaleConfig defaults
 	if err := defaults.Set(ts); err != nil {
@@ -68,8 +65,12 @@ func (c *config) loadLegacyTailscaleConfig() {
 		}
 	}
 
-	ts.AuthKey = authKey
-	ts.AuthKeyFile = authKeyFile
+	if authKey != "" {
+		ts.AuthKey = authKey
+	}
+	if authKeyFile != "" {
+		ts.AuthKeyFile = authKeyFile
+	}
 
 	if controlURL != "" {
 		ts.ControlURL = controlURL
@@ -78,5 +79,9 @@ func (c *config) loadLegacyTailscaleConfig() {
 		c.Tailscale.DataDir = dataDir
 	}
 
-	c.Tailscale.Providers[TailscaleLegacy] = ts
+	c.Tailscale.Providers[TailscaleDefaultProviderName] = ts
+
+	if c.DefaultProxyProvider == "" {
+		c.DefaultProxyProvider = TailscaleDefaultProviderName
+	}
 }
