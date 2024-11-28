@@ -162,44 +162,44 @@ func (c *container) getAuthKeyFromAuthFile(authKey string) (string, error) {
 }
 
 // getIntenalPort method returns the container internal port
-func (c *container) getIntenalPort() (string, bool) {
+func (c *container) getIntenalPort() string {
 	// If Label is defined, get the container port
 	if customContainerPort, ok := c.container.Config.Labels[LabelContainerPort]; ok {
-		return customContainerPort, true
+		return customContainerPort
 	}
 
 	for p := range c.container.NetworkSettings.Ports {
-		return p.Port(), true
+		return p.Port()
 	}
 	// in network_mode=host
 	for p := range c.container.HostConfig.PortBindings {
-		return p.Port(), true
+		return p.Port()
 	}
 
-	return "", false
+	return ""
 }
 
 // getExposedPort method returns the container port
-func (c *container) getExposedPort() (string, bool) {
+func (c *container) getExposedPort() string {
 	// If Label is defined, get the container port
 	if customContainerPort, ok := c.container.Config.Labels[LabelContainerPort]; ok {
-		return customContainerPort, true
+		return customContainerPort
 	}
 
 	for _, bindings := range c.container.HostConfig.PortBindings {
 		if len(bindings) > 0 {
-			return bindings[0].HostPort, true
+			return bindings[0].HostPort
 		}
 	}
 
-	return "", false
+	return ""
 }
 
-func (c *container) getImagePort() (string, bool) {
+func (c *container) getImagePort() string {
 	for p := range c.image.Config.ExposedPorts {
-		return p.Port(), true
+		return p.Port()
 	}
-	return "", false
+	return ""
 }
 
 // getProxyURL method returns the proxy URL from the container label.
@@ -223,10 +223,11 @@ func (c *container) getName() string {
 
 // getTargetURL method returns the container target URL
 func (c *container) getTargetURL(hostname string) (*url.URL, error) {
-	exposedPort, hasExposedPort := c.getExposedPort()
-	internalPort, hasInternalPort := c.getIntenalPort()
-	imagePort, hasImagePort := c.getImagePort()
-	if !hasExposedPort && !hasInternalPort && !hasImagePort {
+	exposedPort := c.getExposedPort()
+	internalPort := c.getIntenalPort()
+	imagePort := c.getImagePort()
+
+	if exposedPort == "" && internalPort == "" && imagePort == "" {
 		return nil, errors.New("no port found in container")
 	}
 
@@ -238,41 +239,50 @@ func (c *container) getTargetURL(hostname string) (*url.URL, error) {
 	// repeat auto detect in case the container is not ready
 	for try := range autoDetectTries {
 		c.log.Info().Int("try", try).Msg("Trying to auto detect target URL")
-		// test connection with the container using docker networking
-		// try connecting to internal ip and internal port
-		if hasInternalPort {
-			port, err := c.tryInternalPort(hostname, internalPort)
-			if err == nil {
-				return port, nil
-			}
-			c.log.Debug().Err(err).Msg("Error connecting to internal port")
-		}
-
-		// try connecting to internal gateway and exposed port
-		if hasExposedPort {
-			port, err := c.tryExposedPort(hostname, exposedPort)
-			if err == nil {
-				return port, nil
-			}
-			c.log.Debug().Err(err).Msg("Error connecting to exposed port")
-		}
-
-		if hasImagePort {
-			port, err := c.tryInternalPort(hostname, imagePort)
-			if err == nil {
-				return port, nil
-			}
-			port, err = c.tryExposedPort(hostname, imagePort)
-			if err == nil {
-				return port, nil
-			}
-
-			c.log.Debug().Err(err).Msg("Error to connect using image port")
+		if port, err := c.tryConnectContainer(hostname, internalPort, exposedPort, imagePort); err == nil {
+			return port, nil
 		}
 		// wait to container get ready
 		time.Sleep(autoDetectSleep)
 	}
 	// auto detect failed
+	return nil, errors.New("no valid target found for " + c.container.Name)
+}
+
+// tryConnectContainer method tries to connect to the container
+func (c *container) tryConnectContainer(hostname, internalPort, exposedPort, imagePort string) (*url.URL, error) {
+	// test connection with the container using docker networking
+	// try connecting to internal ip and internal port
+	if internalPort != "" {
+		port, err := c.tryInternalPort(hostname, internalPort)
+		if err == nil {
+			return port, nil
+		}
+		c.log.Debug().Err(err).Msg("Error connecting to internal port")
+	}
+
+	// try connecting to internal gateway and exposed port
+	if exposedPort != "" {
+		port, err := c.tryExposedPort(hostname, exposedPort)
+		if err == nil {
+			return port, nil
+		}
+		c.log.Debug().Err(err).Msg("Error connecting to exposed port")
+	}
+
+	if imagePort != "" {
+		port, err := c.tryInternalPort(hostname, imagePort)
+		if err == nil {
+			return port, nil
+		}
+		port, err = c.tryExposedPort(hostname, imagePort)
+		if err == nil {
+			return port, nil
+		}
+
+		c.log.Debug().Err(err).Msg("Error to connect using image port")
+	}
+
 	return nil, errors.New("no valid target found for " + c.container.Name)
 }
 
