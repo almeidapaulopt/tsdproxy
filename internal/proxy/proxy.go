@@ -61,7 +61,15 @@ func NewProxy(log zerolog.Logger,
 
 	// Create the reverse proxy
 	//
-	proxy.reverseProxy = httputil.NewSingleHostReverseProxy(pcfg.TargetURL)
+	proxy.reverseProxy = &httputil.ReverseProxy{
+		Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(pcfg.TargetURL)
+			r.Out.Host = r.In.Host
+
+			r.Out.Header["X-Forwarded-For"] = r.In.Header["X-Forwarded-For"]
+			r.SetXForwarded()
+		},
+	}
 
 	// Create the proxyProvider proxy
 	//
