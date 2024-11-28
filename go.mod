@@ -46,7 +46,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.7 // indirect
 	github.com/gaissmai/bart v0.13.3 // indirect
-	github.com/go-json-experiment/json v0.0.0-20241124233334-7696f9952ac8 // indirect
+	github.com/go-json-experiment/json v0.0.0-20241127185351-9802db03f36a // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
