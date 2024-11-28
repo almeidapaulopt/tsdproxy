@@ -349,11 +349,12 @@ func (c *container) tryExposedPort(hostname, port string) (*url.URL, error) {
 
 // dial method tries to connect to a host and port
 func (c *container) dial(host, port string) error {
-	target := fmt.Sprintf("%s:%s", host, port)
-	conn, err := net.DialTimeout("tcp", target, dialTimeout)
+	address := host + ":" + port
+	conn, err := net.DialTimeout("tcp", address, dialTimeout)
 	if err != nil {
-		return fmt.Errorf("error dialing %s: %w", target, err)
+		return fmt.Errorf("error dialing %s: %w", address, err)
 	}
 	conn.Close()
+
 	return nil
 }
