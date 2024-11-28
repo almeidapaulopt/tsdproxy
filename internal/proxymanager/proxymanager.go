@@ -234,7 +234,7 @@ func (pm *ProxyManager) watchTargetEventsEvents(provider targetproviders.TargetP
 	for {
 		select {
 		case event := <-eventsChan:
-			pm.HandleContainerEvent(event)
+			go pm.HandleContainerEvent(event)
 		case err := <-errChan:
 			pm.log.Err(err).Msg("Error watching Docker events")
 			return
