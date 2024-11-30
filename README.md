@@ -1,3 +1,9 @@
+# Version: 1.0.0-rc2
+
+This version changes the configuration method.
+Please read the [Documentation](https://almeidapaulopt.github.io/tsdproxy/docs)
+for details.
+
 # TsDProxy - <ins>T</ins>ail<ins>s</ins>cale <ins>D</ins>ocker <ins>Proxy</ins>
 
 TsDProxy simplifies the process of securely exposing Docker containers
