@@ -31,7 +31,7 @@ AUTHKEY or if you want to use different servers for different containers.
 TSDProxy now supports multiple Docker servers. This option is useful if you have
 multiple Docker instances and don't want to deploy and manage TSDProxy on each one.
 
-#### New instalation scenarios documentation
+#### New installation scenarios documentation
 
 Now there is a new  [scenarios](/docs/scenarios) section.
 
