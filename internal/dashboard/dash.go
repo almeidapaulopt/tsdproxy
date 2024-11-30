@@ -35,10 +35,11 @@ func (dash *Dashboard) index() http.HandlerFunc {
 			<head>
 				<meta charset="utf-8">
 			</head>
-			<body>`))
-		for _, p := range dash.proxies {
-			_, _ = w.Write([]byte(p.URL.String() + "\n"))
-		}
+			<body>
+			<h1>NOT IMPLEMENTED YET</h1>`))
+		// for _, p := range dash.proxies {
+		// 	_, _ = w.Write([]byte(p.URL.String() + "\n"))
+		// }
 		_, _ = w.Write([]byte(`</body></html>`))
 	}
 }
