@@ -1,8 +1,11 @@
 ---
 title: Service with host network_mode
+next: /docs/scenarios
 ---
 
-If you want to run a service in `network_mode: host`, TSDProxy will not detect any port mapping. You need to specify a port in the `tsdproxy.container_port` option.
+If you want to run a service in `network_mode: host`, TSDProxy tries to detect how
+to proxy the container. In case of not autodetection work for your case, you need
+to specify a port in the `tsdproxy.container_port` option.
 
 {{% steps %}}
 
@@ -17,6 +20,7 @@ labels:
 
 ### Restart your service
 
-After you restart your service, you should be able to access it using the port you specified in the label.
+After you restart your service, you should be able to access it using the port
+you specified in the label.
 
 {{% /steps %}}

@@ -149,7 +149,8 @@ docker_image:
 ## docs local server
 .PHONY: docs
 docs:
-	cd docs && hugo server --buildDrafts --disableFastRender
+	cd docs && hugo server --disableFastRender
+##	cd docs && hugo server --buildDrafts --disableFastRender
 
 # ==================================================================================== #
 # QUALITY CONTROL

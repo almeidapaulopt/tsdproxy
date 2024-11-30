@@ -1,5 +1,6 @@
 ---
 title: Headscale
+draft: true
 ---
 
 In case you want to use the Headscale service, please read the following:
