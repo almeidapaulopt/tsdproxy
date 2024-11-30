@@ -84,15 +84,15 @@ tailscale:
       authkeyfile: ""
       controlurl: http://server1
  
-    diferentkey:
+    differentkey:
       authkey: authkey-with-diferent-tags
       authkeyfile: ""
       controlurl: https://controlplane.tailscale.com
 ```
 
 TSDProxy is configured with 3 tailscale providers. Provider 'default' with tailscale
-servers, Provider 'server1' with a different tailscale server and provider 'diferentkey'
-using de default tailscale server with a different authkey where you can add any
+servers, Provider 'server1' with a different tailscale server and provider 'differentkey'
+using the default tailscale server with a different authkey where you can add any
 tags.
 
 ### Docker section
@@ -107,7 +107,7 @@ like this:
     defaultproxyprovider: default # name of which proxy provider to use
 ```
 
-Look ate next example of using a multiple docker servers configuration.
+Look at next example of using a multiple docker servers configuration.
 
 ```yaml  {filename="/config/tsdproxy.yaml"}
 docker:
