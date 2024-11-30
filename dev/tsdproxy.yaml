@@ -1,23 +1,21 @@
-#ProxyAccessLog: true # set to true to enable container access log
-#Hostname: 127.0.0.1
-
-Log:
-  JSON: false # set to true to enable json logging
-  Level: debug # set logging level
-
-Tailscale:
-  # DataDir: /data/
-  DataDir: ./dev/data/
-  Providers:
-    Default: # name of the provider
-      # Authkey: "12" # define authkey here
-      #
-      # AuthkeyFile: "./run/secrets/authkey"
-      AuthkeyFile: "./dev/KEY_FILE" # use this to load authkey from file. If this is defined, Authkey is ignored
-      # ControlURL: "" # use this to override the default control URL
-
-Docker:
-  Local: # name of the docker provider
-    # Host: "unix:///var/run/docker.sock" # host of the docker socket or daemon
-    #TargetHostname: "172.31.0.1" # hostname or IP of docker server
-    DefaultProxyProvider: Default # name of which proxy provider to use
+defaultproxyprovider: default
+docker:
+  local: # name of the docker provider
+    host: unix:///var/run/docker.sock # host of the docker socket or daemon
+    targethostname: 172.31.0.1 # hostname or IP of docker server
+    defaultproxyprovider: default # name of which proxy provider to use
+file: {}
+tailscale:
+  providers:
+    default: # name of the provider
+      authkey: your-authkey # define authkey here
+      authkeyfile: "/run/secrets/authkey" # use this to load authkey from file. If this is defined, Authkey is ignored
+      controlurl: https://controlplane.tailscale.com # use this to override the default control URL
+  datadir: /data/
+http:
+  hostname: 0.0.0.0
+  port: 8080
+log:
+  level: info # set logging level info, error or trace
+  json: false # set to true to enable json logging
+proxyaccesslog: true # set to true to enable container access log
