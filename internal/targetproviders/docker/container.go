@@ -38,9 +38,9 @@ const (
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
 
 	//
-	dialTimeout     = 1 * time.Second
+	dialTimeout     = 2 * time.Second
 	autoDetectTries = 5
-	autoDetectSleep = 5 * time.Second
+	autoDetectSleep = 15 * time.Second
 )
 
 // container struct stores the data from the docker container.
