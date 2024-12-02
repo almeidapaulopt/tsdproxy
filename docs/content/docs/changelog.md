@@ -7,7 +7,7 @@ weight: 200
 
 {{% steps %}}
 
-### 1.0.0_rc2
+### 1.0.0
 
 #### New Autodetection function for containers network
 

@@ -1,4 +1,4 @@
-# Version: 1.0.0-rc2
+# Version: 1.0.0
 
 This version changes the configuration method.
 Please read the [Documentation](https://almeidapaulopt.github.io/tsdproxy/docs)
