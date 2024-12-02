@@ -183,7 +183,11 @@ func (c *container) getIntenalPort() string {
 func (c *container) getExposedPort() string {
 	// If Label is defined, get the container port
 	if customContainerPort, ok := c.container.Config.Labels[LabelContainerPort]; ok {
-		return customContainerPort
+		for p, b := range c.container.HostConfig.PortBindings {
+			if p.Port() == customContainerPort {
+				return b[0].HostPort
+			}
+		}
 	}
 
 	for _, bindings := range c.container.HostConfig.PortBindings {
