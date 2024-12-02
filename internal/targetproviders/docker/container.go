@@ -38,7 +38,7 @@ const (
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
 
 	//
-	dialTimeout     = 3 * time.Second
+	dialTimeout     = 1 * time.Second
 	autoDetectTries = 5
 	autoDetectSleep = 5 * time.Second
 )
@@ -295,12 +295,12 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 		}
 		// try connecting to container IP and internal port
 		if err := c.dial(network.IPAddress, port); err == nil {
-			c.log.Info().Str("address", network.IPAddress).Str("port", port).Msg("Successfully connected")
+			c.log.Info().Str("address", network.IPAddress).Str("port", port).Msg("Successfully connected using internal ip and internal port")
 			return url.Parse(fmt.Sprintf("http://%s:%s", network.IPAddress, port))
 		}
 		if err := c.dial(network.Gateway, port); err == nil {
-			c.log.Info().Str("address", network.IPAddress).Str("port", port).Msg("Successfully connected")
-			return url.Parse(fmt.Sprintf("http://%s:%s", network.IPAddress, port))
+			c.log.Info().Str("address", network.Gateway).Str("port", port).Msg("Successfully connected using internal gateway and internal port")
+			return url.Parse(fmt.Sprintf("http://%s:%s", network.Gateway, port))
 		}
 
 		c.log.Debug().Str("address", network.IPAddress).Str("port", port).Msg("Failed to connect")
