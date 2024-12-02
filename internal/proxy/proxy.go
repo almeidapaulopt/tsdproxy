@@ -127,6 +127,13 @@ func (proxy *Proxy) Start() {
 		return
 	}
 
+	// Redirect http to https
+	//
+	err = proxy.startRedirectServer()
+	if err != nil {
+		proxy.log.Error().Err(err).Msg("Error starting redirect server")
+	}
+
 	// start server
 	//
 	srv := &http.Server{
@@ -142,7 +149,7 @@ func (proxy *Proxy) Start() {
 }
 
 // StartRedirectServer method is a method that starts http rediret server to https.
-func (proxy *Proxy) StartRedirectServer() error {
+func (proxy *Proxy) startRedirectServer() error {
 	var err error
 	proxy.httpListener, err = proxy.proxyProvider.GetListener("tcp", ":80")
 	if err != nil {
