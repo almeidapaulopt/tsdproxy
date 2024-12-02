@@ -25,6 +25,8 @@ type (
 		targetprovider targetproviders.TargetProvider
 
 		httpListener net.Listener
+		httpServer   *http.Server
+
 		reverseProxy *httputil.ReverseProxy
 		Config       *proxyconfig.Config
 
@@ -102,6 +104,9 @@ func (proxy *Proxy) Close() error {
 	var errs error
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("stopping proxy")
 	// if has http redirect server
+	if proxy.httpServer != nil {
+		proxy.httpServer.Close()
+	}
 	if proxy.httpListener != nil {
 		errs = errors.Join(errs, proxy.httpListener.Close())
 	}
@@ -156,18 +161,19 @@ func (proxy *Proxy) startRedirectServer() error {
 		return fmt.Errorf("error creating HTTP listener: %w", err)
 	}
 
+	proxy.httpServer = &http.Server{
+		ReadHeaderTimeout: core.ReadHeaderTimeout,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			target := "https://" + r.Host + r.URL.RequestURI()
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+		}),
+	}
+
 	go func() {
-		httpServer := &http.Server{
-			ReadHeaderTimeout: core.ReadHeaderTimeout,
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				target := "https://" + r.Host + r.URL.RequestURI()
-				http.Redirect(w, r, target, http.StatusMovedPermanently)
-			}),
-		}
-		err := httpServer.Serve(proxy.httpListener)
+		err := proxy.httpServer.Serve(proxy.httpListener)
 		if err != nil && err != http.ErrServerClosed {
 			// Log the error, but don't stop the main server
-			fmt.Printf("HTTP redirect server error: %v\n", err)
+			proxy.log.Error().Err(err).Msg("HTTP redirect server error")
 		}
 	}()
 
