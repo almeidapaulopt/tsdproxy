@@ -80,20 +80,6 @@ func (app *WebApp) Start() {
 	app.Log.Info().
 		Str("Version", core.GetVersion()).Msg("Starting server")
 
-	// Setup proxy for existing containers
-	//
-	app.Log.Info().Msg("Setting up proxy proxies")
-
-	app.ProxyManager.Start()
-
-	// Start watching docker events
-	//
-	go app.ProxyManager.WatchEvents()
-
-	// Start Dashboard
-	//
-	app.Dashboard.AddRoutes()
-
 	// Start the webserver
 	//
 	go func() {
@@ -112,6 +98,20 @@ func (app *WebApp) Start() {
 			app.Log.Fatal().Err(err).Msg("shutting down the server")
 		}
 	}()
+
+	// Setup proxy for existing containers
+	//
+	app.Log.Info().Msg("Setting up proxy proxies")
+
+	app.ProxyManager.Start()
+
+	// Start watching docker events
+	//
+	go app.ProxyManager.WatchEvents()
+
+	// Start Dashboard
+	//
+	app.Dashboard.AddRoutes()
 }
 
 func (app *WebApp) Stop() {
