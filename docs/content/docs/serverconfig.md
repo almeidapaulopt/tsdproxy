@@ -22,7 +22,7 @@ docker:
     host: unix:///var/run/docker.sock # host of the docker socket or daemon
     targethostname: 172.31.0.1 # hostname or IP of docker server
     defaultproxyprovider: default # name of which proxy provider to use
-file: {}
+files: {}
 tailscale:
   providers:
     default: # name of the provider
