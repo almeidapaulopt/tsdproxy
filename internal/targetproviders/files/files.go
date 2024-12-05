@@ -5,6 +5,7 @@ package files
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/url"
 	"sync"
 
@@ -21,27 +22,23 @@ import (
 type (
 	// Client struct implements TargetProvider
 	Client struct {
-		proxies  map[string]ProxyConfig
-		log      zerolog.Logger
-		viper    *viper.Viper
-		config   FileConfig
-		name     string
-		filename string
+		log           zerolog.Logger
+		viper         *viper.Viper
+		config        config.FilesTargetProviderConfig
+		configProxies configProxiesList
+		proxies       map[string]proxyConfig
 
 		eventsChan chan targetproviders.TargetEvent
 		errChan    chan error
 
+		name string
+
 		mutex sync.Mutex
 	}
 
-	// FileConfig struct stores File target provider configuration.
-	FileConfig struct {
-		Proxies               map[string]ProxyConfig `validate:"dive"`
-		DefaultProxyProvider  string                 `validate:"required"`
-		DefaultProxyAccessLog bool                   `default:"true" validate:"boolean"`
-	}
+	configProxiesList map[string]proxyConfig
 
-	ProxyConfig struct {
+	proxyConfig struct {
 		URL           string `validate:"required,uri"`
 		ProxyProvider string
 		Tailscale     proxyconfig.Tailscale
@@ -49,31 +46,30 @@ type (
 )
 
 // New function returns a new Files TargetProvider
-func New(log zerolog.Logger, name string, file string) (*Client, error) {
+func New(log zerolog.Logger, name string, provider *config.FilesTargetProviderConfig) (*Client, error) {
 	newlog := log.With().Str("file", name).Logger()
 
-	target := &FileConfig{}
+	proxiesList := configProxiesList{}
 
-	v, err := config.NewViper(file, target)
+	v, err := config.NewViper(provider.Filename, &proxiesList)
 	if err != nil {
 		return nil, err
 	}
 
 	// load default values
-	err = defaults.Set(target)
+	err = defaults.Set(proxiesList)
 	if err != nil {
 		fmt.Printf("Error loading defaults: %v", err)
 	}
 
 	c := &Client{
-		log:        newlog,
-		name:       name,
-		filename:   file,
-		viper:      v,
-		config:     *target,
-		proxies:    make(map[string]ProxyConfig),
-		eventsChan: make(chan targetproviders.TargetEvent),
-		errChan:    make(chan error),
+		log:           newlog,
+		name:          name,
+		viper:         v,
+		configProxies: proxiesList,
+		proxies:       make(map[string]proxyConfig),
+		eventsChan:    make(chan targetproviders.TargetEvent),
+		errChan:       make(chan error),
 	}
 
 	return c, nil
@@ -83,7 +79,7 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 	var wg sync.WaitGroup
 	proxies := map[string]*proxyconfig.Config{}
 
-	for name, proxyconfig := range c.config.Proxies {
+	for name, proxyconfig := range c.configProxies {
 		// create the proxy configs in parallel.
 		wg.Add(1)
 
@@ -104,7 +100,7 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 }
 
 // newProxyConfig method returns a new proxyconfig.Config
-func (c *Client) newProxyConfig(name string, p ProxyConfig) (*proxyconfig.Config, error) {
+func (c *Client) newProxyConfig(name string, p proxyConfig) (*proxyconfig.Config, error) {
 	targetURL, err := url.Parse(p.URL)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing target URL: %w", err)
@@ -138,7 +134,7 @@ func (c *Client) newProxyConfig(name string, p ProxyConfig) (*proxyconfig.Config
 	return pcfg, nil
 }
 
-func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
+func (c *Client) WatchEvents(_ context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.viper.WatchConfig()
 	c.viper.OnConfigChange(c.onConfigChange)
 	go func() {
@@ -159,14 +155,15 @@ func (c *Client) onConfigChange(e fsnotify.Event) {
 		return
 	}
 	c.log.Info().Str("filename", e.Name).Msg("config changed, reloading")
-	oldConfig := c.config
+	oldConfigProxies := maps.Clone(c.configProxies)
+
 	if err := c.viper.Unmarshal(&c.config); err != nil {
 		c.log.Error().Err(err).Msg("error loading config")
 	}
 
 	// delete proxies that don't exist in new config
-	for name := range oldConfig.Proxies {
-		if _, ok := c.config.Proxies[name]; !ok {
+	for name := range oldConfigProxies {
+		if _, ok := c.configProxies[name]; !ok {
 			c.eventsChan <- targetproviders.TargetEvent{
 				ID:             name,
 				TargetProvider: c,
@@ -175,9 +172,9 @@ func (c *Client) onConfigChange(e fsnotify.Event) {
 		}
 	}
 
-	for name := range c.config.Proxies {
+	for name := range c.configProxies {
 		// start new proxies
-		if _, ok := oldConfig.Proxies[name]; !ok {
+		if _, ok := oldConfigProxies[name]; !ok {
 			c.eventsChan <- targetproviders.TargetEvent{
 				ID:             name,
 				TargetProvider: c,
@@ -185,9 +182,8 @@ func (c *Client) onConfigChange(e fsnotify.Event) {
 			}
 			continue
 		}
-
 		// restart if the proxy configuration changed
-		if oldConfig.Proxies[name] != c.config.Proxies[name] {
+		if oldConfigProxies[name] != c.configProxies[name] {
 			c.eventsChan <- targetproviders.TargetEvent{
 				ID:             name,
 				TargetProvider: c,
@@ -212,7 +208,7 @@ func (c *Client) Close() {
 }
 
 func (c *Client) AddTarget(id string) (*proxyconfig.Config, error) {
-	proxy, ok := c.config.Proxies[id]
+	proxy, ok := c.configProxies[id]
 	if !ok {
 		return nil, fmt.Errorf("target %s not found", id)
 	}
@@ -234,7 +230,7 @@ func (c *Client) DeleteProxy(id string) error {
 }
 
 // addTarget method add a target the proxies map
-func (c *Client) addTarget(cfg ProxyConfig, name string) {
+func (c *Client) addTarget(cfg proxyConfig, name string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 

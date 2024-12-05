@@ -19,4 +19,5 @@ log:
   json: false # set to true to enable json logging
 proxyaccesslog: true # set to true to enable container access log
 files:
-  file1: /config/file1.yaml
+  file1:
+    filename: /config/file1.yaml
