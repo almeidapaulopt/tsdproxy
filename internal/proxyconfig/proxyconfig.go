@@ -24,10 +24,10 @@ type (
 	Tailscale struct {
 		AuthKey      string
 		ControlURL   string
-		Ephemeral    bool
-		RunWebClient bool
-		TsnetVerbose bool
-		Funnel       bool
+		Ephemeral    bool `default:"true" validate:"boolean"`
+		RunWebClient bool `default:"false" validate:"boolean"`
+		Verbose      bool `default:"false" validate:"boolean"`
+		Funnel       bool `default:"false" validate:"boolean"`
 	}
 )
 

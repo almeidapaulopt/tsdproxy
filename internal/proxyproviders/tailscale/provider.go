@@ -71,7 +71,7 @@ func (c *Client) NewProxy(config *proxyconfig.Config) (proxyproviders.Proxy, err
 	}
 
 	// if verbose is set, use the info log level
-	if config.Tailscale.TsnetVerbose {
+	if config.Tailscale.Verbose {
 		tserver.Logf = func(format string, args ...any) {
 			c.log.Info().Msgf(format, args...)
 		}

@@ -113,7 +113,7 @@ func (c *container) getTailscaleConfig() (*proxyconfig.Tailscale, error) {
 	return &proxyconfig.Tailscale{
 		Ephemeral:    c.getLabelBool(LabelEphemeral, proxyconfig.TailscaleEphemeral),
 		RunWebClient: c.getLabelBool(LabelRunWebClient, proxyconfig.TailscaleRunWebClient),
-		TsnetVerbose: c.getLabelBool(LabelTsnetVerbose, proxyconfig.TailscaleVerbose),
+		Verbose:      c.getLabelBool(LabelTsnetVerbose, proxyconfig.TailscaleVerbose),
 		Funnel:       c.getLabelBool(LabelFunnel, proxyconfig.TailscaleFunnel),
 		AuthKey:      authKey,
 		// TODO: add controlURL
@@ -299,10 +299,12 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 		}
 		// try connecting to container IP and internal port
 		if err := c.dial(network.IPAddress, port); err == nil {
-			c.log.Info().Str("address", network.IPAddress).Str("port", port).Msg("Successfully connected using internal ip and internal port")
+			c.log.Info().Str("address", network.IPAddress).
+				Str("port", port).Msg("Successfully connected using internal ip and internal port")
 			return url.Parse(fmt.Sprintf("http://%s:%s", network.IPAddress, port))
 		}
-		c.log.Debug().Str("address", network.IPAddress).Str("port", port).Msg("Failed to connect")
+		c.log.Debug().Str("address", network.IPAddress).
+			Str("port", port).Msg("Failed to connect")
 	}
 	// if the container is running in host mode,
 	// try connecting to defaultBridgeAddress of the host and internal port.

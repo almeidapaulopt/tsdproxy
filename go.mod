@@ -1,6 +1,6 @@
 module github.com/almeidapaulopt/tsdproxy
 
-go 1.23.3
+go 1.23.4
 
 require (
 	github.com/creasty/defaults v1.8.0

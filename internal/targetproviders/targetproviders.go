@@ -11,6 +11,7 @@ import (
 const (
 	ActionStart ActionType = iota
 	ActionStop
+	ActionRestart
 )
 
 type (

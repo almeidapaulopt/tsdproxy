@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/creasty/defaults"
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -25,7 +24,7 @@ type (
 		DefaultProxyProvider string
 
 		Docker    map[string]*DockerTargetProviderConfig `validate:"dive"`
-		File      map[string]FileTargetProviderConfig    `validate:"dive"`
+		Files     map[string]string                      `validate:"dive,file"`
 		Tailscale TailscaleProxyProviderConfig
 
 		HTTP HTTPConfig
@@ -53,22 +52,6 @@ type (
 		DefaultProxyProvider string
 	}
 
-	// FileTargetProviderConfig struct stores File target provider configuration.
-	FileTargetProviderConfig struct {
-		ProxyProvider  string `validate:"required"`
-		TargetHostname string `validate:"ip|hostname"`
-		TS             TailscaleProxyConfig
-		ProxyAccessLog bool `validate:"boolean"`
-	}
-
-	// TailscaleProxyConfig struct stores Tailscale proxy configuration to use in FileTargetProvider.
-	TailscaleProxyConfig struct {
-		Ephemeral    bool `default:"true" validate:"boolean"`
-		RunWebClient bool `default:"false" validate:"boolean"`
-		Verbose      bool `default:"false" validate:"boolean"`
-		Funnel       bool `default:"false" validate:"boolean"`
-	}
-
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration
 	TailscaleProxyProviderConfig struct {
 		Providers map[string]*TailscaleServerConfig `validate:"dive"`
@@ -91,12 +74,12 @@ func InitializeConfig() error {
 	Config = &config{}
 	Config.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 	Config.Docker = make(map[string]*DockerTargetProviderConfig)
-	Config.File = make(map[string]FileTargetProviderConfig)
+	Config.Files = make(map[string]string)
 
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
-	if _, err := NewViper(file); err != nil {
+	if _, err := NewViper(*file, Config); err != nil {
 		return err
 	}
 
@@ -136,12 +119,12 @@ func InitializeConfig() error {
 	return nil
 }
 
-func NewViper(file *string) (*viper.Viper, error) {
-	filename := strings.TrimSuffix(filepath.Base(*file), filepath.Ext(*file))
-	dir, _ := filepath.Split(*file)
-	filetype := strings.TrimPrefix(filepath.Ext(*file), ".")
+func NewViper(file string, i any) (*viper.Viper, error) {
+	filename := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	dir, _ := filepath.Split(file)
+	filetype := strings.TrimPrefix(filepath.Ext(file), ".")
 
-	println("loading configuration from:", *file)
+	println("loading configuration from:", file)
 
 	v := viper.New()
 	v.SetConfigName(filename)
@@ -153,13 +136,9 @@ func NewViper(file *string) (*viper.Viper, error) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	_ = v.ReadInConfig()
 
-	if err := v.Unmarshal(&Config); err != nil {
+	if err := v.Unmarshal(&i); err != nil {
 		return nil, err
 	}
-
-	// watch if config file changes
-	v.WatchConfig()
-	v.OnConfigChange(Config.watchConfig)
 
 	// generate the config file if it does not exist
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -180,10 +159,6 @@ func (c *config) save(file *string) error {
 		return err1
 	}
 	return nil
-}
-
-func (c *config) watchConfig(in fsnotify.Event) {
-	println("Config file changed: ", in.String())
 }
 
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders/tailscale"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/files"
 )
 
 type (
@@ -87,6 +88,13 @@ func (pm *ProxyManager) Start() {
 func (pm *ProxyManager) addTargetProviders() {
 	for name, provider := range config.Config.Docker {
 		if p, err := docker.New(pm.log, name, provider); err != nil {
+			pm.log.Error().Err(err).Msg("Error creating Docker provider")
+		} else {
+			pm.addTargetProvider(p, name)
+		}
+	}
+	for name, file := range config.Config.Files {
+		if p, err := files.New(pm.log, name, file); err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Docker provider")
 		} else {
 			pm.addTargetProvider(p, name)
@@ -246,30 +254,47 @@ func (pm *ProxyManager) watchTargetEventsEvents(provider targetproviders.TargetP
 func (pm *ProxyManager) HandleContainerEvent(event targetproviders.TargetEvent) {
 	switch event.Action {
 	case targetproviders.ActionStart:
-
-		go func() {
-			pm.log.Debug().Str("targetID", event.ID).Msg("Adding target")
-			pcfg, err := event.TargetProvider.AddTarget(event.ID)
-			if err != nil {
-				pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error adding target")
-				return
-			}
-			pm.newAndStartProxy(pcfg.Hostname, pcfg, event.TargetProvider)
-		}()
+		go pm.eventStart(event)
 	case targetproviders.ActionStop:
-		pm.log.Debug().Str("targetID", event.ID).Msg("Stopping target")
-		proxy := pm.getProxyByTargetID(event.ID)
-		if proxy == nil {
-			pm.log.Error().Int("action", int(event.Action)).Str("target", event.ID).Msg("No proxy found for target")
-		} else {
-			targetprovider := pm.TargetProviders[proxy.Config.TargetProvider]
-			if err := targetprovider.DeleteProxy(event.ID); err != nil {
-				pm.log.Error().Err(err).Msg("No proxy found for target")
-			}
-
-			pm.removeProxy(proxy.Config.Hostname)
-		}
+		go pm.eventStop(event)
+	case targetproviders.ActionRestart:
+		go func() {
+			pm.eventStop(event)
+			pm.eventStart(event)
+		}()
 	}
+}
+
+// eventStart method starts a Proxy from a event trigger
+func (pm *ProxyManager) eventStart(event targetproviders.TargetEvent) {
+	pm.log.Debug().Str("targetID", event.ID).Msg("Adding target")
+
+	pcfg, err := event.TargetProvider.AddTarget(event.ID)
+	if err != nil {
+		pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error adding target")
+		return
+	}
+
+	pm.newAndStartProxy(pcfg.Hostname, pcfg, event.TargetProvider)
+}
+
+// eventStop method stops a Proxy from a event trigger
+func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
+	pm.log.Debug().Str("targetID", event.ID).Msg("Stopping target")
+
+	proxy := pm.getProxyByTargetID(event.ID)
+	if proxy == nil {
+		pm.log.Error().Int("action", int(event.Action)).Str("target", event.ID).Msg("No proxy found for target")
+		return
+	}
+
+	targetprovider := pm.TargetProviders[proxy.Config.TargetProvider]
+	if err := targetprovider.DeleteProxy(event.ID); err != nil {
+		pm.log.Error().Err(err).Msg("No proxy found for target")
+		return
+	}
+
+	pm.removeProxy(proxy.Config.Hostname)
 }
 
 // getProxyByTargetID method returns a Proxy by TargetID.
