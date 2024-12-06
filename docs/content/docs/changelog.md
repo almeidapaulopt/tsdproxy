@@ -7,6 +7,13 @@ weight: 200
 
 {{% steps %}}
 
+### 1.1.0
+
+#### New File Provider
+
+TSDProxy now supports a new file provider. It's useful if you want to proxy url without Docker.
+Now you can use TSDProxy even without Docker.
+
 ### 1.0.0
 
 #### New Autodetection function for containers network
