@@ -26,7 +26,7 @@ type (
 		viper         *viper.Viper
 		config        config.FilesTargetProviderConfig
 		configProxies configProxiesList
-		proxies       map[string]proxyConfig
+		proxies       configProxiesList
 
 		eventsChan chan targetproviders.TargetEvent
 		errChan    chan error
@@ -56,12 +56,6 @@ func New(log zerolog.Logger, name string, provider *config.FilesTargetProviderCo
 		return nil, err
 	}
 
-	// load default values
-	err = defaults.Set(proxiesList)
-	if err != nil {
-		fmt.Printf("Error loading defaults: %v", err)
-	}
-
 	c := &Client{
 		log:           newlog,
 		name:          name,
@@ -70,6 +64,12 @@ func New(log zerolog.Logger, name string, provider *config.FilesTargetProviderCo
 		proxies:       make(map[string]proxyConfig),
 		eventsChan:    make(chan targetproviders.TargetEvent),
 		errChan:       make(chan error),
+	}
+
+	// load default values
+	err = defaults.Set(c)
+	if err != nil {
+		return nil, fmt.Errorf("Error loading defaults: %w", err)
 	}
 
 	return c, nil
