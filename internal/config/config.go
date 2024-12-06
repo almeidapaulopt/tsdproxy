@@ -35,7 +35,7 @@ type (
 
 	// LogConfig stores logging configuration.
 	LogConfig struct {
-		Level string `default:"info" validate:"required,oneof=debug info warn error fatal panic"`
+		Level string `default:"info" validate:"required,oneof=debug info warn error fatal panic trace"`
 		JSON  bool   `default:"false" validate:"boolean"`
 	}
 
@@ -86,6 +86,7 @@ func InitializeConfig() error {
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
+	println("loading configuration from:", *file)
 	if _, err := NewViper(*file, Config); err != nil {
 		return err
 	}
@@ -130,8 +131,6 @@ func NewViper(file string, i any) (*viper.Viper, error) {
 	filename := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 	dir, _ := filepath.Split(file)
 	filetype := strings.TrimPrefix(filepath.Ext(file), ".")
-
-	println("loading configuration from:", file)
 
 	v := viper.New()
 	v.SetConfigName(filename)
