@@ -8,9 +8,9 @@ services:
       - .:/config
       - /var/run/docker.sock:/var/run/docker.sock
       - data:/data
-    labels:
-      - tsdproxy.enable=true
-      - tsdproxy.name=dash-dev
+    # labels:
+    #   - tsdproxy.enable=true
+    #   - tsdproxy.name=dash-dev
     restart: unless-stopped
     secrets:
       - authkey

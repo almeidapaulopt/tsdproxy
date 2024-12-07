@@ -2,20 +2,26 @@ services:
   c1:
     image: nginx
     ports:
-      - 81:80
-    labels:
-      - tsdproxy.enable=true
-      - tsdproxy.name=testeff
-      - tsdproxy.ephemeral=true
-      - tsdproxy.funnel=true
-      - tsdproxy.authkeyfile=./dev/KEY_FILE
+      - 91:80
+      - 92:8000
+      - 93:8080
+    deploy:
+      labels:
+        - tsdproxy.enable=true
+        - tsdproxy.name=testeff
+        - tsdproxy.ephemeral=true
+        - tsdproxy.funnel=true
+        - tsdproxy.container_port=80
+    networks:
+      - c1
 
   c2:
     image: nginx
     ports:
       - 82:80
-    labels:
-      - tsdproxy.enable=true
+    deploy:
+      labels:
+        - tsdproxy.enable=true
     networks:
       - c2
 
@@ -24,16 +30,13 @@ services:
     network_mode: host
     # ports:
     #   - 83:80
-    labels:
-      - tsdproxy.enable=true
+    deploy:
+      labels:
+        - tsdproxy.enable=true
 
 volumes:
   tsdata:
   tmp:
-
-secrets:
-  authkey:
-    file: ./KEY_FILE
 
 networks:
   c1:
