@@ -42,6 +42,7 @@ type (
 		URL           string `validate:"required,uri"`
 		ProxyProvider string
 		Tailscale     proxyconfig.Tailscale
+		TLSValidate   bool `default:"true" validate:"boolean"`
 	}
 )
 
@@ -127,6 +128,7 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*proxyconfig.Config
 		Tailscale:      &p.Tailscale,
 		ProxyProvider:  proxyProvider,
 		ProxyAccessLog: proxyAccessLog,
+		TLSValidate:    p.TLSValidate,
 	}
 
 	c.addTarget(p, name)

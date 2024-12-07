@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -61,9 +62,14 @@ func NewProxy(log zerolog.Logger,
 		Str("proxyURL", pcfg.ProxyURL.String()).
 		Msg("initializing proxy")
 
-	// Create the reverse proxy
-	//
+		// Create the reverse proxy
+		//
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !proxy.Config.TLSValidate},
+	}
 	proxy.reverseProxy = &httputil.ReverseProxy{
+		Transport: tr,
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(pcfg.TargetURL)
 			r.Out.Host = r.In.Host

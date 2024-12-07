@@ -17,7 +17,8 @@ type (
 		TargetURL      *url.URL
 		ProxyURL       *url.URL
 		Hostname       string
-		ProxyAccessLog bool
+		ProxyAccessLog bool `default:"true" validate:"boolean"`
+		TLSValidate    bool `default:"true" validate:"boolean"`
 	}
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider

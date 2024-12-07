@@ -38,6 +38,7 @@ const (
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
 	LabelAutoDetect         = LabelPrefix + "autodetect"
 	LabelScheme             = LabelPrefix + "scheme"
+	LabelTLSValidate        = LabelPrefix + "tlsvalidate"
 	//
 	dialTimeout     = 2 * time.Second
 	autoDetectTries = 5
@@ -106,6 +107,7 @@ func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
 		Tailscale:      tailscale,
 		ProxyProvider:  c.getLabelString(LabelProxyProvider, proxyconfig.ProxyProvider),
 		ProxyAccessLog: c.getLabelBool(LabelContainerAccessLog, proxyconfig.ProxyAccessLog),
+		TLSValidate:    c.getLabelBool(LabelTLSValidate, true),
 	}, nil
 }
 
