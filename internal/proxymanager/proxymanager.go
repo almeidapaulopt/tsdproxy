@@ -79,26 +79,33 @@ func (pm *ProxyManager) Start() {
 		pm.log.Error().Msg("No Target Providers found")
 		return
 	}
-
-	// Setup initial proxies
-	pm.setupInitialProxies()
 }
 
 // addTargetProviders method adds TargetProviders from configuration file.
 func (pm *ProxyManager) addTargetProviders() {
 	for name, provider := range config.Config.Docker {
-		if p, err := docker.New(pm.log, name, provider); err != nil {
+		p, err := docker.New(pm.log, name, provider)
+		if err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Docker provider")
-		} else {
-			pm.addTargetProvider(p, name)
+			continue
 		}
+
+		go func() {
+			pm.addTargetProvider(p, name)
+			pm.setupInitialProxies(p, name)
+		}()
 	}
 	for name, file := range config.Config.Files {
-		if p, err := files.New(pm.log, name, file); err != nil {
+		p, err := files.New(pm.log, name, file)
+		if err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Docker provider")
-		} else {
-			pm.addTargetProvider(p, name)
+			continue
 		}
+
+		go func() {
+			pm.addTargetProvider(p, name)
+			pm.setupInitialProxies(p, name)
+		}()
 	}
 }
 
@@ -154,19 +161,17 @@ func (pm *ProxyManager) StopAllProxies() {
 }
 
 // setupInitialProxies method create proxies for all target providers on initial start.
-func (pm *ProxyManager) setupInitialProxies() {
-	for providerName, targetProvider := range pm.TargetProviders {
-		pm.log.Debug().Any("provider", providerName).Msg("Creating proxies for provider")
+func (pm *ProxyManager) setupInitialProxies(p targetproviders.TargetProvider, providername string) {
+	pm.log.Debug().Any("provider", providername).Msg("Creating proxies for provider")
 
-		// get initial proxies for a target provider
-		proxies, err := targetProvider.GetAllProxies()
-		if err != nil {
-			pm.log.Warn().Err(err).Msg("Error getting proxies")
-		}
-		// create a start each proxy
-		for name, proxyConfig := range proxies {
-			go pm.newAndStartProxy(name, proxyConfig, targetProvider)
-		}
+	// get initial proxies for a target provider
+	proxies, err := p.GetAllProxies()
+	if err != nil {
+		pm.log.Warn().Err(err).Msg("Error getting proxies")
+	}
+	// create a start each proxy
+	for name, proxyConfig := range proxies {
+		go pm.newAndStartProxy(name, proxyConfig, p)
 	}
 }
 
