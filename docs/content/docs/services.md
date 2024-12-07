@@ -146,4 +146,14 @@ labels:
   tsdproxy.autodetect: "false"
 ```
 
+### tsdproxy.scheme
+
+Defaults to "http", set to https to enable "https" if the container is running with TLS.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.scheme: "https"
+```
+
 {{% /steps %}}

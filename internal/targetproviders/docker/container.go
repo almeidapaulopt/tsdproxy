@@ -37,7 +37,7 @@ const (
 	LabelContainerAccessLog = LabelPrefix + "containeraccesslog"
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
 	LabelAutoDetect         = LabelPrefix + "autodetect"
-
+	LabelScheme             = LabelPrefix + "scheme"
 	//
 	dialTimeout     = 2 * time.Second
 	autoDetectTries = 5
@@ -52,6 +52,7 @@ type container struct {
 	defaultTargetHostname string
 	defaultBridgeAddress  string
 	targetProviderName    string
+	scheme                string
 	autodetect            bool
 }
 
@@ -70,6 +71,7 @@ func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON, imageIn
 	}
 
 	c.autodetect = c.getLabelBool(LabelAutoDetect, true)
+	c.scheme = c.getLabelString(LabelScheme, "http")
 
 	return c
 }
@@ -223,7 +225,7 @@ func (c *container) getProxyURL() (*url.URL, error) {
 	}
 
 	// validate url
-	return url.Parse("https://" + name)
+	return url.Parse(c.scheme + "://" + name)
 }
 
 // getName method returns the name of the container
@@ -259,7 +261,7 @@ func (c *container) getTargetURL(hostname string) (*url.URL, error) {
 		}
 	}
 	// auto detect failed set to defaultTargetHostname with exposed port
-	return url.Parse("http://" + c.defaultTargetHostname + ":" + exposedPort)
+	return url.Parse(c.scheme + "://" + c.defaultTargetHostname + ":" + exposedPort)
 }
 
 // tryConnectContainer method tries to connect to the container
@@ -310,7 +312,7 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 		if err := c.dial(network.IPAddress, port); err == nil {
 			c.log.Info().Str("address", network.IPAddress).
 				Str("port", port).Msg("Successfully connected using internal ip and internal port")
-			return url.Parse(fmt.Sprintf("http://%s:%s", network.IPAddress, port))
+			return url.Parse(c.scheme + "://" + network.IPAddress + ":" + port)
 		}
 		c.log.Debug().Str("address", network.IPAddress).
 			Str("port", port).Msg("Failed to connect")
@@ -320,7 +322,7 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 	if c.container.HostConfig.NetworkMode == "host" && c.defaultBridgeAddress != "" {
 		if err := c.dial(c.defaultBridgeAddress, port); err == nil {
 			c.log.Info().Str("address", c.defaultBridgeAddress).Str("port", port).Msg("Successfully connected using defaultBridgeAddress and internal port")
-			return url.Parse(fmt.Sprintf("http://%s:%s", c.defaultBridgeAddress, port))
+			return url.Parse(c.scheme + "://" + c.defaultBridgeAddress + ":" + port)
 		}
 
 		c.log.Debug().Str("address", c.defaultBridgeAddress).Str("port", port).Msg("Failed to connect")
@@ -334,7 +336,7 @@ func (c *container) tryExposedPort(hostname, port string) (*url.URL, error) {
 	for _, network := range c.container.NetworkSettings.Networks {
 		if err := c.dial(network.Gateway, port); err == nil {
 			c.log.Info().Str("address", network.Gateway).Str("port", port).Msg("Successfully connected using docker network gateway and exposed port")
-			return url.Parse(fmt.Sprintf("http://%s:%s", network.Gateway, port))
+			return url.Parse(c.scheme + "://" + network.Gateway + ":" + port)
 		}
 
 		c.log.Debug().Str("address", network.Gateway).Str("port", port).Msg("Failed to connect using docker network gateway and exposed port")
@@ -343,7 +345,7 @@ func (c *container) tryExposedPort(hostname, port string) (*url.URL, error) {
 	// try connecting to configured host and exposed port
 	if err := c.dial(hostname, port); err == nil {
 		c.log.Info().Str("address", hostname).Str("port", port).Msg("Successfully connected using configured host and exposed port")
-		return url.Parse(fmt.Sprintf("http://%s:%s", hostname, port))
+		return url.Parse(c.scheme + "://" + hostname + ":" + port)
 	}
 
 	c.log.Debug().Str("address", hostname).Str("port", port).Msg("Failed to connect")

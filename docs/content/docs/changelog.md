@@ -7,11 +7,25 @@ weight: 200
 
 {{% steps %}}
 
+### 1.1.1
+
+#### New Docker container labels
+
+##### tsdproxy.autodetect
+
+If TSDProxy, for any reason, can't detect the container's network you can
+disable it.
+
+##### tsdproxy.scheme
+
+If a container uses https, use tsdproxy.scheme=https label.
+
 ### 1.1.0
 
 #### New File Provider
 
-TSDProxy now supports a new file provider. It's useful if you want to proxy url without Docker.
+TSDProxy now supports a new file provider. It's useful if you want to proxy URL
+without Docker.
 Now you can use TSDProxy even without Docker.
 
 ### 1.0.0
