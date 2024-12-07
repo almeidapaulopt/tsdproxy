@@ -159,7 +159,7 @@ func (c *Client) onConfigChange(e fsnotify.Event) {
 	c.log.Info().Str("filename", e.Name).Msg("config changed, reloading")
 	oldConfigProxies := maps.Clone(c.configProxies)
 
-	if err := c.viper.Unmarshal(&c.config); err != nil {
+	if err := c.viper.Unmarshal(&c.configProxies); err != nil {
 		c.log.Error().Err(err).Msg("error loading config")
 	}
 
