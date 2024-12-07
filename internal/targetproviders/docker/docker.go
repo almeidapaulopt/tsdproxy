@@ -4,7 +4,6 @@ package docker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -60,11 +59,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		containers:            make(map[string]*container),
 	}
 
-	var addr string
-
-	if addr, err = c.getDefaultBridgeAddress(); err != nil {
-		return nil, err
-	}
+	addr := c.getDefaultBridgeAddress()
 
 	c.defaultBridgeAdress = strings.TrimSpace(addr)
 
@@ -231,23 +226,23 @@ func (c *Client) deleteContainer(name string) {
 }
 
 // getDefaultBridgeAddress method returns the default bridge network address
-func (c *Client) getDefaultBridgeAddress() (string, error) {
+func (c *Client) getDefaultBridgeAddress() string {
 	filter := filters.NewArgs()
 	networks, err := c.docker.NetworkList(context.Background(), network.ListOptions{
 		Filters: filter,
 	})
 	if err != nil {
 		c.log.Error().Err(err).Msg("Error listing Docker networks")
-		return "", err
+		return ""
 	}
 
 	for _, network := range networks {
 		if network.Options["com.docker.network.bridge.default_bridge"] == "true" {
 			c.log.Info().Str("defaultIPAdress", network.IPAM.Config[0].Gateway).Msg("Default Network found")
 
-			return network.IPAM.Config[0].Gateway, nil
+			return network.IPAM.Config[0].Gateway
 		}
 	}
 
-	return "", errors.New("could not find default bridge network")
+	return ""
 }
