@@ -36,6 +36,7 @@ const (
 	LabelAuthKeyFile        = LabelPrefix + "authkeyfile"
 	LabelContainerAccessLog = LabelPrefix + "containeraccesslog"
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
+	LabelAutoDetect         = LabelPrefix + "autodetect"
 
 	//
 	dialTimeout     = 2 * time.Second
@@ -51,6 +52,7 @@ type container struct {
 	defaultTargetHostname string
 	defaultBridgeAddress  string
 	targetProviderName    string
+	autodetect            bool
 }
 
 // newContainer function returns a new container.
@@ -58,7 +60,7 @@ func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON, imageIn
 	targetproviderName string, defaultBridgeAddress string, defaultTargetHostname string,
 ) *container {
 	//
-	return &container{
+	c := &container{
 		log:                   logger.With().Str("container", dcontainer.Name).Logger(),
 		container:             dcontainer,
 		image:                 imageInfo,
@@ -66,6 +68,10 @@ func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON, imageIn
 		defaultBridgeAddress:  defaultBridgeAddress,
 		targetProviderName:    targetproviderName,
 	}
+
+	c.autodetect = c.getLabelBool(LabelAutoDetect, true)
+
+	return c
 }
 
 // newProxyConfig method returns a new proxyconfig.Config.
@@ -240,17 +246,20 @@ func (c *container) getTargetURL(hostname string) (*url.URL, error) {
 		return url.Parse("http://127.0.0.1:" + internalPort)
 	}
 
-	// repeat auto detect in case the container is not ready
-	for try := range autoDetectTries {
-		c.log.Info().Int("try", try).Msg("Trying to auto detect target URL")
-		if port, err := c.tryConnectContainer(hostname, internalPort, exposedPort, imagePort); err == nil {
-			return port, nil
+	// set autodetect
+	if c.autodetect {
+		// repeat auto detect in case the container is not ready
+		for try := range autoDetectTries {
+			c.log.Info().Int("try", try).Msg("Trying to auto detect target URL")
+			if port, err := c.tryConnectContainer(hostname, internalPort, exposedPort, imagePort); err == nil {
+				return port, nil
+			}
+			// wait to container get ready
+			time.Sleep(autoDetectSleep)
 		}
-		// wait to container get ready
-		time.Sleep(autoDetectSleep)
 	}
-	// auto detect failed
-	return nil, errors.New("no valid target found for " + c.container.Name)
+	// auto detect failed set to defaultTargetHostname with exposed port
+	return url.Parse("http://" + c.defaultTargetHostname + ":" + exposedPort)
 }
 
 // tryConnectContainer method tries to connect to the container
@@ -308,7 +317,7 @@ func (c *container) tryInternalPort(hostname, port string) (*url.URL, error) {
 	}
 	// if the container is running in host mode,
 	// try connecting to defaultBridgeAddress of the host and internal port.
-	if c.container.HostConfig.NetworkMode == "host" {
+	if c.container.HostConfig.NetworkMode == "host" && c.defaultBridgeAddress != "" {
 		if err := c.dial(c.defaultBridgeAddress, port); err == nil {
 			c.log.Info().Str("address", c.defaultBridgeAddress).Str("port", port).Msg("Successfully connected using defaultBridgeAddress and internal port")
 			return url.Parse(fmt.Sprintf("http://%s:%s", c.defaultBridgeAddress, port))
@@ -328,7 +337,7 @@ func (c *container) tryExposedPort(hostname, port string) (*url.URL, error) {
 			return url.Parse(fmt.Sprintf("http://%s:%s", network.Gateway, port))
 		}
 
-		c.log.Debug().Str("address", c.defaultBridgeAddress).Str("port", port).Msg("Failed to connect")
+		c.log.Debug().Str("address", network.Gateway).Str("port", port).Msg("Failed to connect using docker network gateway and exposed port")
 	}
 
 	// try connecting to configured host and exposed port

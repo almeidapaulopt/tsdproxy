@@ -4,7 +4,8 @@ next: /docs/advanced
 weight: 3
 ---
 
-To add a service to your TSDProxy instance, you need to add a label to your service cobtainer.
+To add a service to your TSDProxy instance, you need to add a label to your
+service container.
 
 {{% steps %}}
 
@@ -132,6 +133,17 @@ it with the label `tsdproxy.proxyprovider`.
 labels:
   tsdproxy.enable: "true"
   tsdproxy.proxyprovider: "providername"
+```
+
+### tsdproxy.autodetect
+
+Defaults to true, if your having problem with the internal network interfaces
+autodetection, set to false.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.autodetect: "false"
 ```
 
 {{% /steps %}}
