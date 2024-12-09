@@ -7,6 +7,17 @@ weight: 200
 
 {{% steps %}}
 
+### 1.1.2
+
+#### Fixes
+
+Reload Proxy List Files when changes.
+
+#### New features
+
+- Quicker start with diferent approach to start proxies in docker
+- Add support for targets with self-signed certificates.
+
 ### 1.1.1
 
 #### New Docker container labels
