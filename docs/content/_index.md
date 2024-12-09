@@ -11,7 +11,7 @@ layout: hextra-home
 
 <div class="hx-mt-6 hx-mb-6">
 {{< hextra/hero-headline >}}
-  Very simple proxy&nbsp;<br class="sm:hx-block hx-hidden" />with Tailscale and Docker
+  Very simple proxy&nbsp;<br class="sm:hx-block hx-hidden" />with Tailscale
 {{< /hextra/hero-headline >}}
 </div>
 

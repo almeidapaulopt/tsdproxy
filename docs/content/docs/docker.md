@@ -1,6 +1,5 @@
 ---
-title: Services configuration
-next: /docs/advanced
+title: Docker Services
 weight: 3
 ---
 

@@ -18,11 +18,15 @@ will be removed in the future.
 ```yaml  {filename="/config/tsdproxy.yaml"}
 defaultproxyprovider: default
 docker:
-  local: # name of the docker provider
+  local: # name of the docker target provider
     host: unix:///var/run/docker.sock # host of the docker socket or daemon
     targethostname: 172.31.0.1 # hostname or IP of docker server
     defaultproxyprovider: default # name of which proxy provider to use
-files: {}
+files:
+  critical: # Name the target provider
+    filename: /config/critical.yaml # file with the proxy list
+    defaultProxyProvider: tailscale1 # (optional) default proxy provider
+    defaultProxyAccessLog: true # (optional) Enable access logs
 tailscale:
   providers:
     default: # name of the provider
