@@ -9,6 +9,11 @@ Can be used multiple files a they are called as target providers.
 Each target provider could be used to group the way you decide better to help
 you manage your proxies. Or can use a single file to proxy all your targets.
 
+{{< callout type="info" >}}
+TSDProxy will reload the proxy list when it is updated.
+You only need to restart TSDProxy if your changes are in /config/tsdproxy.yaml
+{{< /callout >}}
+
 {{% steps %}}
 
 ### How to enable?
