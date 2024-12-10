@@ -9,7 +9,7 @@ env:
   - GITHUB_ORG=almeidapaulopt
   - DOCKER_ORG=almeidapaulopt
   - DOCKERFILE=Dockerfile.goreleaser
-  - LATEST={{ if .Prerelease  }}next{{ else }}latest{{ end }}
+  - LATEST={{if or .Prerelease .IsDraft .IsSnapshot .IsNightly .IsSingleTarget }}next{{else}}latest{{ end }}
 
 before:
   hooks:
@@ -17,7 +17,7 @@ before:
     - go generate ./...
 
 snapshot:
-  version_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-{{ .Env.LATEST }}"
 
 gomod:
   proxy: false
@@ -61,7 +61,10 @@ builds:
       - goarch: arm64
         goos: freebsd
     ldflags:
-      - -s -w -X "github.com/almeidapaulopt/tsdproxy/internal/core.buildString={{ .Version }} ({{ .ShortCommit }} {{ .Date }}, {{ .Os }}/{{ .Arch }})" -X "github.com/almeidapaulopt/tsdproxy/core.version={{ .Version  }}"
+      - -s -w
+      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.version={{ .Version  }}"
+      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.BuildDate={{ .Date }}"
+      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.GitCommit={{ .ShortCommit }}"
 
   - id: healthcheck
     main: ./cmd/healthcheck/main.go
@@ -117,7 +120,7 @@ changelog:
       regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
       order: 200
     - title: "Documentation updates"
-      regexp: ^.*?doc(\([[:word:]]+\))??!?:.+$
+      regexp: ^.*?docs(\([[:word:]]+\))??!?:.+$
       order: 400
     - title: "Build process updates"
       regexp: ^.*?build(\([[:word:]]+\))??!?:.+$

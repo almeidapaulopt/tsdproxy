@@ -3,8 +3,6 @@ name: goreleaser branch
 
 on:
   push:
-    branches:
-      - next
 
 permissions:
   contents: write
@@ -49,7 +47,7 @@ jobs:
           distribution: goreleaser
           # 'latest', 'nightly', or a semver
           version: "~> v2"
-          args: release -f .goreleaser-branch.yaml --skip validate --clean
+          args: release -f .goreleaser-dev.yaml --skip validate --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCKER_PASSWORD: $${{ secrets.DOCKER_PASSWORD }}
