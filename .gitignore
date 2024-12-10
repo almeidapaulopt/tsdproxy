@@ -28,6 +28,7 @@ dist/
 dev/data/
 dev/KEY_FILE
 dev/tsauthkey.env
+dev/notes
 
 
 # Hugo output
