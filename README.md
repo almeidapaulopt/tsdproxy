@@ -1,15 +1,22 @@
-# Version: 1.0.0
+# TsDProxy - Tailscale Proxy
+
+TsDProxy simplifies the process of securely exposing services and Docker containers
+to your Tailscale network by automatically creating Tailscale machines for each
+tagged container. This allows services to be accessible via unique, secure URLs
+without the need for complex configurations or additional Tailscale containers.
+
+## Breaking Changes in 1.0.0
 
 This version changes the configuration method.
 Please read the [Documentation](https://almeidapaulopt.github.io/tsdproxy/docs)
 for details.
 
-# TsDProxy - <ins>T</ins>ail<ins>s</ins>cale <ins>D</ins>ocker <ins>Proxy</ins>
+## Docker Images
 
-TsDProxy simplifies the process of securely exposing Docker containers
-to your Tailscale network by automatically creating Tailscale machines for each
-tagged container. This allows services to be accessible via unique, secure URLs
-without the need for complex configurations or additional Tailscale containers.
+almeidapaulopt/tsdproxy:v1.x.x  - Version 1.x.x
+almeidapaulopt/tsdproxy:latest  - Latest stable
+almeidapaulopt/tsdproxy:next    - Latest Release Candidate
+almeidapaulopt/tsdproxy:dev     - Latest Development Build
 
 ## Core Functionality
 
