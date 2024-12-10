@@ -3,6 +3,7 @@ services:
     image: devimage
     ports:
       - "8080:8080"
+      - "7331:7331"
     volumes:
       - ..:/app
       - .:/config

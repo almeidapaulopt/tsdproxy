@@ -3,6 +3,7 @@ module github.com/almeidapaulopt/tsdproxy
 go 1.23.4
 
 require (
+	github.com/a-h/templ v0.2.793
 	github.com/creasty/defaults v1.8.0
 	github.com/docker/docker v27.4.0+incompatible
 	github.com/fsnotify/fsnotify v1.8.0

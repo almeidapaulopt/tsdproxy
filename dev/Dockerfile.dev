@@ -11,11 +11,14 @@ WORKDIR /app
 
 
 #USER appuser
-RUN go install github.com/bokwoon95/wgo@latest
+RUN go install github.com/bokwoon95/wgo@latest && go install github.com/a-h/templ/cmd/templ@latest
 
 COPY go.mod go.sum /app/
 
 RUN go mod download
 
-CMD ["wgo", "run", "cmd/server/main.go"]
+EXPOSE 8080
+EXPOSE 7331
+
+CMD ["make", "run_in_docker" ]
 

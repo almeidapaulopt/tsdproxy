@@ -14,6 +14,7 @@ env:
 before:
   hooks:
     - go mod tidy
+    - go install github.com/a-h/templ/cmd/templ@latest
     - go generate ./...
 
 gomod:

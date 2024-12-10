@@ -10,4 +10,4 @@ COPY healthcheck /
 
 ENTRYPOINT ["/tsdproxyd"]
 EXPOSE 8080
-HEALTHCHECK CMD [ "/healthcheck" ]
+HEALTHCHECK --interval=1m --timeout=2s CMD [ "/healthcheck" ]
