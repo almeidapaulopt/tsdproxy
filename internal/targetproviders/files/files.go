@@ -39,9 +39,10 @@ type (
 	configProxiesList map[string]proxyConfig
 
 	proxyConfig struct {
+		Dashboard     *proxyconfig.Dashboard
+		Tailscale     *proxyconfig.Tailscale
 		URL           string `validate:"required,uri"`
 		ProxyProvider string
-		Tailscale     proxyconfig.Tailscale
 		TLSValidate   bool `default:"true" validate:"boolean"`
 	}
 )
@@ -129,10 +130,11 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*proxyconfig.Config
 	pcfg.ProxyURL = proxyURL
 	pcfg.Hostname = name
 	pcfg.TargetProvider = c.name
-	pcfg.Tailscale = &p.Tailscale
+	pcfg.Tailscale = p.Tailscale
 	pcfg.ProxyProvider = proxyProvider
 	pcfg.ProxyAccessLog = proxyAccessLog
 	pcfg.TLSValidate = p.TLSValidate
+	pcfg.Dashboard = p.Dashboard
 
 	c.addTarget(p, name)
 

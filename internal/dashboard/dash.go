@@ -27,6 +27,7 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pl proxymanager.Pro
 	}
 }
 
+// AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
 	dash.HTTP.Get("/", dash.index())
 	dash.HTTP.Get("/css/", http.FileServer(http.FS(ui.CSS)))
@@ -37,7 +38,9 @@ func (dash *Dashboard) index() http.HandlerFunc {
 		data := make(map[string]string)
 
 		for name, p := range dash.proxies {
-			data[name] = p.GetURL()
+			if p.Config.Dashboard.Visible {
+				data[name] = p.GetURL()
+			}
 		}
 
 		err := ui.Render(w, r, pages.Index(data))

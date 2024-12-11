@@ -21,7 +21,9 @@ import (
 
 const (
 	// Constants to be used in container labels
-	LabelPrefix    = "tsdproxy."
+	LabelPrefix          = "tsdproxy."
+	LabelDashboardPrefix = LabelPrefix + "dash."
+
 	LabelIsEnabled = LabelEnable + "=true"
 
 	// Container config labels.
@@ -39,6 +41,7 @@ const (
 	LabelAutoDetect         = LabelPrefix + "autodetect"
 	LabelScheme             = LabelPrefix + "scheme"
 	LabelTLSValidate        = LabelPrefix + "tlsvalidate"
+	LabelDashboardVisible   = LabelDashboardPrefix + "visible"
 
 	// docker only defaults
 	DefaultAutoDetect = true
@@ -117,6 +120,7 @@ func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
 	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, proxyconfig.DefaultProxyProvider)
 	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, proxyconfig.DefaultProxyAccessLog)
 	pcfg.TLSValidate = c.getLabelBool(LabelTLSValidate, proxyconfig.DefaultTLSValidate)
+	pcfg.Dashboard.Visible = c.getLabelBool(LabelDashboardVisible, pcfg.Dashboard.Visible)
 
 	return pcfg, nil
 }
