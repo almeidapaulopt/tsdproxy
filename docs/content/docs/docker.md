@@ -147,12 +147,24 @@ labels:
 
 ### tsdproxy.scheme
 
-Defaults to "http", set to https to enable "https" if the container is running with TLS.
+Defaults to "http", set to https to enable "https" if the container is running
+with TLS.
 
 ```yaml
 labels:
   tsdproxy.enable: "true"
   tsdproxy.scheme: "https"
+```
+
+### tsdproxy.tlsvalidate
+
+Defaults to true, set to false to disable TLS validation.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.scheme: "https"
+  tsdproxy.tlsvalidate: "false"
 ```
 
 {{% /steps %}}
