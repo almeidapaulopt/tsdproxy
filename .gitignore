@@ -14,8 +14,6 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
 
 # Go workspace file
 go.work
@@ -30,8 +28,10 @@ dev/KEY_FILE
 dev/tsauthkey.env
 dev/notes
 
-
 # Hugo output
 docs/public/
 docs/resources/
 docs/.hugo_build.lock
+
+# templ generated files
+*_templ.go
