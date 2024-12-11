@@ -1,6 +1,5 @@
 ---
 title: Changelog
-prev: /docs/advanced
 weight: 200 
 ---
 
