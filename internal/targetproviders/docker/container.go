@@ -39,6 +39,11 @@ const (
 	LabelAutoDetect         = LabelPrefix + "autodetect"
 	LabelScheme             = LabelPrefix + "scheme"
 	LabelTLSValidate        = LabelPrefix + "tlsvalidate"
+
+	// docker only defaults
+	DefaultAutoDetect = true
+	DefaultScheme     = "http"
+
 	//
 	dialTimeout     = 2 * time.Second
 	autoDetectTries = 5
@@ -71,8 +76,8 @@ func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON, imageIn
 		targetProviderName:    targetproviderName,
 	}
 
-	c.autodetect = c.getLabelBool(LabelAutoDetect, true)
-	c.scheme = c.getLabelString(LabelScheme, "http")
+	c.autodetect = c.getLabelBool(LabelAutoDetect, DefaultAutoDetect)
+	c.scheme = c.getLabelString(LabelScheme, DefaultScheme)
 
 	return c
 }
@@ -105,9 +110,9 @@ func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
 		Hostname:       proxyURL.Hostname(),
 		TargetProvider: c.targetProviderName,
 		Tailscale:      tailscale,
-		ProxyProvider:  c.getLabelString(LabelProxyProvider, proxyconfig.ProxyProvider),
-		ProxyAccessLog: c.getLabelBool(LabelContainerAccessLog, proxyconfig.ProxyAccessLog),
-		TLSValidate:    c.getLabelBool(LabelTLSValidate, true),
+		ProxyProvider:  c.getLabelString(LabelProxyProvider, proxyconfig.DefaultProxyProvider),
+		ProxyAccessLog: c.getLabelBool(LabelContainerAccessLog, proxyconfig.DefaultProxyAccessLog),
+		TLSValidate:    c.getLabelBool(LabelTLSValidate, proxyconfig.DefaultTLSValidate),
 	}, nil
 }
 
@@ -121,10 +126,10 @@ func (c *container) getTailscaleConfig() (*proxyconfig.Tailscale, error) {
 	}
 
 	return &proxyconfig.Tailscale{
-		Ephemeral:    c.getLabelBool(LabelEphemeral, proxyconfig.TailscaleEphemeral),
-		RunWebClient: c.getLabelBool(LabelRunWebClient, proxyconfig.TailscaleRunWebClient),
-		Verbose:      c.getLabelBool(LabelTsnetVerbose, proxyconfig.TailscaleVerbose),
-		Funnel:       c.getLabelBool(LabelFunnel, proxyconfig.TailscaleFunnel),
+		Ephemeral:    c.getLabelBool(LabelEphemeral, proxyconfig.DefaultTailscaleEphemeral),
+		RunWebClient: c.getLabelBool(LabelRunWebClient, proxyconfig.DefaultTailscaleRunWebClient),
+		Verbose:      c.getLabelBool(LabelTsnetVerbose, proxyconfig.DefaultTailscaleVerbose),
+		Funnel:       c.getLabelBool(LabelFunnel, proxyconfig.DefaultTailscaleFunnel),
 		AuthKey:      authKey,
 		// TODO: add controlURL
 		// ControlURL:         c.,

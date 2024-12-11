@@ -87,7 +87,7 @@ func (c *Client) NewProxy(config *proxyconfig.Config) (proxyproviders.Proxy, err
 // getControlURL method returns the control URL
 func (c *Client) getControlURL(cfg *proxyconfig.Config) string {
 	if cfg.Tailscale.ControlURL == "" {
-		return proxyconfig.TailscaleControlURL
+		return proxyconfig.DefaultTailscaleControlURL
 	}
 	return cfg.Tailscale.ControlURL
 }

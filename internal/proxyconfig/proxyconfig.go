@@ -36,13 +36,14 @@ const (
 
 	// Default values to proxyconfig
 	//
-	ProxyAccessLog = true
-	ProxyProvider  = ""
+	DefaultProxyAccessLog = true
+	DefaultProxyProvider  = ""
+	DefaultTLSValidate    = true
 
 	// tailscale defaults
-	TailscaleEphemeral    = true
-	TailscaleRunWebClient = false
-	TailscaleVerbose      = false
-	TailscaleFunnel       = false
-	TailscaleControlURL   = ""
+	DefaultTailscaleEphemeral    = true
+	DefaultTailscaleRunWebClient = false
+	DefaultTailscaleVerbose      = false
+	DefaultTailscaleFunnel       = false
+	DefaultTailscaleControlURL   = ""
 )
