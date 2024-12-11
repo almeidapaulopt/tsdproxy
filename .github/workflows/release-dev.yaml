@@ -1,8 +1,13 @@
 # .github/workflows/release.yml
-name: goreleaser branch
+name: goreleaser devel
 
 on:
   push:
+    branches:
+      - main
+    paths-ignore:
+      - docs/**
+      - dev/**
 
 permissions:
   contents: write
