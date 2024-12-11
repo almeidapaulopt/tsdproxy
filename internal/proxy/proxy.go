@@ -129,26 +129,34 @@ func (proxy *Proxy) Close() error {
 func (proxy *Proxy) Start() {
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("starting proxy")
 	var err error
-	// Create the listener
-	//
-	proxy.listener, err = proxy.proxyProvider.GetTLSListener("tcp", ":443")
-	if err != nil {
-		proxy.log.Error().Err(err).Msg("Error Listening on TLS")
-		proxy.Close()
-		return
-	}
 
-	if err = proxy.proxyProvider.Start(); err != nil {
-		proxy.log.Error().Err(err).Msg("Error starting proxy")
-		proxy.Close()
-		return
-	}
+		scheme := proxy.Config.ProxyURL.Scheme
 
-	// Redirect http to https
-	//
-	err = proxy.startRedirectServer()
-	if err != nil {
-		proxy.log.Error().Err(err).Msg("Error starting redirect server")
+	switch scheme {
+	case "https":
+		proxy.listener, err = proxy.proxyProvider.GetTLSListener("tcp", ":443")
+		if err != nil {
+			proxy.log.Error().Err(err).Msg("Error Listening on TLS")
+			proxy.Close()
+			return
+		}
+
+		err = proxy.startRedirectServer()
+		if err != nil {
+			proxy.log.Error().Err(err).Msg("Error starting redirect server")
+		}
+
+	case "http":
+		proxy.listener, err = proxy.proxyProvider.GetListener("tcp", ":80")
+		if err != nil {
+			proxy.log.Error().Err(err).Msg("Error Listening on HTTP")
+			proxy.Close()
+			return
+		}
+
+	default:
+		proxy.log.Error().Str("scheme", scheme).Msg("Unsupported scheme")
+		return
 	}
 
 	// start server
