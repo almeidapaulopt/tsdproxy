@@ -68,17 +68,19 @@ func (p *Proxy) watchStatus(ctx context.Context) {
 			p.log.Error().Err(err).Msg("tailscale.watchStatus")
 			return
 		}
+
 		if n.ErrMessage != nil {
 			p.log.Error().Err(err).Msg("tailscale.watchStatus: backend")
 			return
 		}
+
 		if s := n.State; s != nil {
 			status, err := p.lc.Status(ctx)
 			if err != nil {
-
 				p.log.Error().Err(err).Msg("tailscale.watchStatus")
 				return
 			}
+
 			p.status = status
 		}
 	}

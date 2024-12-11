@@ -103,17 +103,22 @@ func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
 		return nil, err
 	}
 
-	return &proxyconfig.Config{
-		TargetID:       c.container.ID,
-		TargetURL:      targetURL,
-		ProxyURL:       proxyURL,
-		Hostname:       proxyURL.Hostname(),
-		TargetProvider: c.targetProviderName,
-		Tailscale:      tailscale,
-		ProxyProvider:  c.getLabelString(LabelProxyProvider, proxyconfig.DefaultProxyProvider),
-		ProxyAccessLog: c.getLabelBool(LabelContainerAccessLog, proxyconfig.DefaultProxyAccessLog),
-		TLSValidate:    c.getLabelBool(LabelTLSValidate, proxyconfig.DefaultTLSValidate),
-	}, nil
+	pcfg, err := proxyconfig.NewConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	pcfg.TargetID = c.container.ID
+	pcfg.TargetURL = targetURL
+	pcfg.ProxyURL = proxyURL
+	pcfg.Hostname = proxyURL.Hostname()
+	pcfg.TargetProvider = c.targetProviderName
+	pcfg.Tailscale = tailscale
+	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, proxyconfig.DefaultProxyProvider)
+	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, proxyconfig.DefaultProxyAccessLog)
+	pcfg.TLSValidate = c.getLabelBool(LabelTLSValidate, proxyconfig.DefaultTLSValidate)
+
+	return pcfg, nil
 }
 
 // getTailscaleConfig method returns the tailscale configuration.

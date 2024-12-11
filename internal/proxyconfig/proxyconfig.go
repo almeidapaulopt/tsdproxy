@@ -3,13 +3,17 @@
 package proxyconfig
 
 import (
+	"fmt"
 	"net/url"
+
+	"github.com/creasty/defaults"
 )
 
 type (
 	// Config struct stores all the configuration for the proxy
 	Config struct {
-		Tailscale *Tailscale
+		Tailscale *Tailscale `validate:"dive"`
+		Dashboard *Dashboard `validate:"dive"`
 		// Global
 		TargetProvider string
 		TargetID       string
@@ -30,7 +34,22 @@ type (
 		Verbose      bool `default:"false" validate:"boolean"`
 		Funnel       bool `default:"false" validate:"boolean"`
 	}
+
+	Dashboard struct {
+		Visible bool `default:"true" validate:"boolean"`
+	}
 )
+
+func NewConfig() (*Config, error) {
+	config := new(Config)
+
+	err := defaults.Set(config)
+	if err != nil {
+		return nil, fmt.Errorf("Error loading defaults: %w", err)
+	}
+
+	return config, nil
+}
 
 const (
 

@@ -119,17 +119,20 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*proxyconfig.Config
 
 	proxyAccessLog := proxyconfig.DefaultProxyAccessLog
 
-	pcfg := &proxyconfig.Config{
-		TargetID:       name,
-		TargetURL:      targetURL,
-		ProxyURL:       proxyURL,
-		Hostname:       name,
-		TargetProvider: c.name,
-		Tailscale:      &p.Tailscale,
-		ProxyProvider:  proxyProvider,
-		ProxyAccessLog: proxyAccessLog,
-		TLSValidate:    p.TLSValidate,
+	pcfg, err := proxyconfig.NewConfig()
+	if err != nil {
+		return nil, err
 	}
+
+	pcfg.TargetID = name
+	pcfg.TargetURL = targetURL
+	pcfg.ProxyURL = proxyURL
+	pcfg.Hostname = name
+	pcfg.TargetProvider = c.name
+	pcfg.Tailscale = &p.Tailscale
+	pcfg.ProxyProvider = proxyProvider
+	pcfg.ProxyAccessLog = proxyAccessLog
+	pcfg.TLSValidate = p.TLSValidate
 
 	c.addTarget(p, name)
 
