@@ -7,6 +7,9 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
+	"github.com/almeidapaulopt/tsdproxy/internal/ui"
+	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
+
 	"github.com/rs/zerolog"
 )
 
@@ -25,21 +28,21 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pl proxymanager.Pro
 }
 
 func (dash *Dashboard) AddRoutes() {
-	dash.HTTP.Handle("GET /", dash.index())
+	dash.HTTP.Get("/", dash.index())
+	dash.HTTP.Get("/css/", http.FileServer(http.FS(ui.CSS)))
 }
 
 func (dash *Dashboard) index() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`<!DOCTYPE html>
-		<html>
-			<head>
-				<meta charset="utf-8">
-			</head>
-			<body>
-			<h1>NOT IMPLEMENTED YET</h1>`))
-		// for _, p := range dash.proxies {
-		// 	_, _ = w.Write([]byte(p.URL.String() + "\n"))
-		// }
-		_, _ = w.Write([]byte(`</body></html>`))
+	return func(w http.ResponseWriter, r *http.Request) {
+		data := make(map[string]string)
+
+		for name, p := range dash.proxies {
+			data[name] = p.GetURL()
+		}
+
+		err := ui.Render(w, r, pages.Index(data))
+		if err != nil {
+			dash.Log.Error().Err(err).Msg("Render failed")
+		}
 	}
 }
