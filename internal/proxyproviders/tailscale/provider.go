@@ -42,8 +42,6 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 func (c *Client) NewProxy(config *proxyconfig.Config) (proxyproviders.Proxy, error) {
 	c.log.Debug().
 		Str("hostname", config.Hostname).
-		Bool("ephemeral", config.Tailscale.Ephemeral).
-		Bool("runWebClient", config.Tailscale.RunWebClient).
 		Msg("Setting up tailscale server")
 
 	// If the auth key is not set, use the provider auth key

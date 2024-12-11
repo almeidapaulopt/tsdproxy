@@ -116,7 +116,7 @@ func (c *container) newProxyConfig() (*proxyconfig.Config, error) {
 	pcfg.ProxyURL = proxyURL
 	pcfg.Hostname = proxyURL.Hostname()
 	pcfg.TargetProvider = c.targetProviderName
-	pcfg.Tailscale = tailscale
+	pcfg.Tailscale = *tailscale
 	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, proxyconfig.DefaultProxyProvider)
 	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, proxyconfig.DefaultProxyAccessLog)
 	pcfg.TLSValidate = c.getLabelBool(LabelTLSValidate, proxyconfig.DefaultTLSValidate)

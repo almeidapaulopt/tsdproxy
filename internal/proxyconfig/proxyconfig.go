@@ -12,8 +12,8 @@ import (
 type (
 	// Config struct stores all the configuration for the proxy
 	Config struct {
-		Tailscale *Tailscale `validate:"dive"`
-		Dashboard *Dashboard `validate:"dive"`
+		Tailscale Tailscale `validate:"dive"`
+		Dashboard Dashboard `validate:"dive"`
 		// Global
 		TargetProvider string
 		TargetID       string
