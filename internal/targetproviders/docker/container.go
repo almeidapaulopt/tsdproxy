@@ -241,7 +241,7 @@ func (c *container) getProxyURL() (*url.URL, error) {
 	}
 
 	// validate url
-	return url.Parse(c.scheme + "://" + name)
+	return url.Parse("https://" + name)
 }
 
 // getName method returns the name of the container
