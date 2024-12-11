@@ -78,6 +78,7 @@ func (c *Client) NewProxy(config *proxyconfig.Config) (proxyproviders.Proxy, err
 	}
 
 	return &Proxy{
+		log:      c.log,
 		config:   config,
 		tsServer: tserver,
 	}, nil
