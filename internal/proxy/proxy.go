@@ -134,19 +134,23 @@ func (proxy *Proxy) Start() {
 
 	switch scheme {
 	case "https":
+		// HTTPS case: use TLS and redirect HTTP -> HTTPS
 		proxy.listener, err = proxy.proxyProvider.GetTLSListener("tcp", ":443")
 		if err != nil {
 			proxy.log.Error().Err(err).Msg("Error Listening on TLS")
 			proxy.Close()
 			return
 		}
-
+		
+		// Redirect http to https
+		//
 		err = proxy.startRedirectServer()
 		if err != nil {
 			proxy.log.Error().Err(err).Msg("Error starting redirect server")
 		}
 
 	case "http":
+		// HTTP case: no TLS, no redirect
 		proxy.listener, err = proxy.proxyProvider.GetListener("tcp", ":80")
 		if err != nil {
 			proxy.log.Error().Err(err).Msg("Error Listening on HTTP")
