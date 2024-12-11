@@ -46,6 +46,16 @@ func (a *HTTPServer) Handle(pattern string, handler http.Handler) {
 	a.Mux.Handle(pattern, finalHandler)
 }
 
+// Get method add a GET handler
+func (a *HTTPServer) Get(pattern string, handler http.Handler) {
+	a.Handle("GET "+pattern, handler)
+}
+
+// Post method add a POST handler
+func (a *HTTPServer) Post(pattern string, handler http.Handler) {
+	a.Handle("POST "+pattern, handler)
+}
+
 // StartServer starts a custom http server.
 func (a *HTTPServer) StartServer(s *http.Server) error {
 	// set Logger the first middlewares
