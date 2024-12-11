@@ -138,6 +138,12 @@ func (proxy *Proxy) Start() {
 		return
 	}
 
+	if err = proxy.proxyProvider.Start(); err != nil {
+		proxy.log.Error().Err(err).Msg("Error starting proxy")
+		proxy.Close()
+		return
+	}
+
 	// Redirect http to https
 	//
 	err = proxy.startRedirectServer()
@@ -184,6 +190,10 @@ func (proxy *Proxy) startRedirectServer() error {
 	}()
 
 	return nil
+}
+
+func (proxy *Proxy) GetURL() string {
+	return proxy.proxyProvider.GetURL()
 }
 
 // reverseProxyFunc func is a method that returns a reverse proxy handler.

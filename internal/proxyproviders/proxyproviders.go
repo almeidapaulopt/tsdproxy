@@ -20,5 +20,6 @@ type (
 		Close() error
 		GetListener(network, addr string) (net.Listener, error)
 		GetTLSListener(network, addr string) (net.Listener, error)
+		GetURL() string
 	}
 )
