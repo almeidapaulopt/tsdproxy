@@ -1,0 +1,13 @@
+package pages
+
+import "github.com/almeidapaulopt/tsdproxy/internal/ui/layouts"
+
+templ Index(l map[string]string) {
+	@layouts.Layout() {
+		<div class="grid">
+			for _, item := range l {
+				<a href={ templ.URL(item) } role="button" class="primary">{ item }</a>
+			}
+		</div>
+	}
+}
