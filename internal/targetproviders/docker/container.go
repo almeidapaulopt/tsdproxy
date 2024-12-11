@@ -21,9 +21,7 @@ import (
 
 const (
 	// Constants to be used in container labels
-	LabelPrefix          = "tsdproxy."
-	LabelDashboardPrefix = LabelPrefix + "dash."
-
+	LabelPrefix    = "tsdproxy."
 	LabelIsEnabled = LabelEnable + "=true"
 
 	// Container config labels.
@@ -41,16 +39,19 @@ const (
 	LabelAutoDetect         = LabelPrefix + "autodetect"
 	LabelScheme             = LabelPrefix + "scheme"
 	LabelTLSValidate        = LabelPrefix + "tlsvalidate"
-	LabelDashboardVisible   = LabelDashboardPrefix + "visible"
+
+	// Dashboard config labels
+	LabelDashboardPrefix  = LabelPrefix + "dash."
+	LabelDashboardVisible = LabelDashboardPrefix + "visible"
 
 	// docker only defaults
-	DefaultAutoDetect = true
-	DefaultScheme     = "http"
+	DefaultAutoDetect   = true
+	DefaultTargetScheme = "http"
 
-	//
+	// auto detect
 	dialTimeout     = 2 * time.Second
 	autoDetectTries = 5
-	autoDetectSleep = 15 * time.Second
+	autoDetectSleep = 5 * time.Second
 )
 
 // container struct stores the data from the docker container.
@@ -80,7 +81,7 @@ func newContainer(logger zerolog.Logger, dcontainer types.ContainerJSON, imageIn
 	}
 
 	c.autodetect = c.getLabelBool(LabelAutoDetect, DefaultAutoDetect)
-	c.scheme = c.getLabelString(LabelScheme, DefaultScheme)
+	c.scheme = c.getLabelString(LabelScheme, DefaultTargetScheme)
 
 	return c
 }
