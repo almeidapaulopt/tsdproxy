@@ -117,7 +117,7 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*proxyconfig.Config
 		proxyProvider = p.ProxyProvider
 	}
 
-	proxyAccessLog := proxyconfig.ProxyAccessLog
+	proxyAccessLog := proxyconfig.DefaultProxyAccessLog
 
 	pcfg := &proxyconfig.Config{
 		TargetID:       name,
