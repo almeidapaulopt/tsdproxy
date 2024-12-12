@@ -155,7 +155,7 @@ docs:
 
 .PHONY: run_in_docker
 run_in_docker:
-	wgo -file=.go -file=.templ -file=.yaml -xfile=_templ.go templ generate :: go run ${MAIN_PACKAGE_PATH}
+	wgo -file=.go -file=.templ -xfile=_templ.go templ generate :: go run ${MAIN_PACKAGE_PATH}
 
 	# templ generate --proxy="http://localhost:8080" --watch --cmd="echo reload" &
 	# wgo -file=.go -file=.templ -file=.yaml -xfile=_templ.go templ generate --notify-proxy :: go run ${MAIN_PACKAGE_PATH}
