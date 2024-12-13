@@ -1,0 +1,17 @@
+defaultproxyprovider: default
+docker:
+  local:
+    defaultproxyprovider: default
+tailscale:
+  providers:
+    default:
+      authkeyfile: "dev/KEY_FILE"
+  datadir: dev/data/
+http:
+  hostname: 0.0.0.0
+  port: 8080
+log:
+  level: debug
+files:
+  file1:
+    filename: dev/file1.yaml

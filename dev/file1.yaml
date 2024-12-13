@@ -2,5 +2,7 @@ nas1:
   url: https://192.168.1.72:5001
 nas2:
   url: https://google.com
-nas3:
-  url: http://dev-c1-1:81
+# nas3:
+#   url: http://dev-c1-1:81
+# Dashboard:
+#   visible: false

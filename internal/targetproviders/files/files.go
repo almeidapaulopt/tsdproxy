@@ -16,14 +16,13 @@ import (
 	"github.com/creasty/defaults"
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog"
-	"github.com/spf13/viper"
 )
 
 type (
 	// Client struct implements TargetProvider
 	Client struct {
 		log           zerolog.Logger
-		viper         *viper.Viper
+		file          *config.File
 		config        config.FilesTargetProviderConfig
 		configProxies configProxiesList
 		proxies       configProxiesList
@@ -39,13 +38,24 @@ type (
 	configProxiesList map[string]proxyConfig
 
 	proxyConfig struct {
-		Dashboard     proxyconfig.Dashboard
-		Tailscale     proxyconfig.Tailscale
 		URL           string `validate:"required,uri"`
 		ProxyProvider string
-		TLSValidate   bool `default:"true" validate:"boolean"`
+		Tailscale     proxyconfig.Tailscale
+		TLSValidate   bool                  `default:"true" validate:"boolean"`
+		Dashboard     proxyconfig.Dashboard `validate:"dive"`
 	}
 )
+
+func (s *proxyConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	_ = defaults.Set(s)
+
+	type plain proxyConfig
+	if err := unmarshal((*plain)(s)); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 // New function returns a new Files TargetProvider
 func New(log zerolog.Logger, name string, provider *config.FilesTargetProviderConfig) (*Client, error) {
@@ -53,15 +63,16 @@ func New(log zerolog.Logger, name string, provider *config.FilesTargetProviderCo
 
 	proxiesList := configProxiesList{}
 
-	v, err := config.NewViper(provider.Filename, &proxiesList)
+	file := config.NewFile(newlog, provider.Filename, proxiesList)
+	err := file.Load()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Error reading config: %w", err)
 	}
 
 	c := &Client{
+		file:          file,
 		log:           newlog,
 		name:          name,
-		viper:         v,
 		configProxies: proxiesList,
 		proxies:       make(map[string]proxyConfig),
 		eventsChan:    make(chan targetproviders.TargetEvent),
@@ -142,29 +153,27 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*proxyconfig.Config
 }
 
 func (c *Client) WatchEvents(_ context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
-	c.viper.WatchConfig()
-	c.viper.OnConfigChange(c.onConfigChange)
-	go func() {
-		for {
-			select {
-			case filesEvent := <-c.eventsChan:
-				eventsChan <- filesEvent
+	c.log.Debug().Msg("Start WatchEvents")
 
-			case err := <-c.errChan:
-				errChan <- err
-			}
-		}
-	}()
+	c.eventsChan = eventsChan
+	c.errChan = errChan
+
+	c.file.Watch()
+	c.file.OnChange(c.onFileChange)
 }
 
-func (c *Client) onConfigChange(e fsnotify.Event) {
+func (c *Client) onFileChange(e fsnotify.Event) {
 	if !e.Op.Has(fsnotify.Write) {
 		return
 	}
 	c.log.Info().Str("filename", e.Name).Msg("config changed, reloading")
 	oldConfigProxies := maps.Clone(c.configProxies)
 
-	if err := c.viper.Unmarshal(&c.configProxies); err != nil {
+	// Delete all entries because it's not deleted when loading from file
+	for k := range c.configProxies {
+		delete(c.configProxies, k)
+	}
+	if err := c.file.Load(); err != nil {
 		c.log.Error().Err(err).Msg("error loading config")
 	}
 

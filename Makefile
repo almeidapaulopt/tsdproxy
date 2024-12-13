@@ -104,7 +104,7 @@ server_start:
 	# 	TSDPROXY_DASHBOARD_NAME=DASH1 \
 	# 	DOCKER_HOST=unix:///run/user/1000/docker.sock \
 	# 	wgo run -file=.go -file=.yaml -file=.env -file=.json -file=.toml ${MAIN_PACKAGE_PATH} -config nonefile.yaml
-		wgo run -file=.go -file=.yaml -file=.env -file=.json -file=.toml ${MAIN_PACKAGE_PATH} -config ./dev/tsdproxy.yaml
+		wgo run -file=.go -file=.env -file=.json ${MAIN_PACKAGE_PATH} -config ./dev/tsdproxy-local.yaml
 
 
 

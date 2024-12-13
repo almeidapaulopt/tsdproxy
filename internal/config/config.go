@@ -7,15 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/creasty/defaults"
-	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
+	"github.com/rs/zerolog/log"
 )
-
-const prefix = "TSDPROXY"
 
 type (
 	// config stores complete configuration.
@@ -87,7 +82,9 @@ func InitializeConfig() error {
 	flag.Parse()
 
 	println("loading configuration from:", *file)
-	if _, err := NewViper(*file, Config); err != nil {
+
+	fileConfig := NewFile(log.Logger, *file, Config)
+	if err := fileConfig.Load(); err != nil {
 		return err
 	}
 
@@ -119,51 +116,11 @@ func InitializeConfig() error {
 
 	// save default config if config file does not exist
 	if _, err := os.Stat(*file); os.IsNotExist(err) {
-		if err := Config.save(file); err != nil {
+		if err := fileConfig.Save(); err != nil {
 			return err
 		}
 	}
 
-	return nil
-}
-
-func NewViper(file string, i any) (*viper.Viper, error) {
-	filename := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
-	dir, _ := filepath.Split(file)
-	filetype := strings.TrimPrefix(filepath.Ext(file), ".")
-
-	v := viper.New()
-	v.SetConfigName(filename)
-	v.SetConfigType(filetype)
-	v.AddConfigPath(dir)
-	v.SetEnvPrefix(prefix)
-	v.AutomaticEnv()
-
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	_ = v.ReadInConfig()
-
-	if err := v.Unmarshal(&i); err != nil {
-		return nil, err
-	}
-
-	// generate the config file if it does not exist
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err1 := os.MkdirAll(dir, os.ModeDir); err1 != nil {
-			return nil, err1
-		}
-	}
-
-	return v, nil
-}
-
-func (c *config) save(file *string) error {
-	yaml, err := yaml.Marshal(Config)
-	if err != nil {
-		return err
-	}
-	if err1 := os.WriteFile(*file, yaml, 0644); err1 != nil {
-		return err1
-	}
 	return nil
 }
 
