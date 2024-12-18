@@ -39,3 +39,8 @@ docs/.hugo_build.lock
 
 # static files
 internal/ui/static/*
+
+# Node files
+# Dependency directories
+node_modules/
+
