@@ -61,6 +61,8 @@ builds:
         goos: windows
       - goarch: arm64
         goos: freebsd
+    flags:
+      - -tags=prod
     ldflags:
       - -s -w
       - -X "github.com/almeidapaulopt/tsdproxy/internal/core.version={{ .Version  }}"
