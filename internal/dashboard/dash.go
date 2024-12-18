@@ -11,6 +11,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 
 	"github.com/rs/zerolog"
+	"github.com/vearutop/statigz"
+	"github.com/vearutop/statigz/brotli"
 )
 
 type Dashboard struct {
@@ -30,9 +32,11 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pl proxymanager.Pro
 // AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
 	dash.HTTP.Get("/", dash.index())
-	dash.HTTP.Get("/css/", http.FileServer(http.FS(ui.CSS)))
+
+	dash.HTTP.Get("/static/", statigz.FileServer(ui.Static, brotli.AddEncoding))
 }
 
+// index is the HandlerFunc to index page of dashboard
 func (dash *Dashboard) index() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data := make(map[string]string)
