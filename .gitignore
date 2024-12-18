@@ -36,3 +36,6 @@ docs/.hugo_build.lock
 # templ generated files
 *_templ.go
 *_templ.txt
+
+# static files
+internal/ui/static/*
