@@ -78,7 +78,7 @@ The container name is `sample-nginx`, expose port 8181, and add the
 `tsdproxy.enable` label.
 
 ```bash
-docker run -d --name sample-nginx -p 8111:80 --label "tsdproxy.enable=true" nginx:latest
+docker run -d --name sample-nginx -p 8181:80 --label "tsdproxy.enable=true" nginx:latest
 ```
 
 ### Test the sample service
