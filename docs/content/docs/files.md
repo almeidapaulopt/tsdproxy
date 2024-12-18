@@ -4,10 +4,10 @@ next: /docs/advanced
 weight: 4
 ---
 
-TSDProxy can be configured to proxy using a YAML configuration file.
-Can be used multiple files a they are called as target providers.
-Each target provider could be used to group the way you decide better to help
-you manage your proxies. Or can use a single file to proxy all your targets.
+TSDProxy can be configured to proxy using a YAML configuration file, and can
+use multiple files if they are called as target providers.
+Each target provider can be used to group providers and make it easier to
+manage your proxies. Or you can use a single provider to proxy all your targets.
 
 {{< callout type="info" >}}
 TSDProxy will reload the proxy list when it is updated.
