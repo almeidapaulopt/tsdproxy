@@ -18,7 +18,7 @@ You only need to restart TSDProxy if your changes are in /config/tsdproxy.yaml
 
 ### How to enable?
 
-In yout /config/tsdproxy.yaml, define the files you want to use, just
+In your /config/tsdproxy.yaml, define the files you want to use, just
 like this example where is defined the `critical` and `media` providers.
 
 ```yaml  {filename="/config/tsdproxy.yaml"}
