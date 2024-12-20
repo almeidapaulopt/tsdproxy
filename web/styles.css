@@ -5,14 +5,18 @@
 
 
 
-@layer theme {
+@layer theme {}
+
+@layer base {
   html {
     scroll-behavior: smooth;
     @apply h-full;
   }
-}
 
-@layer base {
+  a {
+    @apply hover:text-blue-500 dark:hover:text-blue-400;
+  }
+
   body {
 
     @apply h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col;
@@ -50,6 +54,7 @@
   footer {
     @apply bg-gray-100 dark:bg-gray-800 shadow p-4 text-center mt-auto;
   }
+
 }
 
 
@@ -61,11 +66,6 @@
 
   #mobile-menu {
     @apply md:hidden bg-gray-100 dark:bg-gray-800 shadow p-4;
-  }
-
-  #mobile-menu a,
-  #desktop-menu a {
-    @apply hover:text-blue-500 dark:hover:text-blue-400;
   }
 
   #mobile-menu {
