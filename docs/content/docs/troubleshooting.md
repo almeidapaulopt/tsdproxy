@@ -16,7 +16,6 @@ The actual error is a TLS error. The most common cause is that the target has a 
 tsdproxy.enable: true
 tsdproxy.scheme: https
 tsdproxy.tlsvalidate: false
-
 ```
 
 ### 2024/12/06 15:17:11 http: proxy error: dial tcp 172.18.0.1:8001: i/o timeout

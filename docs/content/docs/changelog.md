@@ -6,6 +6,12 @@ weight: 200
 
 {{% steps %}}
 
+### 1.2.0
+
+#### New features
+
+Dashboard finally arrived.
+
 ### 1.1.2
 
 #### Fixes
