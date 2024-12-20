@@ -3,6 +3,7 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"sync"
@@ -34,6 +35,8 @@ func (f *File) Load() error {
 	if err != nil {
 		return err
 	}
+	// lowercase all values
+	data = bytes.ToLower(data)
 
 	err = yaml.Unmarshal(data, f.data)
 	if err != nil {
