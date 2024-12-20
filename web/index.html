@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Responsive Page</title>
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <header>
+    <div id="logo">
+      <a href="/">
+        <img src="/logo.png" alt="Logo">
+        <span>TSDProxy</span>
+      </a>
+    </div>
+    <button id="menu-toggle">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+        stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
+      </svg>
+    </button>
+
+    <div id="desktop-menu">
+      <a href="/">Home</a>
+      <button class="sponsor">Become a Sponsor</button>
+      <div class="theme-switcher">
+        <div class="switch-indicator">
+        </div>
+        <span class="sun">☀️</span>
+        <span class="moon">🌙</span>
+      </div>
+    </div>
+  </header>
+  <div id="mobile-menu" class="hidden">
+    <div class="space-y-2">
+      <a href="/">Home</a>
+      <button class="sponsor">Become a Sponsor</button>
+      <div class="theme-switcher">
+        <div class="switch-indicator">
+        </div>
+        <span class="sun">☀️</span>
+        <span class="moon">🌙</span>
+      </div>
+    </div>
+  </div>
+  <main hx-get="/r/list" hx-trigger="load"></main>
+  <footer>
+    <div class="content has-text-centered">
+      TSDProxy by <strong>Paulo Almeida</strong> with the help of our
+      <a href="https://github.com/almeidapaulopt/tsdproxy/graphs/contributors" target="_blank"
+        rel="noopener noreferrer">contributors</a>.
+    </div>
+
+  </footer>
+
+  <script src="scripts.js" defer type="module"></script>
+</body>
+
+</html>

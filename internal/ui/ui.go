@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"embed"
 	"fmt"
 	"net/http"
 
@@ -11,9 +10,6 @@ import (
 )
 
 //go:generate templ generate
-
-//go:embed assets/css/*
-var CSS embed.FS
 
 func Render(w http.ResponseWriter, r *http.Request, cmp templ.Component) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

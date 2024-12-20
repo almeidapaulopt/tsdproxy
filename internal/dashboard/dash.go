@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
+
 package dashboard
 
 import (
@@ -9,10 +10,9 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
 	"github.com/almeidapaulopt/tsdproxy/internal/ui"
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
+	"github.com/almeidapaulopt/tsdproxy/web"
 
 	"github.com/rs/zerolog"
-	"github.com/vearutop/statigz"
-	"github.com/vearutop/statigz/brotli"
 )
 
 type Dashboard struct {
@@ -31,13 +31,12 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pl proxymanager.Pro
 
 // AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
-	dash.HTTP.Get("/", dash.index())
-
-	dash.HTTP.Get("/static/", statigz.FileServer(ui.Static, brotli.AddEncoding))
+	dash.HTTP.Get("/r/list", dash.list())
+	dash.HTTP.Get("/", web.Static)
 }
 
 // index is the HandlerFunc to index page of dashboard
-func (dash *Dashboard) index() http.HandlerFunc {
+func (dash *Dashboard) list() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data := make(map[string]string)
 
@@ -47,7 +46,7 @@ func (dash *Dashboard) index() http.HandlerFunc {
 			}
 		}
 
-		err := ui.Render(w, r, pages.Index(data))
+		err := ui.Render(w, r, pages.List(data))
 		if err != nil {
 			dash.Log.Error().Err(err).Msg("Render failed")
 		}

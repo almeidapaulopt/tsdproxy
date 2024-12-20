@@ -30,6 +30,9 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: "go.mod"
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
       - uses: sigstore/cosign-installer@v3.7.0
 
       - name: dockerhub-login

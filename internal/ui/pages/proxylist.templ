@@ -1,0 +1,11 @@
+package pages
+
+templ List(l map[string]string) {
+	<div class="proxy-list">
+		for name, item := range l {
+			<a href={ templ.URL(item) }>
+				{ name }
+			</a>
+		}
+	</div>
+}

@@ -16,6 +16,9 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "1.23"
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
 
       - name: Install dependencies
         run: go install github.com/a-h/templ/cmd/templ@latest

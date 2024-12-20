@@ -1,0 +1,109 @@
+@import "tailwindcss";
+@source "../internal/ui/*.templ";
+@source "index.html";
+@variant dark (&:where(.dark, .dark *));
+
+
+
+@layer theme {
+  html {
+    scroll-behavior: smooth;
+    @apply h-full;
+  }
+}
+
+@layer base {
+  body {
+
+    @apply h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col;
+
+  }
+
+  header {
+    @apply bg-gray-100 dark:bg-gray-800 shadow p-4 flex justify-between items-center;
+
+    #logo {
+      @apply flex items-center space-x-4;
+
+      a {
+        @apply flex items-center space-x-2;
+
+        img {
+          @apply w-10 h-10;
+        }
+
+        span {
+          @apply text-xl font-bold;
+        }
+      }
+    }
+
+    #menu-toggle {
+      @apply md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-500 dark:border-gray-400 hover:text-blue-500 dark:hover:text-blue-400;
+    }
+  }
+
+  main {
+    @apply p-6 flex-grow;
+  }
+
+  footer {
+    @apply bg-gray-100 dark:bg-gray-800 shadow p-4 text-center mt-auto;
+  }
+}
+
+
+@layer components {
+
+  #desktop-menu {
+    @apply hidden md:flex items-center space-x-4;
+  }
+
+  #mobile-menu {
+    @apply md:hidden bg-gray-100 dark:bg-gray-800 shadow p-4;
+  }
+
+  #mobile-menu a,
+  #desktop-menu a {
+    @apply hover:text-blue-500 dark:hover:text-blue-400;
+  }
+
+  #mobile-menu {
+    a {
+      @apply block py-2;
+    }
+
+    .sponsor {
+      @apply block w-full text-left;
+    }
+  }
+
+  .sponsor {
+    @apply bg-blue-500 hover:bg-blue-600 dark:bg-blue-400 dark:hover:bg-blue-500 text-white px-4 py-2 rounded;
+  }
+
+
+  .theme-switcher {
+    @apply relative w-20 h-8 bg-gray-300 dark:bg-gray-700 rounded-full flex items-center p-1 cursor-pointer;
+
+    .switch-indicator {
+      @apply absolute w-7 h-7 bg-white dark:bg-black rounded-full shadow transform transition-transform;
+    }
+
+    .sun {
+      @apply absolute left-2 text-sm;
+    }
+
+    .moon {
+      @apply absolute right-2 text-sm;
+    }
+  }
+
+  .proxy-list {
+    @apply grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4;
+
+    a {
+      @apply p-4 bg-gray-100 dark:bg-gray-800 rounded shadow hover:bg-gray-200 dark:hover:bg-gray-700;
+    }
+  }
+}
