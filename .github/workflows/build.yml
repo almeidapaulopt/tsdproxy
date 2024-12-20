@@ -19,6 +19,8 @@ jobs:
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
+      - name: Install bun dependencies
+        run: bun i
 
       - name: Install dependencies
         run: go install github.com/a-h/templ/cmd/templ@latest
