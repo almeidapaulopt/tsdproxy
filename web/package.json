@@ -9,11 +9,9 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.0.0-beta.8",
     "@tailwindcss/vite": "^4.0.0-beta.8",
-    "purgecss": "^7.0.2",
     "tailwindcss": "^4.0.0-beta.8",
-    "vite": "^6.0.4",
+    "vite": "^6.0.5",
     "vite-plugin-compression2": "^1.3.3"
   },
   "dependencies": {
