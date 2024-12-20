@@ -20,7 +20,7 @@ jobs:
         with:
           bun-version: latest
       - name: Install bun dependencies
-        run: bun i
+        run: bun i --cwd ./web
 
       - name: Install dependencies
         run: go install github.com/a-h/templ/cmd/templ@latest
