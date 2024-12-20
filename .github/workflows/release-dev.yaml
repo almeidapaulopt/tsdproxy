@@ -33,8 +33,6 @@ jobs:
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
-      - name: Install bun dependencies
-        run: bun i --cwd ./web
 
       - uses: sigstore/cosign-installer@v3.7.0
 
