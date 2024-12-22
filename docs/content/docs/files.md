@@ -5,7 +5,7 @@ weight: 4
 ---
 
 TSDProxy can be configured to proxy using a YAML configuration file.
-Can be used multiple files a they are called as target providers.
+Multiple files can be used, and they are referred to as target providers.
 Each target provider could be used to group the way you decide better to help
 you manage your proxies. Or can use a single file to proxy all your targets.
 
@@ -18,8 +18,8 @@ You only need to restart TSDProxy if your changes are in /config/tsdproxy.yaml
 
 ### How to enable?
 
-In yout /config/tsdproxy.yaml, define the files you want to use, just
-like this example where is defined the `critical` and `media` providers.
+In your /config/tsdproxy.yaml, specify the files you want to use, just
+like this example where the `critical` and `media` providers are defined.
 
 ```yaml  {filename="/config/tsdproxy.yaml"}
 Files:

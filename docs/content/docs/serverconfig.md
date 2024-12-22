@@ -4,7 +4,7 @@ weight: 2
 ---
 
 
-TSDProxy use the configuration file `/config/tsdproxy.yaml`
+TSDProxy uses the configuration file `/config/tsdproxy.yaml`
 
 {{< callout type="warning" >}}
 The environment variables configuration used until v0.6.0 is deprecated and

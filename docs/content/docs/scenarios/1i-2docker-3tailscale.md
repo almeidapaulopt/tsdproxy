@@ -1,5 +1,5 @@
 ---
-title: One TSDProxy instance, two Docker servers and thee Tailscale providers
+title: One TSDProxy instance, two Docker servers and three Tailscale providers
 ---
 ## Description
 
