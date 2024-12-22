@@ -36,6 +36,9 @@ type (
 		log      zerolog.Logger
 		listener net.Listener
 		handler  http.Handler
+
+		// used to stop the proxy. Using this channel avoid several Race conditions.
+		quit chan int
 	}
 )
 
@@ -52,6 +55,7 @@ func NewProxy(log zerolog.Logger,
 		log:            log.With().Str("proxyname", pcfg.Hostname).Logger(),
 		targetprovider: targetprovider,
 		Config:         pcfg,
+		quit:           make(chan int, 1),
 	}
 
 	log.Info().Str("hostname", pcfg.Hostname).Msg("setting up proxy")
@@ -105,13 +109,19 @@ func NewProxy(log zerolog.Logger,
 	return proxy, nil
 }
 
-// Close method is a method that closes the proxy.
-func (proxy *Proxy) Close() error {
+// Close method is a method that initiate proxy close procedure.
+func (proxy *Proxy) Close() {
+	proxy.quit <- 1
+}
+
+// close method is a method that closes all listeners ans httpServer.
+func (proxy *Proxy) close() {
 	var errs error
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("stopping proxy")
+
 	// if has http redirect server
 	if proxy.httpServer != nil {
-		proxy.httpServer.Close()
+		errs = errors.Join(errs, proxy.httpServer.Close())
 	}
 	if proxy.httpListener != nil {
 		errs = errors.Join(errs, proxy.httpListener.Close())
@@ -122,11 +132,25 @@ func (proxy *Proxy) Close() error {
 	if proxy.proxyProvider != nil {
 		errs = errors.Join(proxy.proxyProvider.Close())
 	}
-	return errs
+
+	if errs != nil {
+		proxy.log.Error().Err(errs).Msg("Error stopping proxy")
+	}
+
+	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("proxy stopped")
 }
 
 // Start method is a method that starts the proxy.
 func (proxy *Proxy) Start() {
+	go func() {
+		proxy.start()
+		// wait for signal to close the proxy.
+		<-proxy.quit
+		proxy.close()
+	}()
+}
+
+func (proxy *Proxy) start() {
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("starting proxy")
 	var err error
 	// Create the listener

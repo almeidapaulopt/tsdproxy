@@ -107,7 +107,7 @@ func (app *WebApp) Start() {
 
 	// Start watching docker events
 	//
-	go app.ProxyManager.WatchEvents()
+	app.ProxyManager.WatchEvents()
 
 	// Start Dashboard
 	//

@@ -90,10 +90,7 @@ func (pm *ProxyManager) addTargetProviders() {
 			continue
 		}
 
-		go func() {
-			pm.addTargetProvider(p, name)
-			pm.setupInitialProxies(p, name)
-		}()
+		pm.addTargetProvider(p, name)
 	}
 	for name, file := range config.Config.Files {
 		p, err := files.New(pm.log, name, file)
@@ -102,10 +99,7 @@ func (pm *ProxyManager) addTargetProviders() {
 			continue
 		}
 
-		go func() {
-			pm.addTargetProvider(p, name)
-			pm.setupInitialProxies(p, name)
-		}()
+		pm.addTargetProvider(p, name)
 	}
 }
 
@@ -133,19 +127,16 @@ func (pm *ProxyManager) addProxy(proxy *proxy.Proxy) {
 
 // removeProxy method removes a Proxy from the ProxyManager.
 func (pm *ProxyManager) removeProxy(hostname string) {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
 	proxy, exists := pm.Proxies[hostname]
 	if !exists {
 		return
 	}
 
-	if err := proxy.Close(); err != nil {
-		pm.log.Error().Err(err).Str("proxy", hostname).Msg("Error shutting down proxy server")
-	} else {
-		pm.log.Info().Str("proxy", hostname).Msg("Proxy server shut down successfully")
-	}
+	proxy.Close()
 
-	pm.mutex.Lock()
-	defer pm.mutex.Unlock()
 	delete(pm.Proxies, hostname)
 
 	pm.log.Info().Str("proxy", hostname).Msg("Removed proxy for container")
@@ -157,21 +148,6 @@ func (pm *ProxyManager) StopAllProxies() {
 
 	for id := range pm.Proxies {
 		pm.removeProxy(id)
-	}
-}
-
-// setupInitialProxies method create proxies for all target providers on initial start.
-func (pm *ProxyManager) setupInitialProxies(p targetproviders.TargetProvider, providername string) {
-	pm.log.Debug().Any("provider", providername).Msg("Creating proxies for provider")
-
-	// get initial proxies for a target provider
-	proxies, err := p.GetAllProxies()
-	if err != nil {
-		pm.log.Warn().Err(err).Msg("Error getting proxies")
-	}
-	// create a start each proxy
-	for name, proxyConfig := range proxies {
-		go pm.newAndStartProxy(name, proxyConfig, p)
 	}
 }
 
@@ -230,28 +206,25 @@ func (pm *ProxyManager) getProxyProvider(proxy *proxyconfig.Config) (proxyprovid
 // WatchEvents method watches for events from all target providers.
 func (pm *ProxyManager) WatchEvents() {
 	for _, provider := range pm.TargetProviders {
-		go pm.watchTargetEventsEvents(provider)
-	}
-}
+		go func(provider targetproviders.TargetProvider) {
+			ctx := context.Background()
 
-// watchTargetEventsEvents method watches for events from a targetprovider.
-func (pm *ProxyManager) watchTargetEventsEvents(provider targetproviders.TargetProvider) {
-	ctx := context.Background()
+			eventsChan := make(chan targetproviders.TargetEvent)
+			errChan := make(chan error)
+			defer close(errChan)
+			defer close(eventsChan)
 
-	eventsChan := make(chan targetproviders.TargetEvent)
-	errChan := make(chan error)
-	defer close(errChan)
-	defer close(eventsChan)
-
-	provider.WatchEvents(ctx, eventsChan, errChan)
-	for {
-		select {
-		case event := <-eventsChan:
-			go pm.HandleContainerEvent(event)
-		case err := <-errChan:
-			pm.log.Err(err).Msg("Error watching Docker events")
-			return
-		}
+			provider.WatchEvents(ctx, eventsChan, errChan)
+			for {
+				select {
+				case event := <-eventsChan:
+					pm.HandleContainerEvent(event)
+				case err := <-errChan:
+					pm.log.Err(err).Msg("Error watching Docker events")
+					return
+				}
+			}
+		}(provider)
 	}
 }
 
@@ -259,14 +232,12 @@ func (pm *ProxyManager) watchTargetEventsEvents(provider targetproviders.TargetP
 func (pm *ProxyManager) HandleContainerEvent(event targetproviders.TargetEvent) {
 	switch event.Action {
 	case targetproviders.ActionStart:
-		go pm.eventStart(event)
+		pm.eventStart(event)
 	case targetproviders.ActionStop:
-		go pm.eventStop(event)
+		pm.eventStop(event)
 	case targetproviders.ActionRestart:
-		go func() {
-			pm.eventStop(event)
-			pm.eventStart(event)
-		}()
+		pm.eventStop(event)
+		pm.eventStart(event)
 	}
 }
 

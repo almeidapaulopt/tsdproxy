@@ -66,7 +66,7 @@ func New(log zerolog.Logger, name string, provider *config.FilesTargetProviderCo
 	file := config.NewFile(newlog, provider.Filename, proxiesList)
 	err := file.Load()
 	if err != nil {
-		return nil, fmt.Errorf("Error reading config: %w", err)
+		return nil, fmt.Errorf("error reading config: %w", err)
 	}
 
 	c := &Client{
@@ -82,34 +82,10 @@ func New(log zerolog.Logger, name string, provider *config.FilesTargetProviderCo
 	// load default values
 	err = defaults.Set(c)
 	if err != nil {
-		return nil, fmt.Errorf("Error loading defaults: %w", err)
+		return nil, fmt.Errorf("error loading defaults: %w", err)
 	}
 
 	return c, nil
-}
-
-func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
-	var wg sync.WaitGroup
-	proxies := map[string]*proxyconfig.Config{}
-
-	for name, proxyconfig := range c.configProxies {
-		// create the proxy configs in parallel.
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			pcfg, err := c.newProxyConfig(name, proxyconfig)
-			if err != nil {
-				c.log.Error().Err(err).Msg("error initializing proxy")
-				return
-			}
-			proxies[name] = pcfg
-		}()
-	}
-	wg.Wait()
-
-	return proxies, nil
 }
 
 // newProxyConfig method returns a new proxyconfig.Config
@@ -160,6 +136,17 @@ func (c *Client) WatchEvents(_ context.Context, eventsChan chan targetproviders.
 
 	c.file.Watch()
 	c.file.OnChange(c.onFileChange)
+
+	// start initial proxies
+	go func() {
+		for k := range c.configProxies {
+			eventsChan <- targetproviders.TargetEvent{
+				ID:             k,
+				TargetProvider: c,
+				Action:         targetproviders.ActionStart,
+			}
+		}
+	}()
 }
 
 func (c *Client) onFileChange(e fsnotify.Event) {
@@ -241,7 +228,9 @@ func (c *Client) DeleteProxy(id string) error {
 	if _, ok := c.proxies[id]; !ok {
 		return fmt.Errorf("target %s not found", id)
 	}
+
 	c.deleteTarget(id)
+
 	return nil
 }
 

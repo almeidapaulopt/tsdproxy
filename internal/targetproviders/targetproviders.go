@@ -17,7 +17,6 @@ const (
 type (
 	// TargetProvider interface to be implemented by all target providers
 	TargetProvider interface {
-		GetAllProxies() (map[string]*proxyconfig.Config, error)
 		WatchEvents(ctx context.Context, eventsChan chan TargetEvent, errChan chan error)
 		GetDefaultProxyProviderName() string
 		Close()
