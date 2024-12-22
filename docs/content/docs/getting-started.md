@@ -64,7 +64,7 @@ proxyaccesslog: true # set to true to enable container access log
 #### Edit the configuration file
 
 1. Set your authkey in the file `/config/tsdproxy.yaml`.
-2. Change yout docker host if your are not using the socket.
+2. Change your docker host if you are not using the socket.
 3. restart the service.
 
 ```bash

@@ -7,7 +7,7 @@ title: Introduction
 
 ## What is TSDProxy?
 
-TSDProxy is a application that automatically creates a proxy to
+TSDProxy is an application that automatically creates a proxy to
 virtual addresses in your Tailscale network.
 Easy to configure and deploy, based on Docker container labels or a simple proxy
 list file.

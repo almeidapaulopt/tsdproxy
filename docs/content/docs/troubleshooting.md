@@ -37,7 +37,7 @@ This error is caused by the target not being reachable. It's a network error.
 
 #### Cause: Firewall
 
-Most likely the firewall is blocking the traffic. In case of UFW execute this command:
+Most likely the firewall is blocking the traffic. If using UFW, execute this command:
 
 ```bash
 sudo ufw allow in from 172.17.0.0/16
