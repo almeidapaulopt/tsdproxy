@@ -167,4 +167,14 @@ labels:
   tsdproxy.tlsvalidate: "false"
 ```
 
+### tsdproxy.dash.visible
+
+Defaults to true, set to false to hide on Dashboard.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.dash.visible: "false"
+```
+
 {{% /steps %}}

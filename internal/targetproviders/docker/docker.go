@@ -73,10 +73,7 @@ func (c *Client) Close() {
 	}
 }
 
-// GetAllProxies implements TargetProvider GetAllProxies method.
-func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
-	ctx := context.Background()
-	proxies := map[string]*proxyconfig.Config{}
+func (c *Client) startAllProxies(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	// Filter containers with enable set to true
 	//
 	containerFilter := filters.NewArgs()
@@ -87,33 +84,13 @@ func (c *Client) GetAllProxies() (map[string]*proxyconfig.Config, error) {
 		All:     false,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error listing containers: %w", err)
+		errChan <- fmt.Errorf("error listing containers: %w", err)
+		return
 	}
 
-	var wg sync.WaitGroup
 	for _, container := range containers {
-		// create the proxy configs in parallel.
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			ctn, err := c.docker.ContainerInspect(ctx, container.ID)
-			if err != nil {
-				c.log.Error().Err(err).Str("containerID", container.ID).Msg("error inspecting container")
-			} else {
-				pcfg, err := c.newProxyConfig(ctn)
-				if err == nil {
-					proxies[pcfg.Hostname] = pcfg
-				} else {
-					c.log.Error().Err(err).Msg("error initializing proxy for container")
-				}
-			}
-		}()
+		eventsChan <- c.getStartEvent(container.ID)
 	}
-	wg.Wait()
-
-	return proxies, nil
 }
 
 // newProxyConfig method returns a new proxyconfig.Config
@@ -147,7 +124,9 @@ func (c *Client) DeleteProxy(id string) error {
 	if _, ok := c.containers[id]; !ok {
 		return fmt.Errorf("container %s not found", id)
 	}
+
 	c.deleteContainer(id)
+
 	return nil
 }
 
@@ -187,6 +166,8 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 			}
 		}
 	}()
+
+	go c.startAllProxies(ctx, eventsChan, errChan)
 }
 
 // getStartEvent method returns a targetproviders.TargetEvent for a container start
@@ -203,6 +184,7 @@ func (c *Client) getStartEvent(id string) targetproviders.TargetEvent {
 // getStopEvent method returns a targetproviders.TargetEvent for a container stop
 func (c *Client) getStopEvent(id string) targetproviders.TargetEvent {
 	c.log.Info().Msgf("Container %s stopped", id)
+
 	return targetproviders.TargetEvent{
 		TargetProvider: c,
 		ID:             id,
@@ -214,6 +196,7 @@ func (c *Client) getStopEvent(id string) targetproviders.TargetEvent {
 func (c *Client) addContainer(cont *container, name string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+
 	c.containers[name] = cont
 }
 

@@ -59,7 +59,7 @@ This configuration will create two groups of proxies:
   - All access logs are enabled
 - music.ts.net, video.ts.net and photos.ts.net.
   - On the same host with different ports
-  - Sse 'default' Tailscale provider
+  - Use 'default' Tailscale provider
   - Don't enable access logs
 
 ### Provider Configuration options
@@ -78,13 +78,15 @@ Files:
 music: # Name of the proxy
   URL: http://192.168.1.10:3789 # url of service to proxy
   ProxyProvider: default # (optional) name of the proxy provider
-  TLSValidate: false # (optional, default true) disable TLS validationTailscale
+  TLSValidate: false # (optional, default true) disable TLS validation
   Tailscale:  # (optional) Tailscale configuration for this proxy
-    AuthKey: asdasdas # Tailscale authkey
+    AuthKey: asdasdas # (optional) Tailscale authkey
     Ephemeral: true # (optional) Enable ephemeral mode
     RunWebClient: false # (optional) Run web client
     Verbose: false # (optional) Run in verbose mode
     Funnel: false # (optional) Run in funnel mode
+  Dashboard:
+    Visible: false # (optional) doesn't show proxy in dashboard
 ```
 
 {{% /steps %}}
