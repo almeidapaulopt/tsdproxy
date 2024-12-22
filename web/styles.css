@@ -14,12 +14,12 @@
   }
 
   a {
-    @apply hover:text-blue-500 dark:hover:text-blue-400;
+    @apply hover:text-blue-500 dark:hover:text-blue-400 rounded-md;
   }
 
   body {
 
-    @apply h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col;
+    @apply h-full bg-gradient-to-br from-gray-200 to-white dark:bg-gradient-to-br dark:from-neutral-900 dark:to-gray-800 text-gray-900 dark:text-gray-100 flex flex-col;
 
   }
 
@@ -43,7 +43,7 @@
     }
 
     #menu-toggle {
-      @apply md:hidden flex items-center px-3 py-2 border rounded text-gray-500 dark:text-gray-400 border-gray-500 dark:border-gray-400 hover:text-blue-500 dark:hover:text-blue-400;
+      @apply md:hidden flex items-center px-3 py-2 border rounded-md text-gray-500 dark:text-gray-400 border-gray-500 dark:border-gray-400 hover:text-blue-500 dark:hover:text-blue-400;
     }
   }
 
@@ -52,7 +52,7 @@
   }
 
   footer {
-    @apply bg-gray-100 dark:bg-gray-800 shadow p-4 text-center mt-auto;
+    @apply bg-gray-100 dark:bg-gray-800 p-4 text-center mt-auto;
   }
 
 }
@@ -103,7 +103,7 @@
     @apply grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4;
 
     a {
-      @apply p-4 bg-gray-100 dark:bg-gray-800 rounded shadow hover:bg-gray-200 dark:hover:bg-gray-700;
+      @apply p-4 bg-gray-100 dark:bg-gray-800 dark:shadow-neutral-950 shadow-sm hover:bg-gray-200 dark:hover:bg-gray-700;
     }
   }
 }
