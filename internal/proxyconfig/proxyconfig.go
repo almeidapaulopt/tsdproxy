@@ -27,16 +27,16 @@ type (
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider
 	Tailscale struct {
-		AuthKey      string
-		ControlURL   string
-		Ephemeral    bool `default:"true" validate:"boolean"`
-		RunWebClient bool `default:"false" validate:"boolean"`
-		Verbose      bool `default:"false" validate:"boolean"`
-		Funnel       bool `default:"false" validate:"boolean"`
+		AuthKey      string `yaml:"authKey"`
+		ControlURL   string `yaml:"controlUrl"`
+		Ephemeral    bool   `default:"true" validate:"boolean" yaml:"ephemeral"`
+		RunWebClient bool   `default:"false" validate:"boolean" yaml:"runWebClient"`
+		Verbose      bool   `default:"false" validate:"boolean" yaml:"verbose"`
+		Funnel       bool   `default:"false" validate:"boolean" yaml:"funnel"`
 	}
 
 	Dashboard struct {
-		Visible bool `default:"true" validate:"boolean"`
+		Visible bool `default:"true" validate:"boolean" yaml:"visible"`
 	}
 )
 

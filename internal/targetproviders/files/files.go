@@ -38,11 +38,11 @@ type (
 	configProxiesList map[string]proxyConfig
 
 	proxyConfig struct {
-		URL           string `validate:"required,uri"`
-		ProxyProvider string
-		Tailscale     proxyconfig.Tailscale
-		TLSValidate   bool                  `default:"true" validate:"boolean"`
-		Dashboard     proxyconfig.Dashboard `validate:"dive"`
+		URL           string                `validate:"required,uri" yaml:"url"`
+		ProxyProvider string                `yaml:"proxyProvider"`
+		Tailscale     proxyconfig.Tailscale `yaml:"tailscale"`
+		TLSValidate   bool                  `default:"true" validate:"boolean" yaml:"tlsValidate"`
+		Dashboard     proxyconfig.Dashboard `validate:"dive" yaml:"dashboard"`
 	}
 )
 

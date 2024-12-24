@@ -3,6 +3,9 @@
 package config
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,7 +28,7 @@ func NewFile(log zerolog.Logger, filename string, data any) *File {
 	return &File{
 		filename: filename,
 		data:     data,
-		log:      log.With().Logger(),
+		log:      log.With().Str("module", "file").Str("files", filename).Logger(),
 	}
 }
 
@@ -35,7 +38,7 @@ func (f *File) Load() error {
 		return err
 	}
 
-	err = yaml.Unmarshal(data, f.data)
+	err = unmarshalStrict(data, f.data)
 	if err != nil {
 		return err
 	}
@@ -132,4 +135,15 @@ func (f *File) Watch() {
 		eventsWG.Wait()
 	}()
 	initWG.Wait()
+}
+
+func unmarshalStrict(data []byte, out any) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	if err := dec.Decode(out); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+
+	return nil
 }

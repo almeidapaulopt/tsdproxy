@@ -4,8 +4,10 @@
 package config
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 
 	"github.com/creasty/defaults"
@@ -16,55 +18,55 @@ type (
 	// config stores complete configuration.
 	//
 	config struct {
-		DefaultProxyProvider string
+		DefaultProxyProvider string `validate:"required" default:"default" yaml:"defaultProxyProvider"`
 
-		Docker    map[string]*DockerTargetProviderConfig `validate:"dive"`
-		Files     map[string]*FilesTargetProviderConfig  `validate:"dive"`
-		Tailscale TailscaleProxyProviderConfig
+		Docker    map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
+		Files     map[string]*FilesTargetProviderConfig  `validate:"dive,required" yaml:"files"`
+		Tailscale TailscaleProxyProviderConfig           `yaml:"tailscale"`
 
-		HTTP HTTPConfig
-		Log  LogConfig
+		HTTP HTTPConfig `yaml:"http"`
+		Log  LogConfig  `yaml:"log"`
 
-		ProxyAccessLog bool `default:"true" validate:"boolean"`
+		ProxyAccessLog bool `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
 	}
 
 	// LogConfig stores logging configuration.
 	LogConfig struct {
-		Level string `default:"info" validate:"required,oneof=debug info warn error fatal panic trace"`
-		JSON  bool   `default:"false" validate:"boolean"`
+		Level string `validate:"required,oneof=debug info warn error fatal panic trace" default:"info" yaml:"level"`
+		JSON  bool   `validate:"boolean" default:"false" yaml:"json"`
 	}
 
 	// HTTPConfig stores HTTP configuration.
 	HTTPConfig struct {
-		Hostname string `default:"0.0.0.0" validate:"ip|hostname,required"`
-		Port     uint16 `default:"8080" validate:"numeric,min=1,max=65535,required"`
+		Hostname string `validate:"ip|hostname,required" default:"0.0.0.0" yaml:"hostname"`
+		Port     uint16 `validate:"numeric,min=1,max=65535,required" default:"8080" yaml:"port"`
 	}
 
 	// DockerTargetProviderConfig struct stores Docker target provider configuration.
 	DockerTargetProviderConfig struct {
-		Host                 string `default:"unix:///var/run/docker.sock" validate:"required,uri"`
-		TargetHostname       string `default:"172.31.0.1" validate:"ip|hostname"`
-		DefaultProxyProvider string
+		Host                 string `validate:"required,uri" default:"unix:///var/run/docker.sock" yaml:"host"`
+		TargetHostname       string `validate:"ip|hostname" default:"172.31.0.1" yaml:"targetHostname"`
+		DefaultProxyProvider string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
 	}
 
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration
 	TailscaleProxyProviderConfig struct {
-		Providers map[string]*TailscaleServerConfig `validate:"dive"`
-		DataDir   string                            `default:"/data/" validate:"dir"`
+		Providers map[string]*TailscaleServerConfig `validate:"dive,required" yaml:"providers"`
+		DataDir   string                            `validate:"dir" default:"/data/" yaml:"dataDir"`
 	}
 
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
-		AuthKey     string `default:"your-authkey" validate:"omitempty"`
-		AuthKeyFile string `validate:"omitempty"`
-		ControlURL  string `default:"https://controlplane.tailscale.com" validate:"uri"`
+		AuthKey     string `default:"your-authkey" validate:"omitempty" yaml:"authKey"`
+		AuthKeyFile string `validate:"omitempty" yaml:"authKeyFile"`
+		ControlURL  string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
 	}
 
 	// filesConfig struct stores File target provider configuration.
 	FilesTargetProviderConfig struct {
-		Filename              string `validate:"required,file"`
-		DefaultProxyProvider  string
-		DefaultProxyAccessLog bool `default:"true" validate:"boolean"`
+		Filename              string `validate:"required,file" yaml:"filename"`
+		DefaultProxyProvider  string `yaml:"defaultProxyProvider"`
+		DefaultProxyAccessLog bool   `default:"true" validate:"boolean" yaml:"defaultProxyAccessLog"`
 	}
 )
 
@@ -81,9 +83,26 @@ func InitializeConfig() error {
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
-	println("loading configuration from:", *file)
+	_, err := os.Stat(*file)
+	configFileExist := !errors.Is(err, fs.ErrNotExist)
 
 	fileConfig := NewFile(log.Logger, *file, Config)
+
+	// generate Providers
+	if !configFileExist {
+		println("Generating default configuration to:", *file)
+		Config.generateDefaultProviders()
+		// load default values
+		if err := defaults.Set(Config); err != nil {
+			fmt.Printf("Error loading defaults: %v", err)
+		}
+		if err := fileConfig.Save(); err != nil {
+			return err
+		}
+	}
+
+	println("loading configuration from:", *file)
+
 	if err := fileConfig.Load(); err != nil {
 		return err
 	}
@@ -91,11 +110,6 @@ func InitializeConfig() error {
 	// load default values
 	if err := defaults.Set(Config); err != nil {
 		fmt.Printf("Error loading defaults: %v", err)
-	}
-
-	// generate Providers
-	if _, err := os.Stat(*file); os.IsNotExist(err) {
-		Config.generateDefaultProviders()
 	}
 
 	// load auth keys from files
@@ -112,13 +126,6 @@ func InitializeConfig() error {
 	// validate config
 	if err := Config.validate(); err != nil {
 		return err
-	}
-
-	// save default config if config file does not exist
-	if _, err := os.Stat(*file); os.IsNotExist(err) {
-		if err := fileConfig.Save(); err != nil {
-			return err
-		}
 	}
 
 	return nil

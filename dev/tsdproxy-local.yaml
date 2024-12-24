@@ -1,17 +1,23 @@
-defaultproxyprovider: default
+defaultProxyProvider: default
 docker:
   local:
-    defaultproxyprovider: default
+    host: unix:///var/run/docker.sock
+    targetHostname: 172.31.0.1
+files:
+  file1:
+    filename: dev/file1.yaml
+
 tailscale:
   providers:
     default:
-      authkeyfile: "dev/KEY_FILE"
-  datadir: dev/data/
+      authKey: your-authkey
+      authKeyFile: dev/KEY_FILE
+      controlUrl: https://controlplane.tailscale.com
+  dataDir: dev/data/
 http:
   hostname: 0.0.0.0
   port: 8080
 log:
-  level: debug
-files:
-  file1:
-    filename: dev/file1.yaml
+  level: info
+  json: false
+proxyAccessLog: true
