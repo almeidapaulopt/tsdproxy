@@ -13,10 +13,10 @@ for details.
 
 ## Docker Images
 
-almeidapaulopt/tsdproxy:v1.x.x  - Version 1.x.x
-almeidapaulopt/tsdproxy:latest  - Latest stable
-almeidapaulopt/tsdproxy:next    - Latest Release Candidate
-almeidapaulopt/tsdproxy:dev     - Latest Development Build
+1. almeidapaulopt/tsdproxy:v1.x.x  - Version 1.x.x
+2. almeidapaulopt/tsdproxy:latest  - Latest stable
+3. almeidapaulopt/tsdproxy:next    - Latest Release Candidate
+4. almeidapaulopt/tsdproxy:dev     - Latest Development Build
 
 ## Core Functionality
 
