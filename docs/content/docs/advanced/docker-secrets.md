@@ -7,22 +7,13 @@ the following example:
 
 {{% steps %}}
 
-### Requirements
+### Create a `.env` file with your Tailscale AuthKey
 
-Make sure you have Docker Swarm enabled on your server.
+Create a new file in the same directory as your `docker-compose.yaml` file named `.env`.
+Set your Tailscale AuthKey to a new variable (e.g. `TS_AUTHKEY`).
 
-<https://docs.docker.com/engine/swarm/secrets/>
-
-"Docker secrets are only available to swarm services, not to standalone
-containers. To use this feature, consider adapting your container to run as a service."
-
-### Add a docker secret
-
-We need to create a docker secret, which we can name `authkey` and store the Tailscale
-authkey in it. We can do that using the following command:
-
-```bash
-printf "Your Tailscale AuthKey" | docker secret create authkey -
+```env
+TS_AUTHKEY="Your Tailscale AuthKey"
 ```
 
 ### TsDProxy Docker compose
@@ -43,7 +34,7 @@ volumes:
 
 secrets:
   authkey:
-    external: true
+    environment: TS_AUTHKEY
 ```
 
 ### TsDProxy configuration
