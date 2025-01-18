@@ -13,7 +13,7 @@ Label string
 ProxyState proxyconfig.ProxyState
 }
 
-templ List(l map[string]ListData) {
+templ List(l []ListData) {
 <div class="proxy-list">
   for _, item := range l {
   <a href={ templ.URL(item.URL) } class={ templ.KV("disabled", !item.Enabled) }>
