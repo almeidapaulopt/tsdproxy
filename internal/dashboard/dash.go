@@ -27,7 +27,6 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pl proxymanager.Pro
 		Log:     log.With().Str("module", "dashboard").Logger(),
 		HTTP:    http,
 		proxies: pl,
-	}
 }
 
 // AddRoutes method add dashboard related routes to the http server
@@ -39,10 +38,22 @@ func (dash *Dashboard) AddRoutes() {
 // index is the HandlerFunc to index page of dashboard
 func (dash *Dashboard) list() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		data := make(map[string]pages.ListData)
+		data := make([]pages.ListData, 0)
+		sortedNames := make([]string, 0, len(dash.proxies))
 
+		// Collect names for sorting
 		for name, p := range dash.proxies {
 			if p.Config.Dashboard.Visible {
+				sortedNames = append(sortedNames, name)
+			}
+		}
+
+		// Sort the names
+		sort.Strings(sortedNames)
+
+		// Process proxies in sorted order
+		for _, name := range sortedNames {
+			p := dash.proxies[name]
 				state := p.GetState()
 
 				url := p.GetURL()
@@ -62,19 +73,23 @@ func (dash *Dashboard) list() http.HandlerFunc {
 
 				enabled := state == proxyconfig.ProxyStateAuthenticating || state == proxyconfig.ProxyStateRunning
 
-				data[name] = pages.ListData{
+				data = append(data, pages.ListData{
 					Enabled:    enabled,
 					URL:        url,
 					ProxyState: state,
 					Icon:       icon,
 					Label:      label,
-				}
+				})
 			}
 		}
 
 		err := ui.Render(w, r, pages.List(data))
 		if err != nil {
 			dash.Log.Error().Err(err).Msg("Render failed")
-		}
 	}
+
+import (
+	"sort"
+)
+
 }
