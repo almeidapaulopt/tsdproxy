@@ -7,7 +7,7 @@ require (
 	github.com/creasty/defaults v1.8.0
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/fsnotify/fsnotify v1.8.0
-	github.com/go-playground/validator/v10 v10.24.0
+	github.com/go-playground/validator/v10 v10.25.0
 	github.com/google/uuid v1.6.0
 	github.com/rs/zerolog v1.33.0
 	github.com/starfederation/datastar v0.21.4
