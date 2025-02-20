@@ -5,7 +5,7 @@ go 1.23.5
 require (
 	github.com/a-h/templ v0.3.833
 	github.com/creasty/defaults v1.8.0
-	github.com/docker/docker v27.5.1+incompatible
+	github.com/docker/docker v28.0.0+incompatible
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/go-playground/validator/v10 v10.24.0
 	github.com/google/uuid v1.6.0
