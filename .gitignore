@@ -49,3 +49,6 @@ web/public/icons/sh
 
 
 tmp
+
+# macOS
+.DS_Store
