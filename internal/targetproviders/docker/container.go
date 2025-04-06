@@ -78,6 +78,10 @@ func (c *container) setContainerPorts(dcontainer ctypes.InspectResponse, dservic
 	c.log.Trace().Msg("start setContainerPorts")
 	defer c.log.Trace().Msg("end setContainerPorts")
 
+	for p, _ := range dcontainer.Config.ExposedPorts {
+		c.ports[p.Port()] = ""
+	}
+
 	if c.networkMode.IsHost() {
 		for p := range dcontainer.HostConfig.PortBindings {
 			c.ports[p.Port()] = p.Port()
