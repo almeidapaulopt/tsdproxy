@@ -6,7 +6,7 @@ require (
 	github.com/a-h/templ v0.3.857
 	github.com/creasty/defaults v1.8.0
 	github.com/docker/docker v28.0.4+incompatible
-	github.com/fsnotify/fsnotify v1.8.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/google/uuid v1.6.0
 	github.com/rs/zerolog v1.34.0
