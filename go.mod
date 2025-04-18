@@ -15,7 +15,7 @@ require (
 	go.opentelemetry.io/otel v1.35.0
 	go.opentelemetry.io/otel/trace v1.35.0
 	gopkg.in/yaml.v3 v3.0.1
-	tailscale.com v1.82.0
+	tailscale.com v1.82.5
 	tailscale.com/client/tailscale/v2 v2.0.0-20250311144508-3a768d66e695
 )
 
