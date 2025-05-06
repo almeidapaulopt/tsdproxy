@@ -12,7 +12,7 @@ services:
       - tsdproxy.funnel=true
       - tsdproxy.container_port=80
       - tsdproxy.dash.visible=true
-      # - tsdproxy.port.1=443/https:80/http, no_autodetect
+      # - tsdproxy.port.1=443/https/test:80/http, no_autodetect
     # networks:
     # - c1
 

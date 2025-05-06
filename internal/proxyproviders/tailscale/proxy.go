@@ -162,7 +162,14 @@ func (p *Proxy) watchStatus() {
 		case "Starting":
 			p.setStatus(model.ProxyStatusStarting, "", "")
 		case "Running":
-			p.setStatus(model.ProxyStatusRunning, strings.TrimRight(status.Self.DNSName, "."), "")
+			// if any, get TargetPath for port 443
+			var path = "/"
+			for _, c := range p.config.Ports {
+				if c.ProxyPort == 443 {
+					path = c.ProxyPath
+				}
+			}
+			p.setStatus(model.ProxyStatusRunning, strings.TrimRight(status.Self.DNSName, ".")+"/"+path, "")
 			if p.status != model.ProxyStatusRunning {
 				p.getTLSCertificates()
 			}
