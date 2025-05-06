@@ -37,6 +37,16 @@ services:
     # networks:
     #   - c2
 
+  c4:
+    image: linuxserver/openssh-server
+    ports:
+      - 2222:22
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=ssh
+      - tsdproxy.ephemeral=true
+      - tsdproxy.dash.visible=true
+      - tsdproxy.port.1=22/tcp:22/tcp, no_autodetect,
   s1:
     image: nginx
     ports:

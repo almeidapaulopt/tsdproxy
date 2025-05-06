@@ -16,7 +16,6 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
-
 	"github.com/rs/zerolog"
 )
 
@@ -26,6 +25,7 @@ type port struct {
 	listener   net.Listener
 	cancel     context.CancelFunc
 	httpServer *http.Server
+	TCPProxy   *TCPProxy
 	mtx        sync.Mutex
 }
 
@@ -108,12 +108,15 @@ func (p *port) startWithListener(l net.Listener) error {
 	p.mtx.Lock()
 	p.listener = l
 	p.mtx.Unlock()
+	if p.TCPProxy != nil {
+		go p.TCPProxy.Run(l)
+	} else {
+		err := p.httpServer.Serve(l)
+		defer p.log.Info().Msg("Terminating server")
 
-	err := p.httpServer.Serve(l)
-	defer p.log.Info().Msg("Terminating server")
-
-	if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("error starting port %w", err)
+		if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("error starting port %w", err)
+		}
 	}
 	return nil
 }
