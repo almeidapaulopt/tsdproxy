@@ -14,7 +14,6 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
-
 	"github.com/rs/zerolog"
 )
 
@@ -73,7 +72,7 @@ func NewProxy(log zerolog.Logger,
 
 	p.initPorts()
 
-	return p, nil
+	return p, err
 }
 
 func (proxy *Proxy) Start() {
@@ -125,11 +124,21 @@ func (proxy *Proxy) ProviderUserMiddleware(next http.Handler) http.Handler {
 
 func (proxy *Proxy) initPorts() {
 	var newPort *port
+	var err error
 	for k, v := range proxy.Config.Ports {
 		log := proxy.log.With().Str("port", k).Logger()
-		if v.IsRedirect {
+		switch {
+		case v.ProxyProtocol == "tcp":
+			newPort, err = newPortTCP(proxy.ctx, v, log)
+			if err != nil {
+				log.Error().Err(err).Msg("error creating TCP port")
+				continue
+			}
+
+		case v.IsRedirect:
 			newPort = newPortRedirect(proxy.ctx, v, log)
-		} else {
+
+		default:
 			newPort = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware)
 		}
 

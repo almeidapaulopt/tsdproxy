@@ -168,7 +168,6 @@ func parseTargetSegment(segment string, config *PortConfig) error {
 	}
 
 	config.targets = []*url.URL{urlParsed}
-
 	return nil
 }
 

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"sync"
+	"strings"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
@@ -26,6 +27,7 @@ type port struct {
 	listener   net.Listener
 	cancel     context.CancelFunc
 	httpServer *http.Server
+	TCPProxy   *TCPProxy
 	mtx        sync.Mutex
 }
 
@@ -104,16 +106,37 @@ func newPortRedirect(ctx context.Context, pconfig model.PortConfig, log zerolog.
 	}
 }
 
+func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) (*port, error) {
+	targetAddressWithPort := strings.Split(pconfig.GetFirstTarget().String(),"/")[1]
+	backend, err := net.ResolveTCPAddr("tcp", targetAddressWithPort)
+	if err != nil {
+		return nil, fmt.Errorf("error resolving address to ResolveTCPAddr: %w", err)
+	}
+
+	newTCPProxy := NewTCPProxy(backend)
+
+	ctxPort, cancel := context.WithCancel(ctx)
+	return &port{
+		TCPProxy: newTCPProxy,
+		log:      log,
+		ctx:      ctxPort,
+		cancel:   cancel,
+	}, nil
+}
+
 func (p *port) startWithListener(l net.Listener) error {
 	p.mtx.Lock()
 	p.listener = l
 	p.mtx.Unlock()
+	if p.TCPProxy != nil {
+		go p.TCPProxy.Run(l)
+	} else {
+		err := p.httpServer.Serve(l)
+		defer p.log.Info().Msg("Terminating server")
 
-	err := p.httpServer.Serve(l)
-	defer p.log.Info().Msg("Terminating server")
-
-	if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("error starting port %w", err)
+		if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("error starting port %w", err)
+		}
 	}
 	return nil
 }
