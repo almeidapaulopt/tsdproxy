@@ -15,6 +15,7 @@ type (
 	PortConfig struct {
 		name          string `validate:"string" yaml:"name"`
 		ProxyProtocol string `validate:"string" yaml:"proxyProtocol"`
+		ProxyPath     string `validate:"string" yaml:"proxyPath"`
 		targets       []*url.URL
 		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
 		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
@@ -42,8 +43,8 @@ var (
 // NewPortLongLabel parses a port configuration string and returns a PortConfig struct.
 //
 // The input string `s` must follow one of these formats:
-// 1. "<proxy port>/<proxy protocol>:<target port>/<target protocol>"
-//   - Example: "443/https:80/http"
+// 1. "<proxy port>/<proxy protocol>/<target path>:<target port>/<target protocol>"
+//   - Example: "443/https/path:80/http"
 //
 // 2. "<proxy port>:<target port>"
 //   - Example: "443:80"
@@ -58,7 +59,7 @@ var (
 // - error: An error if the input string is invalid.
 //
 // Examples:
-// 1. "443/https:80/http" -> ProxyPort=443, ProxyProtocol="https", TargetPort=80, TargetProtocol="http"
+// 1. "443/https/path:80/http" -> ProxyPort=443, ProxyProtocol="https", ProxyPath="test", TargetPort=80, TargetProtocol="http"
 // 2. "443:80" -> ProxyPort=443, ProxyProtocol="https", TargetPort=80, TargetProtocol="http"
 // 3. "443/https->https://example.com" -> ProxyPort=443, ProxyProtocol="https", IsRedirect=true, TargetURL=https://example.com
 
@@ -68,7 +69,7 @@ func NewPortLongLabel(s string) (PortConfig, error) {
 	separator := detectSeparator(s)
 
 	parts := strings.Split(s, separator)
-	if len(parts) != 2 { //nolint:mnd
+	if len(parts) != 2 && len(parts) != 3 { //nolint:mnd
 		return config, ErrInvalidProxyConfig
 	}
 
@@ -128,7 +129,7 @@ func detectSeparator(s string) string {
 // parseProxySegment parses the proxy segment of the configuration string.
 func parseProxySegment(segment string, config *PortConfig) error {
 	proxyParts := strings.Split(segment, protocolSeparator)
-	if len(proxyParts) > 2 { //nolint:mnd
+	if len(proxyParts) > 3 { //nolint:mnd
 		return ErrInvalidProxyConfig
 	}
 
@@ -140,6 +141,10 @@ func parseProxySegment(segment string, config *PortConfig) error {
 
 	if len(proxyParts) == 2 { //nolint:mnd
 		config.ProxyProtocol = proxyParts[1]
+	}
+
+	if len(proxyParts) == 3 { //nolint:mnd
+		config.ProxyPath = proxyParts[2]
 	}
 
 	return nil
