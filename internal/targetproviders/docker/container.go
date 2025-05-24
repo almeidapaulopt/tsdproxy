@@ -78,6 +78,10 @@ func (c *container) setContainerPorts(dcontainer ctypes.InspectResponse, dservic
 	c.log.Trace().Msg("start setContainerPorts")
 	defer c.log.Trace().Msg("end setContainerPorts")
 
+	for p, _ := range dcontainer.Config.ExposedPorts {
+		c.ports[p.Port()] = ""
+	}
+
 	if c.networkMode.IsHost() {
 		for p := range dcontainer.HostConfig.PortBindings {
 			c.ports[p.Port()] = p.Port()
@@ -259,17 +263,13 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 	internalPort := iPort.Port()
 	publishedPort := c.getPublishedPort(internalPort)
 
-	if internalPort == "" && publishedPort == "" {
-		return nil, ErrNoPortFoundInContainer
-	}
-
 	// return localhost if container same as host to serve the dashboard
 	if osname, err := os.Hostname(); err == nil && strings.HasPrefix(c.id, osname) {
 		return url.Parse("http://127.0.0.1:" + internalPort)
 	}
 
 	// set autodetect
-	if c.autodetect {
+	if c.autodetect || internalPort != "" {
 		// repeat auto detect in case the container is not ready
 		for try := range autoDetectTries {
 			c.log.Info().Int("try", try).Msg("Trying to auto detect target URL")
@@ -286,7 +286,7 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 	}
 
 	// auto detect failed or disabled, use published port
-	if publishedPort == "" {
+	if internalPort == "" || publishedPort == "" {
 		return nil, ErrNoPortFoundInContainer
 	}
 
