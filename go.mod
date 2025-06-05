@@ -5,7 +5,7 @@ go 1.24.2
 toolchain go1.24.3
 
 require (
-	github.com/a-h/templ v0.3.865
+	github.com/a-h/templ v0.3.894
 	github.com/creasty/defaults v1.8.0
 	github.com/docker/docker v28.1.1+incompatible
 	github.com/fsnotify/fsnotify v1.9.0
