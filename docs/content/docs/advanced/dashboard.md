@@ -11,7 +11,7 @@ prev: /docs/advanced
 
 Update docker-compose.yml with the following:
 
-```yaml  {filename="/config/tsdproxy.yaml"}
+```yaml  {filename="docker-compose.yml"}
     labels:
       - tsdproxy.enable=true
       - tsdproxy.name=dash
