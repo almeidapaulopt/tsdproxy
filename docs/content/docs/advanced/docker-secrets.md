@@ -7,15 +7,6 @@ the following example:
 
 {{% steps %}}
 
-### Requirements
-
-Make sure you have Docker Swarm enabled on your server.
-
-<https://docs.docker.com/engine/swarm/secrets/>
-
-"Docker secrets are only available to swarm services, not to standalone
-containers. To use this feature, consider adapting your container to run as a service."
-
 ### Add a docker secret
 
 We need to create a docker secret, which we can name `authkey` and store the Tailscale
