@@ -17,7 +17,7 @@ labels:
 ```
 
 TSProxy will use container name as Tailscale server, and will use the first docker
-exposed port to proxy traffic. If TSDProcy doesn't detect the port you want to
+exposed port to proxy traffic. If TSDProxy doesn't detect the port you want to
 proxy, you can use `tsdproxy.port` label, more details in [Port configuration](#port-configuration).
 
 ## Container Labels
