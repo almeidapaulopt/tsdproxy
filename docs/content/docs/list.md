@@ -94,6 +94,6 @@ music: # Name of the proxy
 > You only need to restart TSDProxy if your changes are in /config/tsdproxy.yaml
 
 > [!NOTE]
-> See available icons in [icons](/docs/advanced/icons).
+> See available icons in [icons](/tsdproxy/docs/advanced/icons).
 
 {{% /steps %}}
