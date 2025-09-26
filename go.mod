@@ -1,8 +1,6 @@
 module github.com/almeidapaulopt/tsdproxy
 
-go 1.24.2
-
-toolchain go1.24.3
+go 1.25.1
 
 require (
 	github.com/a-h/templ v0.3.865
@@ -17,7 +15,7 @@ require (
 	go.opentelemetry.io/otel v1.36.0
 	go.opentelemetry.io/otel/trace v1.36.0
 	gopkg.in/yaml.v3 v3.0.1
-	tailscale.com v1.84.0
+	tailscale.com v1.88.3
 	tailscale.com/client/tailscale/v2 v2.0.0-20250509161557-5fad10cf3a33
 )
 
@@ -53,7 +51,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.9 // indirect
 	github.com/gaissmai/bart v0.20.4 // indirect
-	github.com/go-json-experiment/json v0.0.0-20250517221953-25912455fbc8 // indirect
+	github.com/go-json-experiment/json v0.0.0-20250813024750-ebf49471dced // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -66,8 +64,6 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/nftables v0.3.0 // indirect
-	github.com/gorilla/csrf v1.7.3 // indirect
-	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
 	github.com/igrmk/treemap/v2 v2.0.1 // indirect
 	github.com/illarion/gonotify/v3 v3.0.2 // indirect
@@ -102,7 +98,7 @@ require (
 	github.com/tailscale/netlink v1.1.1-0.20240822203006-4d49adab4de7 // indirect
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20250124233751-d4cd19a26976 // indirect
-	github.com/tailscale/wireguard-go v0.0.0-20250304000100-91a0587fb251 // indirect
+	github.com/tailscale/wireguard-go v0.0.0-20250716170648-1d0488a3d7da // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
