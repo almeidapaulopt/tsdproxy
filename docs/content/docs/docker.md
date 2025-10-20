@@ -10,7 +10,7 @@ service container.
 
 ### tsdproxy.enable
 
-Just add the label `tsdproxy.enable` to true and restart you service. The
+Just add the label `tsdproxy.enable` to true and restart your service. The
 container will be started and TSDProxy will be enabled.
 
 ```yaml
