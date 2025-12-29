@@ -101,3 +101,27 @@ tailscale:
     default: 
       authKey: "sdfsdgsdfgdfg"
 ```
+
+## Grant remote access to the docker socket
+
+On the nodes without the TSDproxy, you need to enable the remote access to the socket. 
+
+[!CAUTION]
+Be aware of potential security risks!
+
+Open the override.conf for the dockerd
+``` 
+sudo systemctl edit docker.service
+```
+Add these lines to the section between the # lines. You can also choose only one IP instead of every one.
+```.service {filename="/etc/systemd/system/docker.service.d/override.conf"}
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dockerd -H fd:// -H tcp://0.0.0.0:2375
+```
+
+Reload and Restart the deamon
+```
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+```
