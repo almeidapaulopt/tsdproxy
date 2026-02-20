@@ -192,7 +192,9 @@ func (c *container) getPorts() model.PortConfigList {
 			}
 		}
 
-		if !port.IsRedirect {
+		if port.IsRedirect {
+			ports[k] = port
+		} else {
 			port, err = c.generateTargetFromFirstTarget(port)
 			if err == nil {
 				ports[k] = port
