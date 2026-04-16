@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
+//go:build pprof
+
 package core
 
 import (

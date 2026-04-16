@@ -13,6 +13,7 @@ import (
 	"net/http/httputil"
 	"sync"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -41,10 +42,32 @@ func newPortProxy(
 
 	ctxPort, cancel := context.WithCancel(ctx)
 
+	// Resolve whether upstream TLS verification may be skipped for this
+	// port. A target provider (e.g. a Docker label or a list entry) can
+	// ask for TLSValidate=false, but we only honor that if the operator
+	// has explicitly opted in via AllowProviderInsecureTLS. Otherwise a
+	// single container could silently disable certificate verification
+	// on its upstream.
+	insecureSkipVerify := false
+	if !pconfig.TLSValidate {
+		if config.Config != nil && config.Config.AllowProviderInsecureTLS {
+			insecureSkipVerify = true
+			log.Warn().
+				Msg("upstream TLS verification disabled for this port " +
+					"(provider requested TLSValidate=false and " +
+					"allowProviderInsecureTLS is enabled)")
+		} else {
+			log.Warn().
+				Msg("ignoring provider request to disable upstream TLS " +
+					"verification; set allowProviderInsecureTLS: true in " +
+					"the tsdproxy config to allow this")
+		}
+	}
+
 	// Create the reverse proxy
 	//
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: !pconfig.TLSValidate}, //nolint
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureSkipVerify}, //nolint
 	}
 	reverseProxy := &httputil.ReverseProxy{
 		Transport: tr,
