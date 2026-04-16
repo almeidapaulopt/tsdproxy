@@ -28,6 +28,13 @@ type (
 		Log  LogConfig  `yaml:"log"`
 
 		ProxyAccessLog bool `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
+
+		// AllowProviderInsecureTLS, when true, honors per-port requests to
+		// disable upstream TLS certificate validation (e.g. the Docker
+		// "no_tlsvalidate" port option or the tsdproxy.tlsvalidate label).
+		// It defaults to false so that a single container or list entry
+		// cannot silently opt out of TLS verification on its upstream.
+		AllowProviderInsecureTLS bool `validate:"boolean" default:"false" yaml:"allowProviderInsecureTLS"`
 	}
 
 	// LogConfig stores logging configuration.
