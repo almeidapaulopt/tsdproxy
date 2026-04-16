@@ -1,6 +1,6 @@
 
 # Usa uma imagem oficial do Go como base para a compilação
-FROM golang:1.24 AS builder
+FROM golang:1.25 AS builder
 RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
 
 # Define o diretório de trabalho
