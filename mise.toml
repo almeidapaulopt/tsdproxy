@@ -1,0 +1,8 @@
+[tools]
+air = "latest"
+"aqua:a-h/templ" = "latest"
+bun = "latest"
+go = "latest"
+golangci-lint = "latest"
+goreleaser = "latest"
+"npm:vite" = "latest"

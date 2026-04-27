@@ -1,15 +1,17 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/rs/zerolog"
@@ -27,6 +29,7 @@ type WebApp struct {
 	Docker       *client.Client
 	ProxyManager *pm.ProxyManager
 	Dashboard    *dashboard.Dashboard
+	httpServer   *http.Server
 }
 
 func InitializeApp() (*WebApp, error) {
@@ -97,7 +100,9 @@ func (app *WebApp) Start() {
 
 		app.Health.SetReady()
 
-		if err := app.HTTP.StartServer(&srv); errors.Is(err, http.ErrServerClosed) {
+		app.httpServer = &srv
+
+		if err := app.HTTP.StartServer(&srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			app.Log.Fatal().Err(err).Msg("shutting down the server")
 		}
 	}()
@@ -122,6 +127,14 @@ func (app *WebApp) Stop() {
 	app.Log.Info().Msg("Shutdown server")
 
 	app.Health.SetNotReady()
+
+	if app.httpServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) //nolint:mnd
+		defer cancel()
+		if err := app.httpServer.Shutdown(ctx); err != nil {
+			app.Log.Error().Err(err).Msg("HTTP server forced shutdown")
+		}
+	}
 
 	// Shutdown things here
 	//

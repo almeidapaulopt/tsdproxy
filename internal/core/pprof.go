@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package core
@@ -6,32 +6,16 @@ package core
 import (
 	"net/http"
 	"net/http/pprof"
+	"os"
 )
 
-func PprofAddRoutes(http *HTTPServer) {
-	http.Get("/debug/pprof/", pprofIndex())
-	http.Get("/debug/pprof/cmdline", pprofCmdline())
-	http.Get("/debug/pprof/profile", pprofProfile())
-	http.Get("/debug/pprof/symbol", pprofSymbol())
-	http.Get("/debug/pprof/trace", pprofTrace())
-}
-
-func pprofIndex() http.HandlerFunc {
-	return pprof.Index
-}
-
-func pprofCmdline() http.HandlerFunc {
-	return pprof.Cmdline
-}
-
-func pprofProfile() http.HandlerFunc {
-	return pprof.Profile
-}
-
-func pprofSymbol() http.HandlerFunc {
-	return pprof.Symbol
-}
-
-func pprofTrace() http.HandlerFunc {
-	return pprof.Trace
+func PprofAddRoutes(srv *HTTPServer) {
+	if os.Getenv("TSDPROXY_PPROF") != "true" {
+		return
+	}
+	srv.Get("/debug/pprof/", http.HandlerFunc(pprof.Index))
+	srv.Get("/debug/pprof/cmdline", http.HandlerFunc(pprof.Cmdline))
+	srv.Get("/debug/pprof/profile", http.HandlerFunc(pprof.Profile))
+	srv.Get("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
+	srv.Get("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package tailscale
@@ -70,8 +70,11 @@ func (p *Proxy) Start(ctx context.Context) error {
 }
 
 func (p *Proxy) GetURL() string {
+	p.mtx.Lock()
+	url := p.url
+	p.mtx.Unlock()
 	// TODO: should be configurable and not force to https
-	return "https://" + p.url
+	return "https://" + url
 }
 
 // Close method implements proxyconfig.Proxy Close method.
@@ -109,12 +112,25 @@ func (p *Proxy) WatchEvents() chan model.ProxyEvent {
 }
 
 func (p *Proxy) GetAuthURL() string {
-	return p.authURL
+	p.mtx.Lock()
+	authURL := p.authURL
+	p.mtx.Unlock()
+	return authURL
 }
 
 func (p *Proxy) Whois(r *http.Request) model.Whois {
-	who, err := p.lc.WhoIs(r.Context(), r.RemoteAddr)
+	p.mtx.Lock()
+	lc := p.lc
+	p.mtx.Unlock()
+	if lc == nil {
+		return model.Whois{}
+	}
+	who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
 	if err != nil {
+		return model.Whois{}
+	}
+
+	if who.UserProfile == nil {
 		return model.Whois{}
 	}
 
@@ -162,6 +178,10 @@ func (p *Proxy) watchStatus() {
 		case "Starting":
 			p.setStatus(model.ProxyStatusStarting, "", "")
 		case "Running":
+			if status.Self == nil {
+				p.log.Warn().Msg("tailscale status Self is nil, skipping")
+				continue
+			}
 			p.setStatus(model.ProxyStatusRunning, strings.TrimRight(status.Self.DNSName, "."), "")
 			if p.status != model.ProxyStatusRunning {
 				p.getTLSCertificates()
@@ -175,7 +195,7 @@ func (p *Proxy) setStatus(status model.ProxyStatus, url string, authURL string) 
 		return
 	}
 
-	p.log.Debug().Str("authURL", url).Str("status", status.String()).Msg("tailscale status")
+	p.log.Debug().Str("status", status.String()).Msg("tailscale status")
 
 	p.mtx.Lock()
 	p.status = status
@@ -187,14 +207,22 @@ func (p *Proxy) setStatus(status model.ProxyStatus, url string, authURL string) 
 	}
 	p.mtx.Unlock()
 
-	p.events <- model.ProxyEvent{
+	select {
+	case p.events <- model.ProxyEvent{
 		Status: status,
+	}:
+	default:
+		p.log.Warn().Msg("dropping proxy event: no listener")
 	}
 }
 
 func (p *Proxy) getTLSCertificates() {
 	p.log.Info().Msg("Generating TLS certificate")
 	certDomains := p.tsServer.CertDomains()
+	if len(certDomains) == 0 {
+		p.log.Warn().Msg("no certificate domains available")
+		return
+	}
 	if _, _, err := p.lc.CertPair(p.ctx, certDomains[0]); err != nil {
 		p.log.Error().Err(err).Msg("error to get TLS certificates")
 		return

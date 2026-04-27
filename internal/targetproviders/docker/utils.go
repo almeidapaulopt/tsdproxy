@@ -1,9 +1,10 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package docker
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -42,6 +43,10 @@ func (c *container) getAuthKeyFromAuthFile(authKey string) (string, error) {
 	authKeyFile, ok := c.labels[LabelAuthKeyFile]
 	if !ok || authKeyFile == "" {
 		return authKey, nil
+	}
+	// Validate path — reject paths that try to escape
+	if strings.Contains(authKeyFile, "..") {
+		return "", errors.New("invalid auth key file path: contains '..'")
 	}
 	temp, err := os.ReadFile(authKeyFile)
 	if err != nil {

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package dashboard
@@ -54,8 +54,7 @@ func (dash *Dashboard) renderList(ch chan SSEMessage) {
 	}
 
 	proxies := dash.pm.GetProxies()
-	_ = proxies
-	for name, p := range dash.pm.Proxies {
+	for name, p := range proxies {
 		if p.Config.Dashboard.Visible {
 			dash.renderProxy(ch, name, EventAppend)
 		}

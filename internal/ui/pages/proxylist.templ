@@ -59,8 +59,8 @@ templ Proxy(item ProxyData) {
 					<button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
 				</form>
 				<h3 class="text-lg font-bold">{ item.Name }</h3>
-				for _, port := range item.Ports {
-					<a href={ templ.URL(item.URL) } class="py-4">
+			for _, port := range item.Ports {
+				<a href={ templ.URL(item.URL) } class="py-4">
 						{ port.String() }
 					</a>
 					<!-- TODO: add more info -->

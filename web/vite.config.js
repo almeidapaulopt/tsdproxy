@@ -1,4 +1,4 @@
-import { defineConfig } from `vite`;
+import { defineConfig } from 'vite';
 import { cpSync, mkdirSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import tailwindcss from '@tailwindcss/vite';

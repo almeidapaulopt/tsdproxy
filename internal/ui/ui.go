@@ -1,16 +1,13 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package ui
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/a-h/templ"
-	datastar "github.com/starfederation/datastar/sdk/go"
 )
 
 //go:generate templ generate
@@ -25,16 +22,4 @@ func RenderTempl(w http.ResponseWriter, r *http.Request, cmp templ.Component) er
 	}
 
 	return err
-}
-
-func RenderNewSSE(w http.ResponseWriter, r *http.Request, cmp templ.Component) error {
-	sse := datastar.NewSSE(w, r)
-	return sse.MergeFragmentTempl(cmp)
-}
-
-func RenderSSE(_ http.ResponseWriter, r *http.Request, cmp templ.Component) {
-	var buf bytes.Buffer
-
-	writer := io.Writer(&buf)
-	_ = cmp.Render(r.Context(), writer)
 }

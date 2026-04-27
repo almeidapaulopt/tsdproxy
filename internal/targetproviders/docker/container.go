@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package docker
@@ -86,7 +86,7 @@ func (c *container) setContainerPorts(dcontainer ctypes.InspectResponse, dservic
 	}
 
 	for p, b := range dcontainer.NetworkSettings.Ports {
-		if b != nil {
+		if len(b) > 0 {
 			c.ports[p.Port()] = b[0].HostPort
 		}
 	}

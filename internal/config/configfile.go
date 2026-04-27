@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package config
@@ -103,6 +103,11 @@ func (f *ConfigFile) Watch() {
 
 		// Start listening for events.
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					f.log.Warn().Interface("recover", r).Msg("WaitGroup already done in watchEvents")
+				}
+			}()
 			defer eventsWG.Done()
 			f.watchEvents(watcher, file, &eventsWG)
 		}()
@@ -147,7 +152,14 @@ func (f *ConfigFile) handleEvent(event fsnotify.Event, file string, realFile *st
 			f.onChange(event)
 		}
 	} else if filepath.Clean(event.Name) == file && event.Has(fsnotify.Remove) {
-		eventsWG.Done()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					f.log.Warn().Interface("recover", r).Msg("WaitGroup already done")
+				}
+			}()
+			eventsWG.Done()
+		}()
 	}
 }
 

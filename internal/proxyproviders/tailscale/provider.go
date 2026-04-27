@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package tailscale
@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -92,7 +93,7 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		log:      log,
 		config:   config,
 		tsServer: tserver,
-		events:   make(chan model.ProxyEvent),
+		events:   make(chan model.ProxyEvent, 10), //nolint:mnd
 	}, nil
 }
 
@@ -127,7 +128,8 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) string {
 		}
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	defer cancel()
 
 	tsclient := &tailscale.Client{
 		Tailnet:   "-",

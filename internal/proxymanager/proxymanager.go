@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package proxymanager
@@ -6,6 +6,7 @@ package proxymanager
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -78,18 +79,22 @@ func (pm *ProxyManager) Start() {
 // StopAllProxies method shuts down all proxies.
 func (pm *ProxyManager) StopAllProxies() {
 	pm.log.Info().Msg("Shutdown all proxies")
-	wg := sync.WaitGroup{}
 
 	pm.mtx.RLock()
+	ids := make([]string, 0, len(pm.Proxies))
 	for id := range pm.Proxies {
-		wg.Add(1)
-		go func() {
-			pm.removeProxy(id)
-			wg.Done()
-		}()
+		ids = append(ids, id)
 	}
 	pm.mtx.RUnlock()
 
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			pm.removeProxy(id)
+		}(id)
+	}
 	wg.Wait()
 }
 
@@ -97,20 +102,25 @@ func (pm *ProxyManager) StopAllProxies() {
 func (pm *ProxyManager) WatchEvents() {
 	for _, provider := range pm.TargetProviders {
 		go func(provider targetproviders.TargetProvider) {
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			eventsChan := make(chan targetproviders.TargetEvent)
 			errChan := make(chan error)
-			defer close(errChan)
-			defer close(eventsChan)
 
-			provider.WatchEvents(ctx, eventsChan, errChan)
+			go provider.WatchEvents(ctx, eventsChan, errChan)
+
 			for {
 				select {
-				case event := <-eventsChan:
+				case event, ok := <-eventsChan:
+					if !ok {
+						return
+					}
 					go pm.HandleProxyEvent(event)
-				case err := <-errChan:
-					pm.log.Err(err).Msg("Error watching events")
+				case err, ok := <-errChan:
+					if ok {
+						pm.log.Err(err).Msg("Error watching events")
+					}
 					return
 				}
 			}
@@ -155,7 +165,7 @@ func (pm *ProxyManager) GetProxies() ProxyList {
 	pm.mtx.RLock()
 	defer pm.mtx.RUnlock()
 
-	return pm.Proxies
+	return maps.Clone(pm.Proxies)
 }
 
 func (pm *ProxyManager) GetProxy(name string) (*Proxy, bool) {
@@ -241,17 +251,17 @@ func (pm *ProxyManager) addProxy(proxy *Proxy) {
 
 // removeProxy method removes a Proxy from the ProxyManager.
 func (pm *ProxyManager) removeProxy(hostname string) {
+	pm.mtx.Lock()
 	proxy, exists := pm.Proxies[hostname]
 	if !exists {
+		pm.mtx.Unlock()
 		return
 	}
 
-	proxy.Close()
-
-	pm.mtx.Lock()
-	defer pm.mtx.Unlock()
-
 	delete(pm.Proxies, hostname)
+	pm.mtx.Unlock()
+
+	proxy.Close()
 
 	pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
 }
@@ -279,9 +289,15 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 		return
 	}
 
-	targetprovider := pm.TargetProviders[proxy.Config.TargetProvider]
+	pm.mtx.RLock()
+	targetprovider, exists := pm.TargetProviders[proxy.Config.TargetProvider]
+	pm.mtx.RUnlock()
+	if !exists {
+		pm.log.Error().Str("provider", proxy.Config.TargetProvider).Msg("Target provider not found")
+		return
+	}
 	if err := targetprovider.DeleteProxy(event.ID); err != nil {
-		pm.log.Error().Err(err).Msg("No proxy found for target")
+		pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error deleting proxy")
 		return
 	}
 
@@ -335,6 +351,9 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 
 // getProxyProvider method returns a ProxyProvider.
 func (pm *ProxyManager) getProxyProvider(proxy *model.Config) (proxyproviders.Provider, error) {
+	pm.mtx.RLock()
+	defer pm.mtx.RUnlock()
+
 	// return ProxyProvider defined in configurtion
 	//
 	if proxy.ProxyProvider != "" {

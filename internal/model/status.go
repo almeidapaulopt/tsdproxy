@@ -1,5 +1,6 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
+
 package model
 
 type (
@@ -34,5 +35,9 @@ var proxyStatusStrings = []string{
 }
 
 func (s *ProxyStatus) String() string {
-	return proxyStatusStrings[int(*s)]
+	i := int(*s)
+	if i < 0 || i >= len(proxyStatusStrings) {
+		return "Unknown"
+	}
+	return proxyStatusStrings[i]
 }

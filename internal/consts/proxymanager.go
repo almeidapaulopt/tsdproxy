@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package consts
 
 const (
-	HeaderUsername      = "X-tsdproxy-username"
-	HeaderDisplayName   = "x-tsdproxy-displayName"
-	HeaderProfilePicURL = "x-tsdproxy-profilePicUrl"
+	HeaderUsername      = "x-tsdproxy-username"
+	HeaderDisplayName   = "x-tsdproxy-displayname"
+	HeaderProfilePicURL = "x-tsdproxy-profilepicurl"
 )

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package proxymanager
@@ -77,8 +77,9 @@ func NewProxy(log zerolog.Logger,
 }
 
 func (proxy *Proxy) Start() {
+	go proxy.start()
+
 	go func() {
-		go proxy.start()
 		for event := range proxy.providerProxy.WatchEvents() {
 			proxy.setStatus(event.Status)
 		}

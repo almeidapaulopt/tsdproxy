@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package config
@@ -89,16 +89,16 @@ func InitializeConfig() error {
 
 	fileConfig := NewConfigFile(log.Logger, *file, Config)
 
-	println("loading configuration from:", *file)
+	log.Info().Str("file", *file).Msg("loading configuration")
 
 	if err := fileConfig.Load(); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		println("Generating default configuration to:", *file)
+		log.Info().Str("file", *file).Msg("generating default configuration")
 
 		if err := defaults.Set(Config); err != nil {
-			fmt.Printf("Error loading defaults: %v", err)
+			log.Error().Err(err).Msg("error loading defaults")
 		}
 
 		Config.generateDefaultProviders()
@@ -111,7 +111,7 @@ func InitializeConfig() error {
 	// Make sure to set default values after loading from file
 	// unless defaults of map type are not loaded.
 	if err := defaults.Set(Config); err != nil {
-		fmt.Printf("Error loading defaults: %v", err)
+		log.Error().Err(err).Msg("error loading defaults")
 	}
 
 	// load auth keys from files
@@ -140,8 +140,7 @@ func InitializeConfig() error {
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	authkey, err := os.ReadFile(authKeyFile)
 	if err != nil {
-		println("Error reading auth key file:", err)
-		return "", err
+		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}
 	return string(authkey), nil
 }

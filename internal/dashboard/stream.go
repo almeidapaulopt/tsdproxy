@@ -1,9 +1,10 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
@@ -109,17 +110,21 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 }
 
 func (dash *Dashboard) updateUser(r *http.Request, ch chan SSEMessage) {
-	username := r.Header.Get(consts.HeaderUsername)
-	displayName := r.Header.Get(consts.HeaderDisplayName)
-	profilePicURL := r.Header.Get(consts.HeaderProfilePicURL)
+	signals := map[string]string{
+		"user_username":     r.Header.Get(consts.HeaderUsername),
+		"user_displayName":  r.Header.Get(consts.HeaderDisplayName),
+		"user_profilePicUrl": r.Header.Get(consts.HeaderProfilePicURL),
+	}
 
-	signals := `{user_username: '` + username +
-		`', user_displayName: '` + displayName +
-		`', user_profilePicUrl: '` + profilePicURL + `'}`
+	b, err := json.Marshal(signals)
+	if err != nil {
+		dash.Log.Error().Err(err).Msg("Error marshalling user signals")
+		return
+	}
 
 	ch <- SSEMessage{
 		Type:    EventUpdateSignals,
-		Message: signals,
+		Message: string(b),
 	}
 }
 
@@ -164,3 +169,4 @@ func (dash *Dashboard) streamSortList(channel chan SSEMessage) {
 		Message: "sortList()",
 	}
 }
+

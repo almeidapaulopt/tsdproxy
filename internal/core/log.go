@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package core
@@ -76,7 +76,9 @@ func (r *LogRecord) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func (r *LogRecord) Flush() {
-	r.ResponseWriter.(http.Flusher).Flush()
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // LoggerMiddleware is a middleware function that logs incoming HTTP requests.

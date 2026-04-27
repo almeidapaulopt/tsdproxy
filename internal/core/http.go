@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package core
@@ -70,24 +70,11 @@ func (a *HTTPServer) StartServer(s *http.Server) error {
 	return s.ListenAndServe()
 }
 
-func (a *HTTPServer) JSONResponse(w http.ResponseWriter, _ *http.Request, result interface{}) {
-	body, err := json.Marshal(result)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		a.Log.Error().Err(err).Msg("JSON marshal failed in JSONResponse")
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(a.prettyJSON(body))
-	if err != nil {
-		a.Log.Error().Err(err).Msg("Write failed in JSONResponse")
-	}
+func (a *HTTPServer) JSONResponse(w http.ResponseWriter, r *http.Request, result any) {
+	a.JSONResponseCode(w, r, result, http.StatusOK)
 }
 
-func (a *HTTPServer) JSONResponseCode(w http.ResponseWriter, _ *http.Request, result interface{}, responseCode int) {
+func (a *HTTPServer) JSONResponseCode(w http.ResponseWriter, _ *http.Request, result any, responseCode int) {
 	body, err := json.Marshal(result)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)

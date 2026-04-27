@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package docker
@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/docker/docker/api/types"
 	ctypes "github.com/docker/docker/api/types/container"
 	devents "github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -98,7 +97,7 @@ func (c *Client) AddTarget(id string) (*model.Config, error) {
 	var dservice swarm.Service
 
 	if serviceID, ok := dcontainer.Config.Labels["com.docker.swarm.service.id"]; ok {
-		dservice, _, _ = c.docker.ServiceInspectWithRaw(ctx, serviceID, types.ServiceInspectOptions{})
+		dservice, _, _ = c.docker.ServiceInspectWithRaw(ctx, serviceID, swarm.ServiceInspectOptions{})
 	}
 
 	return c.newProxyConfig(dcontainer, dservice)
@@ -142,8 +141,12 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	go func() {
 		for {
 			select {
-			case devent := <-dockereventsChan:
-
+			case <-ctx.Done():
+				return
+			case devent, ok := <-dockereventsChan:
+				if !ok {
+					return
+				}
 				switch devent.Action {
 				case devents.ActionStart:
 					eventsChan <- c.getStartEvent(devent.Actor.ID)
@@ -151,8 +154,11 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 					eventsChan <- c.getStopEvent(devent.Actor.ID)
 				}
 
-			case err := <-dockererrChan:
-				errChan <- err
+			case err, ok := <-dockererrChan:
+				if ok {
+					errChan <- err
+				}
+				return
 			}
 		}
 	}()
@@ -267,6 +273,10 @@ func (c *Client) setDefaultBridgeAddress() {
 
 	for _, network := range networks {
 		if network.Options["com.docker.network.bridge.default_bridge"] == "true" {
+			if len(network.IPAM.Config) == 0 {
+				c.log.Warn().Str("network", network.Name).Msg("default bridge network has no IPAM config")
+				continue
+			}
 			c.log.Info().Str("defaultIPAdress", network.IPAM.Config[0].Gateway).Msg("Default Network found")
 
 			c.defaultBridgeAdress = strings.TrimSpace(network.IPAM.Config[0].Gateway)

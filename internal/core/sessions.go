@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package core
@@ -26,12 +26,14 @@ func SessionMiddleware(next http.Handler) http.Handler {
 
 		if errors.Is(err, http.ErrNoCookie) {
 			// No session, create a new one
+			sessionID = uuid.New().String()
 			http.SetCookie(w, &http.Cookie{
 				Name:     "session_id",
-				Value:    uuid.New().String(),
+				Value:    sessionID,
 				Path:     "/",
 				HttpOnly: true,
 				Secure:   true,
+				SameSite: http.SameSiteStrictMode,
 			})
 
 			mtx.Lock()

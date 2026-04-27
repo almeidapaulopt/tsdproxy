@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package proxymanager
@@ -26,6 +26,7 @@ type port struct {
 	listener   net.Listener
 	cancel     context.CancelFunc
 	httpServer *http.Server
+	transport  *http.Transport
 	mtx        sync.Mutex
 }
 
@@ -81,6 +82,7 @@ func newPortProxy(
 		ctx:        ctxPort,
 		cancel:     cancel,
 		httpServer: httpServer,
+		transport:  tr,
 	}
 }
 
@@ -127,6 +129,10 @@ func (p *port) close() error {
 
 	if p.listener != nil {
 		errs = errors.Join(errs, p.listener.Close())
+	}
+
+	if p.transport != nil {
+		p.transport.CloseIdleConnections()
 	}
 
 	p.cancel()

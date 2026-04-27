@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2025 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
 package core
@@ -6,12 +6,15 @@ package core
 import (
 	"runtime/debug"
 	"strings"
+	"sync"
 )
 
 var (
-	version        string
-	realVersion    *string
-	isDirty        *bool
+	version     string
+	realVersion *string
+	isDirty     *bool
+	versionOnce sync.Once
+
 	AppNameVersion = AppName + "-" + GetVersion()
 )
 
@@ -21,12 +24,15 @@ const (
 )
 
 func GetVersion() string {
-	if realVersion == nil {
+	versionOnce.Do(func() {
 		tempVersion := strings.TrimSpace(version)
 		if getIsDirty() {
 			tempVersion += "-dirty"
 		}
 		realVersion = &tempVersion
+	})
+	if realVersion == nil {
+		return "dev"
 	}
 	return *realVersion
 }
@@ -48,6 +54,9 @@ func getIsDirty() bool {
 			}
 		}
 		isDirty = &modified
+	}
+	if isDirty == nil {
+		return false
 	}
 	return *isDirty
 }
