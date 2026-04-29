@@ -77,16 +77,42 @@ build:
 	@echo "GIT_TAG: ${GIT_TAG}"
 	go build -ldflags '$(LDFLAGS)' -o=./tmp/${BINARY_NAME}  ${MAIN_PACKAGE_PATH}
 
+## build/all: build frontend assets and binary
+.PHONY: build/all
+build/all:
+	bun run --cwd web build
+	templ generate
+	make build
+
 ## run: run the  application
 .PHONY: run
-run: build/static build 
+run: build/all
 	./tmp/${BINARY_NAME}
 
 
 ## dev: start dev server
 .PHONY: dev
-dev: docker_start
+dev: download-icons docker_start
 	make -j2 assets server_start
+
+## download-icons: download icon sets to web/public/icons/
+.PHONY: download-icons
+download-icons:
+	bun run --cwd web download-icons
+
+## bootstrap: full build from clean checkout (for CI and first-time setup)
+.PHONY: bootstrap
+bootstrap:
+	bun run --cwd web build
+	templ generate
+
+## ci: clean-checkout verification — deletes all generated assets and rebuilds from scratch
+.PHONY: ci
+ci:
+	rm -rf web/dist web/public/icons/si web/public/icons/mdi web/public/icons/sh web/scripts/.download-cache.json
+	bun run --cwd web build
+	templ generate
+	go test -v -race ./...
 
 ## server_start: start the server
 .PHONY: server_start

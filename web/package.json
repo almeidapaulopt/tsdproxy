@@ -4,22 +4,22 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "download-icons": "bun scripts/download-icons.js",
+    "build": "bun scripts/download-icons.js && vite build",
     "dev": "vite",
-    "build": "vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
-    "@vite-pwa/assets-generator": "^0.2.6",
+    "@vite-pwa/assets-generator": "^1.0.2",
     "daisyui": "^5.5.19",
     "tailwindcss": "^4.2.4",
-    "vite": "^6.4.2",
-    "vite-plugin-compression2": "^1.4.0",
-    "vite-plugin-pwa": "^0.21.2"
+    "tar": "^7.4.3",
+    "vite": "^8.0.10",
+    "vite-plugin-compression2": "^2.5.3",
+    "vite-plugin-pwa": "^1.2.0"
   },
   "dependencies": {
-    "@mdi/svg": "^7.4.47",
-    "@starfederation/datastar": "^1.0.0-beta.11",
-    "simple-icons": "^14.15.0"
+    "@starfederation/datastar": "^1.0.0-beta.11"
   }
 }

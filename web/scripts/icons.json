@@ -1,0 +1,23 @@
+{
+  "si": {
+    "repo": "simple-icons/simple-icons",
+    "version": "16.18.0",
+    "refType": "tags",
+    "svgDir": "icons",
+    "sha256": "34b0a5297104363bb424845e25af67e3de407d0fd767fcac44b1456fa508cecf"
+  },
+  "mdi": {
+    "repo": "Templarian/MaterialDesign-SVG",
+    "version": "v7.4.47",
+    "refType": "tags",
+    "svgDir": "svg",
+    "sha256": "898f04f590d6e2902f48d89d223b4bfbd4c5d311b20d36459fcab4d58097154c"
+  },
+  "sh": {
+    "repo": "selfhst/icons",
+    "version": "ecfb6aaa4a0b74ad772cab95ef13754063fa4c55",
+    "refType": "commits",
+    "svgDir": "svg",
+    "sha256": "78d87edbb7c597b68aaf6ad85d8f44bfe1920fdaa6039b66199fa1f2d7e99f40"
+  }
+}

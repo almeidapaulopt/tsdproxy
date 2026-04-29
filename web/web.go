@@ -14,16 +14,14 @@ import (
 	"github.com/vearutop/statigz/brotli"
 )
 
-//go:generate wget -nc https://github.com/selfhst/icons/archive/refs/heads/main.zip
-//go:generate unzip -jo main.zip icons-main/svg/* -d public/icons/sh
-//go:generate bun run build
-
 //go:embed dist
 var dist embed.FS
 
 var Static http.Handler
 
 const DefaultIcon = "tsdproxy"
+
+var iconIndex map[string]string
 
 func init() {
 	staticFS, err := fs.Sub(dist, "dist")
@@ -32,6 +30,28 @@ func init() {
 	}
 
 	Static = statigz.FileServer(staticFS.(fs.ReadDirFS), brotli.AddEncoding)
+
+	buildIconIndex()
+}
+
+func buildIconIndex() {
+	iconIndex = make(map[string]string)
+	for _, dir := range []string{"dist/icons/mdi", "dist/icons/sh", "dist/icons/si"} {
+		fs.WalkDir(dist, dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".svg") {
+				return nil
+			}
+			name := strings.TrimSuffix(d.Name(), ".svg")
+			if strings.HasSuffix(name, "-dark") || strings.HasSuffix(name, "-light") {
+				return nil
+			}
+			if _, exists := iconIndex[name]; !exists {
+				rel := strings.TrimPrefix(path, "dist/icons/")
+				iconIndex[name] = strings.TrimSuffix(rel, ".svg")
+			}
+			return nil
+		})
+	}
 }
 
 func GuessIcon(name string) string {
@@ -40,22 +60,8 @@ func GuessIcon(name string) string {
 	baseName := strings.SplitN(lastPart, ":", 2)[0] //nolint
 	baseName = strings.SplitN(baseName, "@", 2)[0]  //nolint
 
-	var foundFile string
-	err := fs.WalkDir(dist, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".svg") {
-			if strings.TrimSuffix(d.Name(), ".svg") == baseName {
-				foundFile = path
-				return fs.SkipDir
-			}
-		}
-		return nil
-	})
-	if err != nil || foundFile == "" {
-		return DefaultIcon
+	if icon, ok := iconIndex[baseName]; ok {
+		return icon
 	}
-	icon := strings.TrimPrefix(foundFile, "dist/icons/")
-	return strings.TrimSuffix(icon, ".svg")
+	return DefaultIcon
 }
