@@ -103,13 +103,8 @@ func (f *ConfigFile) Watch() {
 
 		// Start listening for events.
 		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					f.log.Warn().Interface("recover", r).Msg("WaitGroup already done in watchEvents")
-				}
-			}()
 			defer eventsWG.Done()
-			f.watchEvents(watcher, file, &eventsWG)
+			f.watchEvents(watcher, file)
 		}()
 
 		err = watcher.Add(dir)
@@ -123,7 +118,7 @@ func (f *ConfigFile) Watch() {
 	initWG.Wait()
 }
 
-func (f *ConfigFile) watchEvents(watcher *fsnotify.Watcher, file string, eventsWG *sync.WaitGroup) {
+func (f *ConfigFile) watchEvents(watcher *fsnotify.Watcher, file string) {
 	realFile, _ := filepath.EvalSymlinks(f.filename)
 	for {
 		select {
@@ -131,7 +126,7 @@ func (f *ConfigFile) watchEvents(watcher *fsnotify.Watcher, file string, eventsW
 			if !ok {
 				return
 			}
-			f.handleEvent(event, file, &realFile, eventsWG)
+			f.handleEvent(event, file, &realFile)
 		case err, ok := <-watcher.Errors:
 			if ok {
 				f.log.Error().Err(err).Msg("watching config file error")
@@ -141,7 +136,7 @@ func (f *ConfigFile) watchEvents(watcher *fsnotify.Watcher, file string, eventsW
 	}
 }
 
-func (f *ConfigFile) handleEvent(event fsnotify.Event, file string, realFile *string, eventsWG *sync.WaitGroup) {
+func (f *ConfigFile) handleEvent(event fsnotify.Event, file string, realFile *string) {
 	currentFile, _ := filepath.EvalSymlinks(f.filename)
 	if (filepath.Clean(event.Name) == file &&
 		(event.Has(fsnotify.Write) || event.Has(fsnotify.Create))) ||
@@ -151,15 +146,6 @@ func (f *ConfigFile) handleEvent(event fsnotify.Event, file string, realFile *st
 		if f.onChange != nil {
 			f.onChange(event)
 		}
-	} else if filepath.Clean(event.Name) == file && event.Has(fsnotify.Remove) {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					f.log.Warn().Interface("recover", r).Msg("WaitGroup already done")
-				}
-			}()
-			eventsWG.Done()
-		}()
 	}
 }
 

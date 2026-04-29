@@ -185,11 +185,8 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*model.Config, erro
 	return pcfg, nil
 }
 
-func (c *Client) onFileChange(e fsnotify.Event) {
-	if !e.Op.Has(fsnotify.Write) {
-		return
-	}
-	c.log.Info().Str("filename", e.Name).Msg("config changed, reloading")
+func (c *Client) onFileChange(_ fsnotify.Event) {
+	c.log.Info().Msg("config changed, reloading")
 	oldConfigProxies := maps.Clone(c.configProxies)
 
 	// Delete all entries because it's not deleted when loading from file
