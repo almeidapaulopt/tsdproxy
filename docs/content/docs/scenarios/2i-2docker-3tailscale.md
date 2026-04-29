@@ -1,6 +1,6 @@
 ---
 title: Two TSDProxy instances, two Docker servers and three Tailscale providers
-next: changelog
+next: /docs/changelog
 ---
 ## Description
 

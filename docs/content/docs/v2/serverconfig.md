@@ -6,9 +6,15 @@ next: /providers
 
  TSDProxy utilizes the configuration file `/config/tsdproxy.yaml` for its settings.
 
+ The config file path can be overridden using the `--config` CLI flag:
+
+ ```bash
+ tsdproxy --config /path/to/tsdproxy.yaml
+ ```
+
  > [!IMPORTANT]
  > Environment variable configurations used in versions prior to v0.6.0 are
- > deprecated and will be removed in future releases.
+ > deprecated and will be removed in future releases. However, some legacy env vars are still read during initial config generation: `DOCKER_HOST`, `TSDPROXY_HOSTNAME`, `TSDPROXY_AUTHKEY`, `TSDPROXY_AUTHKEYFILE`, `TSDPROXY_CONTROLURL`, and `TSDPROXY_DATADIR`.
 
 {{% steps %}}
 
@@ -46,7 +52,7 @@ http:
   hostname: 0.0.0.0 # HTTP server hostname
   port: 8080 # HTTP server port
 log:
-  level: info # Logging level (info, error, debug or trace)
+  level: info # Logging level (debug, info, warn, error, fatal, panic, trace)
   json: false # Enable JSON logging (true/false)
 proxyAccessLog: true # Enable container access logs (true/false)
 ```
@@ -153,3 +159,15 @@ section) to use for containers on this Docker server. Container-specific labels
 override this setting.
 
 {{% /steps %}}
+
+## Configuration File Lifecycle
+
+### Auto-Generation
+On first run, TSDProxy generates a default config automatically.
+
+### Live Reload
+- **Proxy list files** reload automatically on changes. No restart needed.
+- **Main config** changes require a restart.
+
+### Validation
+Config files are strictly validated. Unknown keys or invalid values cause load failures.

@@ -5,19 +5,42 @@ weight: 500
 
 {{% steps %}}
 
+### 2.0.0-beta5
+
+#### New features
+
+- Auto-detect `host.docker.internal` when generating default config
+- Support for Docker internal networks via `tryDockerInternalNetwork` config option
+
+#### Fixes
+
+- Tailscale watcher nil-deref on shutdown
+- TLS certificate prefetch for faster proxy startup
+- Readiness ordering: HTTP server starts only after proxy manager is ready
+- Config file watcher survives atomic replacement (e.g., `docker compose cp`)
+- Race conditions in proxy lifecycle (start/stop ordering)
+- Hardened auth-key file path validation (symlink and non-regular file rejection)
+
+#### Changes
+
+- Migrated to Tailscale v2 client library
+- Unified icon download pipeline into reproducible JS script
+- Dark mode theme variable renamed internally
+- Dependency updates: tailscale.com v1.84.0, OpenTelemetry v1.36.0, templ v0.3.865, Docker client v28.x
+
 ### 2.0.0-beta4
 
 #### New features
 
 - Multiple ports in each tailscale hosts
-- Enable and activate multiple redirects
+- Enable multiple redirects
 - Proxies can use http and https
 - OAuth autentication without using the dashboard
 - Assign Tags on Tailscale hosts
 - Dashboard gets updated in real-time
 - Search in the dashboard
 - Dashboard proxies are sorted in alphabetically order
-- Add support to swam stacks
+- Add support for Docker Swarm stacks
 - Tailscale user profile in top-right of Dashboard
 - Pass Tailscale identity headers to destination service
 
@@ -50,7 +73,7 @@ please [Lists](../v2/providers/lists)
 
 ### 1.3.0
 
-#### Braking changes
+#### Breaking changes
 
 Configuration files are now validated and doesn't allow invalid configuration keys
 [Verify valid configuration keys](../serverconfig/#sample-configuration-file).

@@ -91,7 +91,7 @@ tailscale:
       controlUrl: http://server1
  
     differentkey:
-      authKey: authkey-with-diferent-tags
+      authKey: authkey-with-different-tags
       authKeyFile: ""
       controlUrl: https://controlplane.tailscale.com
 ```

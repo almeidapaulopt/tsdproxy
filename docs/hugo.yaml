@@ -4,13 +4,17 @@ title: TSDProxy
 enableRobotsTXT: true
 enableGitInfo: true
 enableEmoji: true
+disableKinds: ["RSS"]
+
+author:
+  email: almeidapaulopt@gmail.com
 
 baseURL: https://almeidapaulopt.github.io/tsdproxy/
 
 defaultContentLanguage: en
 languages:
   en:
-    languageName: English
+    label: English
     weight: 1
 
 # import hextra as module

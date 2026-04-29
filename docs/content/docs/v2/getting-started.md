@@ -31,6 +31,10 @@ volumes:
   datadir:
 ```
 
+> [!IMPORTANT]
+> The `extra_hosts` entry maps `host.docker.internal` to the Docker host gateway.
+> This allows TSDProxy to detect the Docker host IP for routing traffic to containers.
+
 ### Start the TSDProxy container
 
 ```bash

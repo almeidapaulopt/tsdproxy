@@ -17,8 +17,8 @@ collection of icons and logos for self-hosted dashboards. Use "sh/" as prefix.
 ## How it works
 
 1. Select the icon in icon libraries websites.
-2. Add the definition to your proxy "tsdproxy.dash.icon" in [docker provider](/docs/docker/#tsdproxydashicon)
-or "icon" in dashboard section for [Proxy List](/docs/list/#proxy-list-file-options)
+2. Add the definition to your proxy "tsdproxy.dash.icon" in [docker provider](/docs/v2/providers/docker/#tsdproxydashicon)
+or "icon" in dashboard section for [Proxy List](/docs/v2/providers/lists/#proxy-list-file-options)
 3. Set the icon definition to "library/icon"
 (don't add extension, TSDProxy will add .svg)
 

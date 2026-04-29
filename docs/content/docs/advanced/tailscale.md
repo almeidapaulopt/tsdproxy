@@ -1,6 +1,6 @@
 ---
 title: Tailscale
-next: /docs/scenarios
+next: /docs/troubleshooting
 ---
 
 ## OAuth

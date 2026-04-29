@@ -128,3 +128,26 @@ for requirements and limitations.
 - Tags can be configured in the provider or service.
 - If tags are defined in the provider, they apply to all services.
 - If tags are defined in the service, provider tags are ignored.
+
+## Identity Headers
+
+TSDProxy forwards Tailscale identity via HTTP headers: `X-Tailscale-User`, `X-Tailscale-Name`, `X-Tailscale-Profile-Picture`, `X-Forwarded-For`.
+
+## Proxy Provider Resolution
+
+1. Per-proxy label (tsdproxy.proxyprovider)
+2. Target provider default (defaultProxyProvider)
+3. Global default (top-level defaultProxyProvider)
+4. First available provider
+
+## Proxy Lifecycle
+
+| State | Description |
+|-------|-------------|
+| Initializing | Being created |
+| Starting | Connecting to Tailscale |
+| Authenticating | Waiting for auth |
+| Running | Active |
+| Stopping | Shutting down |
+| Stopped | Removed |
+| Error | Fatal error |

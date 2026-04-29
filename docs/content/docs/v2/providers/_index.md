@@ -1,6 +1,6 @@
 ---
 title: Providers
-prev: /docs/serverconfig
+prev: /docs/v2/serverconfig
 weight: 3
 ---
 

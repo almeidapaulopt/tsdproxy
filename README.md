@@ -1,6 +1,6 @@
-# TsDProxy - Tailscale Proxy
+# TSDProxy - Tailscale Proxy
 
-TsDProxy simplifies the process of securely exposing services and Docker containers
+TSDProxy simplifies the process of securely exposing services and Docker containers
 to your Tailscale network by automatically creating Tailscale machines for each
 tagged container. This allows services to be accessible via unique, secure URLs
 without the need for complex configurations or additional Tailscale containers.
@@ -34,15 +34,15 @@ the project.
 ## Docker Images
 
 1. almeidapaulopt/tsdproxy:vx.x.x  - Version x.x.x
-2. almeidapaulopt/tsdproxy:1       - Latest release of version 1.x.x
-3. almeidapaulopt/tsdproxy:2       - Latest release of version 2.x.x (beta)
-4. almeidapaulopt/tsdproxy:latest  - Latest stable
+2. almeidapaulopt/tsdproxy:1       - Latest stable release of version 1.x.x
+3. almeidapaulopt/tsdproxy:2       - Latest beta release of version 2.x.x
+4. almeidapaulopt/tsdproxy:latest  - Latest stable release
 5. almeidapaulopt/tsdproxy:dev     - Latest Development Build
 
 ## Core Functionality
 
 - **Automatic Tailscale Machine Creation**: For each Docker container tagged
-with the appropriate labels, TsDProxy creates a new Tailscale machine.
+with the appropriate labels, TSDProxy creates a new Tailscale machine.
 - **Default Serving**: By default, each service is accessible via
 `https://{machine-name}.funny-name.ts.net`, where `{machine-name}` is derived
 from your container name or custom label.
@@ -58,20 +58,20 @@ container for each service.
 
 ## How It Works
 
-TsDProxy operates by creating a seamless integration between your Docker
+TSDProxy operates by creating a seamless integration between your Docker
 containers and Tailscale network:
 
-1. **Container Scanning**: TsDProxy continuously monitors your Docker
+1. **Container Scanning**: TSDProxy continuously monitors your Docker
 environment for containers with the `tsdproxy.enable=true` label.
-2. **Tailscale Machine Creation**: When a tagged container is detected, TsDProxy
+2. **Tailscale Machine Creation**: When a tagged container is detected, TSDProxy
 automatically creates a new Tailscale machine for that container.
 3. **Hostname Assignment**: The Tailscale machine is assigned a hostname based
 on the `tsdproxy.name` label or the container's name.
-4. **Port Mapping**: TsDProxy maps the container's internal port to the Tailscale
+4. **Port Mapping**: TSDProxy maps the container's internal port to the Tailscale
 machine.
 5. **Traffic Routing**: Incoming requests to the Tailscale machine are routed to
 the appropriate Docker container and port.
-6. **Dynamic Management**: As containers start and stop, TsDProxy automatically
+6. **Dynamic Management**: As containers start and stop, TSDProxy automatically
 creates and removes the corresponding Tailscale machines and routing configurations.
 
 ## Requirements

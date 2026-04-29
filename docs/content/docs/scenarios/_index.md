@@ -1,8 +1,8 @@
 ---
 linkTitle: Scenarios
 title: Configuration scenarios 
-prev: /docs/services
-next: 1i-2docker-1tailscale
+prev: /docs/list
+next: /docs/scenarios/1i-2docker-1tailscale
 weight: 10
 ---
 

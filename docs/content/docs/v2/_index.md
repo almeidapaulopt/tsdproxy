@@ -63,4 +63,8 @@ Dive right into the following section to get started:
   {{< card link="getting-started" title="Getting Started" icon="document-text"
     subtitle="Learn how to get started with TSDProxy"
   >}}
+
+  {{< card link="upgrading" title="Upgrading" icon="arrow-circle-up"
+    subtitle="Migrate from v1 to v2"
+  >}}
 {{< /cards >}}

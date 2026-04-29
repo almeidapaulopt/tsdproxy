@@ -52,7 +52,7 @@ services:
 
 volumes:
   data:
-  postainer_data:
+  portainer_data:
 ```
 
 ### Server 2

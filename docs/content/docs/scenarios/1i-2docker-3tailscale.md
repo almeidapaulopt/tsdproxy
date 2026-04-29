@@ -39,7 +39,7 @@ services:
     labels:
       tsdproxy.enable: true
       tsdproxy.name: webserver1
-      tsdproxy.provider: withtags
+      tsdproxy.proxyprovider: withtags
     
 
   portainer:
@@ -84,7 +84,7 @@ services:
       tsdproxy.enable: true
       tsdproxy.name: memos
       tsdproxy.container_port: 5230
-      tsdproxy.provider: withtags
+      tsdproxy.proxyprovider: withtags
 
 volumes:
   memos:
