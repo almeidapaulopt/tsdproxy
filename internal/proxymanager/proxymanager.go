@@ -36,7 +36,8 @@ type (
 
 		statusSubscribers map[chan model.ProxyEvent]struct{}
 
-		mtx sync.RWMutex
+		mtx      sync.RWMutex
+		targetMu sync.Map // map[string]*sync.Mutex — per-target-ID lock for serializing events
 	}
 )
 
@@ -128,8 +129,14 @@ func (pm *ProxyManager) WatchEvents() {
 	}
 }
 
-// HandleProxyEvent method handles events from a targetprovider
+// HandleProxyEvent method handles events from a targetprovider.
+// Each event is serialized per target ID so that stop/start for the same
+// target cannot interleave, while different targets process in parallel.
 func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
+	mu := pm.getTargetLock(event.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
 	switch event.Action {
 	case targetproviders.ActionStartProxy:
 		pm.eventStart(event)
@@ -139,6 +146,12 @@ func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
 		pm.eventStop(event)
 		pm.eventStart(event)
 	}
+}
+
+// getTargetLock returns a per-target-ID mutex, creating one if needed.
+func (pm *ProxyManager) getTargetLock(targetID string) *sync.Mutex {
+	v, _ := pm.targetMu.LoadOrStore(targetID, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // SubscribeStatusEvents return a channel of proxy events.
@@ -242,11 +255,20 @@ func (pm *ProxyManager) addProxyProvider(provider proxyproviders.Provider, name 
 }
 
 // addProxy method adds a Proxy to the ProxyManager.
+// If a proxy with the same hostname already exists (e.g., container recreated
+// with a new ID but same hostname label), the old proxy is stopped first.
 func (pm *ProxyManager) addProxy(proxy *Proxy) {
-	pm.mtx.Lock()
-	defer pm.mtx.Unlock()
+	var old *Proxy
 
+	pm.mtx.Lock()
+	old = pm.Proxies[proxy.Config.Hostname]
 	pm.Proxies[proxy.Config.Hostname] = proxy
+	pm.mtx.Unlock()
+
+	if old != nil {
+		old.Close()
+		pm.log.Debug().Str("proxy", proxy.Config.Hostname).Msg("Replaced existing proxy")
+	}
 }
 
 // removeProxy method removes a Proxy from the ProxyManager.
@@ -283,38 +305,27 @@ func (pm *ProxyManager) eventStart(event targetproviders.TargetEvent) {
 func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 	pm.log.Debug().Str("targetID", event.ID).Msg("Stopping target")
 
-	proxy := pm.getProxyByTargetID(event.ID)
-	if proxy == nil {
-		pm.log.Error().Int("action", int(event.Action)).Str("target", event.ID).Msg("No proxy found for target")
-		return
-	}
-
-	pm.mtx.RLock()
-	targetprovider, exists := pm.TargetProviders[proxy.Config.TargetProvider]
-	pm.mtx.RUnlock()
-	if !exists {
-		pm.log.Error().Str("provider", proxy.Config.TargetProvider).Msg("Target provider not found")
-		return
-	}
-	if err := targetprovider.DeleteProxy(event.ID); err != nil {
-		pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error deleting proxy")
-		return
-	}
-
-	pm.removeProxy(proxy.Config.Hostname)
-}
-
-// getProxyByTargetID method returns a Proxy by TargetID.
-func (pm *ProxyManager) getProxyByTargetID(targetID string) *Proxy {
-	pm.mtx.RLock()
-	defer pm.mtx.RUnlock()
-
+	pm.mtx.Lock()
+	var proxy *Proxy
 	for _, p := range pm.Proxies {
-		if p.Config.TargetID == targetID {
-			return p
+		if p.Config.TargetID == event.ID {
+			proxy = p
+			delete(pm.Proxies, p.Config.Hostname)
+			break
 		}
 	}
-	return nil
+	pm.mtx.Unlock()
+
+	// Always clean up provider-side state, even if the proxy was already
+	// removed from the map by a concurrent addProxy with the same hostname.
+	if err := event.TargetProvider.DeleteProxy(event.ID); err != nil {
+		pm.log.Debug().Err(err).Str("targetID", event.ID).Msg("Provider cleanup skipped")
+	}
+
+	if proxy != nil {
+		proxy.Close()
+		pm.log.Debug().Str("proxy", proxy.Config.Hostname).Msg("Removed proxy")
+	}
 }
 
 // newAndStartProxy method creates a new proxy and starts it.

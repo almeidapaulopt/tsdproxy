@@ -108,11 +108,13 @@ func (c *Client) DeleteProxy(id string) error {
 	c.log.Trace().Msgf("DeleteProxy %s", id)
 	defer c.log.Trace().Msgf("End DeleteProxy %s", id)
 
+	c.mutex.Lock()
 	if _, ok := c.containers[id]; !ok {
+		c.mutex.Unlock()
 		return fmt.Errorf("container %s not found", id)
 	}
-
-	c.deleteContainer(id)
+	delete(c.containers, id)
+	c.mutex.Unlock()
 
 	return nil
 }
