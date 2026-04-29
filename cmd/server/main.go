@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -88,24 +89,10 @@ func (app *WebApp) Start() {
 
 	// Start the webserver
 	//
-	go func() {
-		app.Log.Info().Msg("Initializing WebServer")
-
-		// Start the webserver
-		//
-		srv := http.Server{
-			Addr:              fmt.Sprintf("%s:%d", config.Config.HTTP.Hostname, config.Config.HTTP.Port),
-			ReadHeaderTimeout: core.ReadHeaderTimeout,
-		}
-
-		app.Health.SetReady()
-
-		app.httpServer = &srv
-
-		if err := app.HTTP.StartServer(&srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			app.Log.Fatal().Err(err).Msg("shutting down the server")
-		}
-	}()
+	// Add Routes
+	//
+	app.Dashboard.AddRoutes()
+	core.PprofAddRoutes(app.HTTP)
 
 	// Setup proxy for existing containers
 	//
@@ -117,10 +104,31 @@ func (app *WebApp) Start() {
 	//
 	app.ProxyManager.WatchEvents()
 
-	// Add Routes
+	// Start the webserver
 	//
-	app.Dashboard.AddRoutes()
-	core.PprofAddRoutes(app.HTTP)
+	go func() {
+		app.Log.Info().Msg("Initializing WebServer")
+
+		addr := fmt.Sprintf("%s:%d", config.Config.HTTP.Hostname, config.Config.HTTP.Port)
+
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			app.Log.Fatal().Err(err).Msg("failed to bind listener")
+		}
+
+		srv := http.Server{
+			Handler:           core.LoggerMiddleware(app.Log, app.HTTP.Mux),
+			Addr:              addr,
+			ReadHeaderTimeout: core.ReadHeaderTimeout,
+		}
+		app.httpServer = &srv
+
+		app.Health.SetReady()
+
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			app.Log.Fatal().Err(err).Msg("shutting down the server")
+		}
+	}()
 }
 
 func (app *WebApp) Stop() {

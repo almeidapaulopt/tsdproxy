@@ -77,6 +77,13 @@ func (p *Proxy) GetURL() string {
 	return "https://" + url
 }
 
+func (p *Proxy) getStatus() model.ProxyStatus {
+	p.mtx.Lock()
+	s := p.status
+	p.mtx.Unlock()
+	return s
+}
+
 // Close method implements proxyconfig.Proxy Close method.
 func (p *Proxy) Close() error {
 	if p.tsServer != nil {
@@ -165,9 +172,12 @@ func (p *Proxy) watchStatus() {
 		}
 
 		status, err := p.lc.Status(p.ctx)
-		if err != nil && !errors.Is(err, net.ErrClosed) {
-			p.log.Error().Err(err).Msg("tailscale.watchStatus: status")
-			return
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				p.log.Error().Err(err).Msg("tailscale.watchStatus: status")
+				return
+			}
+			continue
 		}
 
 		switch status.BackendState {
@@ -182,8 +192,9 @@ func (p *Proxy) watchStatus() {
 				p.log.Warn().Msg("tailscale status Self is nil, skipping")
 				continue
 			}
+			prevStatus := p.getStatus()
 			p.setStatus(model.ProxyStatusRunning, strings.TrimRight(status.Self.DNSName, "."), "")
-			if p.status != model.ProxyStatusRunning {
+			if prevStatus != model.ProxyStatusRunning {
 				p.getTLSCertificates()
 			}
 		}
