@@ -9,10 +9,37 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 
 	"github.com/creasty/defaults"
 	"github.com/rs/zerolog/log"
 )
+
+// ValidateKeyFilePath resolves symlinks and verifies the path points to a
+// regular file, preventing reads through symlinks, FIFOs, or device files.
+func ValidateKeyFilePath(path string) (string, error) {
+	cleaned := filepath.Clean(path)
+
+	absPath, err := filepath.Abs(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("error resolving absolute path: %w", err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", fmt.Errorf("error resolving symlinks: %w", err)
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("error checking file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("path %q is not a regular file", resolved)
+	}
+
+	return resolved, nil
+}
 
 type (
 	// config stores complete configuration.
@@ -138,9 +165,13 @@ func InitializeConfig() error {
 }
 
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
-	authkey, err := os.ReadFile(authKeyFile)
+	resolved, err := ValidateKeyFilePath(authKeyFile)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}
-	return string(authkey), nil
+	return string(data), nil
 }

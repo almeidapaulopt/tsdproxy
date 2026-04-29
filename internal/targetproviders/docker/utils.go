@@ -4,11 +4,12 @@
 package docker
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
 )
 
 // getLabelBool method returns a bool from a container label.
@@ -44,11 +45,13 @@ func (c *container) getAuthKeyFromAuthFile(authKey string) (string, error) {
 	if !ok || authKeyFile == "" {
 		return authKey, nil
 	}
-	// Validate path — reject paths that try to escape
-	if strings.Contains(authKeyFile, "..") {
-		return "", errors.New("invalid auth key file path: contains '..'")
+
+	resolved, err := config.ValidateKeyFilePath(authKeyFile)
+	if err != nil {
+		return "", fmt.Errorf("invalid auth key file path: %w", err)
 	}
-	temp, err := os.ReadFile(authKeyFile)
+
+	temp, err := os.ReadFile(resolved)
 	if err != nil {
 		return "", fmt.Errorf("read auth key from file: %w", err)
 	}
