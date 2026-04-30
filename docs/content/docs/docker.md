@@ -190,7 +190,7 @@ labels:
 ### tsdproxy.dash.icon
 
 Sets the proxy icon on dashboard. If not defined, TSDProxy will try to find a
-icon based on the image name. See available icons in [icons](/docs/advanced/icons).
+icon based on the image name. See available icons in [icons]({{< ref "/docs/advanced/icons" >}}).
 
 ```yaml
 labels:

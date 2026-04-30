@@ -147,7 +147,7 @@ multiple Docker instances and don't want to deploy and manage TSDProxy on each o
 
 #### New installation scenarios documentation
 
-Now there is a new  [scenarios](/docs/scenarios) section.
+Now there is a new  [scenarios]({{< ref "/docs/scenarios/_index.md" >}}) section.
 
 #### New logs
 
