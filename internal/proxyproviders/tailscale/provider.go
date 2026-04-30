@@ -127,7 +127,9 @@ func (c *Client) getAuthkey(config *model.Config, path string) (string, error) {
 	}
 
 	if authKey == "" {
-		return "", fmt.Errorf("no auth key configured for %s", config.Hostname)
+		c.log.Info().
+			Str("hostname", config.Hostname).
+			Msg("No auth key configured, interactive login will be required")
 	}
 
 	return authKey, nil
