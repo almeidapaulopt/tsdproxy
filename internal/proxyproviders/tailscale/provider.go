@@ -35,7 +35,9 @@ type (
 	}
 
 	oauth struct {
-		Authkey string `yaml:"authkey"`
+		Authkey   string `yaml:"authkey"`
+		Tags      string `yaml:"tags"`
+		Ephemeral bool   `yaml:"ephemeral"`
 	}
 )
 
@@ -136,9 +138,11 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) (string, error) {
 
 	file := config.NewConfigFile(c.log, path.Join(dir, "tsdproxy.yaml"), data)
 	if err := file.Load(); err == nil {
-		if data.Authkey != "" {
+		temptags := c.resolveTags(cfg)
+		if data.Authkey != "" && data.Tags == temptags && data.Ephemeral == cfg.Tailscale.Ephemeral {
 			return data.Authkey, nil
 		}
+		c.log.Info().Msg("OAuth key configuration changed, regenerating")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
@@ -154,10 +158,7 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) (string, error) {
 		}.HTTPClient(),
 	}
 
-	temptags := strings.Trim(strings.TrimSpace(cfg.Tailscale.Tags), "\"")
-	if temptags == "" {
-		temptags = strings.Trim(strings.TrimSpace(c.tags), "\"")
-	}
+	temptags := c.resolveTags(cfg)
 
 	if temptags == "" {
 		return "", fmt.Errorf("must define tags to use OAuth")
@@ -180,9 +181,20 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) (string, error) {
 	}
 
 	data.Authkey = authkey.Key
+	data.Tags = temptags
+	data.Ephemeral = cfg.Tailscale.Ephemeral
 	if err := file.Save(); err != nil {
 		c.log.Error().Err(err).Msg("unable to save oauth file")
 	}
 
 	return authkey.Key, nil
+}
+
+// resolveTags returns the tags from the proxy config, falling back to the provider config.
+func (c *Client) resolveTags(cfg *model.Config) string {
+	temptags := strings.Trim(strings.TrimSpace(cfg.Tailscale.Tags), "\"")
+	if temptags == "" {
+		temptags = strings.Trim(strings.TrimSpace(c.tags), "\"")
+	}
+	return temptags
 }
