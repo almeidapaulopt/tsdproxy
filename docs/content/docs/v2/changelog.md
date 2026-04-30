@@ -22,11 +22,14 @@ weight: 500
 - Fix redirect ports silently dropped when configured via Docker labels
 - Fix containers with no published ports returning error when internal port is known
 - Fix OAuth cached key reused across proxies with different tags or ephemeral settings
+- Fix OAuth single-use auth keys cached and reused after restart causing "Invalid API Key" errors
+- Fix stale tsnet state after changing ephemeral flag — state is now auto-cleaned on config change
+- Fix ephemeral nodes leaving stale state on disk after shutdown, causing "node key expired" on reboot
+- Fix stuck proxy in NeedsLogin state without auth URL now shows as error in dashboard
 - Fix healthcheck binary using hardcoded port 8080 — now reads `TSDPROXY_HTTP_PORT` from config
 - Fix broken cross-page links in documentation site
 - Warn on unrecognized Docker label port options (e.g. `no_autodetect`)
 - Improve \"invalid key\" error message to mention hardware attestation and expired keys
-- Warn when tsnet state is stale (e.g. after changing ephemeral) with actionable guidance
 - Tailscale watcher nil-deref on shutdown
 - TLS certificate prefetch for faster proxy startup
 - Readiness ordering (HTTP server waits for proxy manager)

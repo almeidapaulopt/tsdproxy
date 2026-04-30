@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,11 +92,18 @@ func (p *Proxy) Close() error {
 		close(p.events)
 	})
 
+	var err error
 	if p.tsServer != nil {
-		return p.tsServer.Close()
+		err = p.tsServer.Close()
+
+		if p.config.Tailscale.Ephemeral && p.tsServer.Dir != "" {
+			if removeErr := os.RemoveAll(p.tsServer.Dir); removeErr != nil {
+				p.log.Error().Err(removeErr).Msg("failed to clean up ephemeral node state")
+			}
+		}
 	}
 
-	return nil
+	return err
 }
 
 func (p *Proxy) GetListener(port string) (net.Listener, error) {
@@ -209,11 +217,12 @@ func (p *Proxy) watchStatus() {
 			if status.AuthURL != "" {
 				p.setStatus(model.ProxyStatusAuthenticating, "", status.AuthURL)
 			} else {
-				p.log.Warn().Msg(
+				p.log.Error().Msg(
 					"tailscale is in NeedsLogin state without an auth URL." +
-						" This can happen when the tsnet state file is stale (e.g. after changing ephemeral)." +
-						" Try deleting the proxy data directory and restarting tsdproxy.",
+						" This indicates stale tsnet state (e.g. after power loss, reboot, or changing ephemeral)." +
+						" Restart tsdproxy to auto-recover, or manually delete the proxy data directory.",
 				)
+				p.setStatus(model.ProxyStatusError, "", "")
 			}
 		case "Starting":
 			p.setStatus(model.ProxyStatusStarting, "", "")

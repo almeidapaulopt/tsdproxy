@@ -6,6 +6,7 @@ package tailscale
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -20,26 +21,24 @@ import (
 	"tailscale.com/tsnet"
 )
 
-type (
-	// Client struct implements proxyprovider for tailscale
-	Client struct {
-		log zerolog.Logger
+// Client struct implements proxyprovider for tailscale
+type Client struct {
+	log zerolog.Logger
 
-		Hostname     string
-		AuthKey      string
-		clientID     string
-		clientSecret string
-		controlURL   string
-		datadir      string
-		tags         string
-	}
+	Hostname     string
+	AuthKey      string
+	clientID     string
+	clientSecret string
+	controlURL   string
+	datadir      string
+	tags         string
+}
 
-	oauth struct {
-		Authkey   string `yaml:"authkey"`
-		Tags      string `yaml:"tags"`
-		Ephemeral bool   `yaml:"ephemeral"`
-	}
-)
+// stateMeta tracks the configuration used to create the current tsnet state,
+// so incompatible config changes can be detected and stale state cleaned up.
+type stateMeta struct {
+	Ephemeral bool `yaml:"ephemeral"`
+}
 
 var _ proxyproviders.Provider = (*Client)(nil)
 
@@ -67,7 +66,11 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 	log := c.log.With().Str("Hostname", config.Hostname).Logger()
 
 	datadir := path.Join(c.datadir, config.Hostname)
-	authKey, err := c.getAuthkey(config, datadir)
+
+	c.cleanStaleState(config, datadir)
+	c.saveStateMeta(config, datadir)
+
+	authKey, err := c.getAuthkey(config)
 	if err != nil {
 		return nil, fmt.Errorf("tailscale NewProxy: %w", err)
 	}
@@ -103,6 +106,43 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 	}, nil
 }
 
+// cleanStaleState removes tsnet state files when configuration has changed
+// in ways that make existing state incompatible (e.g. ephemeral flag change).
+// Without this cleanup, tsnet reuses stale state that conflicts with the new
+// configuration, leaving the node permanently stuck in NeedsLogin.
+func (c *Client) cleanStaleState(cfg *model.Config, datadir string) {
+	stateFile := filepath.Join(datadir, "tailscaled.state")
+	info, err := os.Stat(stateFile)
+	if err != nil || info.IsDir() {
+		return
+	}
+
+	cached := new(stateMeta)
+	file := config.NewConfigFile(c.log, path.Join(datadir, "tsdproxy.yaml"), cached)
+	if err := file.Load(); err != nil {
+		return
+	}
+
+	if cached.Ephemeral != cfg.Tailscale.Ephemeral {
+		c.log.Info().
+			Bool("previous_ephemeral", cached.Ephemeral).
+			Bool("current_ephemeral", cfg.Tailscale.Ephemeral).
+			Msg("ephemeral setting changed, clearing stale tsnet state")
+
+		if err := os.RemoveAll(datadir); err != nil {
+			c.log.Error().Err(err).Msg("failed to clear stale tsnet state")
+		}
+	}
+}
+
+func (c *Client) saveStateMeta(cfg *model.Config, datadir string) {
+	meta := &stateMeta{Ephemeral: cfg.Tailscale.Ephemeral}
+	file := config.NewConfigFile(c.log, path.Join(datadir, "tsdproxy.yaml"), meta)
+	if err := file.Save(); err != nil {
+		c.log.Error().Err(err).Msg("failed to save state metadata")
+	}
+}
+
 // getControlURL method returns the control URL
 func (c *Client) getControlURL() string {
 	if c.controlURL == "" {
@@ -111,11 +151,11 @@ func (c *Client) getControlURL() string {
 	return c.controlURL
 }
 
-func (c *Client) getAuthkey(config *model.Config, path string) (string, error) {
+func (c *Client) getAuthkey(config *model.Config) (string, error) {
 	authKey := config.Tailscale.AuthKey
 
 	if c.clientID != "" && c.clientSecret != "" {
-		oauthKey, err := c.getOAuth(config, path)
+		oauthKey, err := c.getOAuth(config)
 		if err != nil {
 			return "", fmt.Errorf("getAuthkey: %w", err)
 		}
@@ -135,18 +175,7 @@ func (c *Client) getAuthkey(config *model.Config, path string) (string, error) {
 	return authKey, nil
 }
 
-func (c *Client) getOAuth(cfg *model.Config, dir string) (string, error) {
-	data := new(oauth)
-
-	file := config.NewConfigFile(c.log, path.Join(dir, "tsdproxy.yaml"), data)
-	if err := file.Load(); err == nil {
-		temptags := c.resolveTags(cfg)
-		if data.Authkey != "" && data.Tags == temptags && data.Ephemeral == cfg.Tailscale.Ephemeral {
-			return data.Authkey, nil
-		}
-		c.log.Info().Msg("OAuth key configuration changed, regenerating")
-	}
-
+func (c *Client) getOAuth(cfg *model.Config) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
 	defer cancel()
 
@@ -180,13 +209,6 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) (string, error) {
 	authkey, err := tsclient.Keys().Create(ctx, ckr)
 	if err != nil {
 		return "", fmt.Errorf("unable to get OAuth token: %w", err)
-	}
-
-	data.Authkey = authkey.Key
-	data.Tags = temptags
-	data.Ephemeral = cfg.Tailscale.Ephemeral
-	if err := file.Save(); err != nil {
-		c.log.Error().Err(err).Msg("unable to save oauth file")
 	}
 
 	return authkey.Key, nil
