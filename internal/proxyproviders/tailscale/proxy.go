@@ -180,7 +180,17 @@ func (p *Proxy) watchStatus() {
 		}
 
 		if n.ErrMessage != nil {
-			p.log.Error().Str("error", *n.ErrMessage).Msg("tailscale.watchStatus: backend")
+			errMsg := *n.ErrMessage
+			p.log.Error().Str("error", errMsg).Msg("tailscale.watchStatus: backend")
+
+			if strings.Contains(errMsg, "invalid key") {
+				p.log.Error().Msg(
+					"the auth key may be invalid, expired, or the tailnet policy requires" +
+						" hardware attestation (not supported by tsnet)." +
+						" Verify the key is correct and check tailnet policy settings.",
+				)
+			}
+
 			p.setStatus(model.ProxyStatusError, "", "")
 			return
 		}
@@ -198,6 +208,12 @@ func (p *Proxy) watchStatus() {
 		case "NeedsLogin":
 			if status.AuthURL != "" {
 				p.setStatus(model.ProxyStatusAuthenticating, "", status.AuthURL)
+			} else {
+				p.log.Warn().Msg(
+					"tailscale is in NeedsLogin state without an auth URL." +
+						" This can happen when the tsnet state file is stale (e.g. after changing ephemeral)." +
+						" Try deleting the proxy data directory and restarting tsdproxy.",
+				)
 			}
 		case "Starting":
 			p.setStatus(model.ProxyStatusStarting, "", "")

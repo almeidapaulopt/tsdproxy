@@ -24,6 +24,8 @@ weight: 500
 - Fix OAuth cached key reused across proxies with different tags or ephemeral settings
 - Fix healthcheck binary using hardcoded port 8080 — now reads `TSDPROXY_HTTP_PORT` from config
 - Fix broken cross-page links in documentation site
+- Improve \"invalid key\" error message to mention hardware attestation and expired keys
+- Warn when tsnet state is stale (e.g. after changing ephemeral) with actionable guidance
 - Tailscale watcher nil-deref on shutdown
 - TLS certificate prefetch for faster proxy startup
 - Readiness ordering (HTTP server waits for proxy manager)
