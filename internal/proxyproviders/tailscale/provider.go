@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"context"
+	"fmt"
 	"path"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,10 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 	log := c.log.With().Str("Hostname", config.Hostname).Logger()
 
 	datadir := path.Join(c.datadir, config.Hostname)
-	authKey := c.getAuthkey(config, datadir)
+	authKey, err := c.getAuthkey(config, datadir)
+	if err != nil {
+		return nil, fmt.Errorf("tailscale NewProxy: %w", err)
+	}
 
 	tserver := &tsnet.Server{
 		Hostname:     config.Hostname,
@@ -105,26 +109,35 @@ func (c *Client) getControlURL() string {
 	return c.controlURL
 }
 
-func (c *Client) getAuthkey(config *model.Config, path string) string {
+func (c *Client) getAuthkey(config *model.Config, path string) (string, error) {
 	authKey := config.Tailscale.AuthKey
 
 	if c.clientID != "" && c.clientSecret != "" {
-		authKey = c.getOAuth(config, path)
+		oauthKey, err := c.getOAuth(config, path)
+		if err != nil {
+			return "", fmt.Errorf("getAuthkey: %w", err)
+		}
+		authKey = oauthKey
 	}
 
 	if authKey == "" {
 		authKey = c.AuthKey
 	}
-	return authKey
+
+	if authKey == "" {
+		return "", fmt.Errorf("no auth key configured for %s", config.Hostname)
+	}
+
+	return authKey, nil
 }
 
-func (c *Client) getOAuth(cfg *model.Config, dir string) string {
+func (c *Client) getOAuth(cfg *model.Config, dir string) (string, error) {
 	data := new(oauth)
 
 	file := config.NewConfigFile(c.log, path.Join(dir, "tsdproxy.yaml"), data)
 	if err := file.Load(); err == nil {
 		if data.Authkey != "" {
-			return data.Authkey
+			return data.Authkey, nil
 		}
 	}
 
@@ -147,8 +160,7 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) string {
 	}
 
 	if temptags == "" {
-		c.log.Error().Msg("must define tags to use OAuth")
-		return ""
+		return "", fmt.Errorf("must define tags to use OAuth")
 	}
 
 	capabilities := tailscale.KeyCapabilities{}
@@ -164,8 +176,7 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) string {
 
 	authkey, err := tsclient.Keys().Create(ctx, ckr)
 	if err != nil {
-		c.log.Error().Err(err).Msg("unable to get Oauth token")
-		return ""
+		return "", fmt.Errorf("unable to get OAuth token: %w", err)
 	}
 
 	data.Authkey = authkey.Key
@@ -173,5 +184,5 @@ func (c *Client) getOAuth(cfg *model.Config, dir string) string {
 		c.log.Error().Err(err).Msg("unable to save oauth file")
 	}
 
-	return authkey.Key
+	return authkey.Key, nil
 }

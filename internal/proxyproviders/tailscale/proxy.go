@@ -35,7 +35,8 @@ type Proxy struct {
 	url     string
 	status  model.ProxyStatus
 
-	mtx sync.Mutex
+	mtx       sync.Mutex
+	closeOnce sync.Once
 }
 
 var (
@@ -86,6 +87,10 @@ func (p *Proxy) getStatus() model.ProxyStatus {
 
 // Close method implements proxyconfig.Proxy Close method.
 func (p *Proxy) Close() error {
+	p.closeOnce.Do(func() {
+		close(p.events)
+	})
+
 	if p.tsServer != nil {
 		return p.tsServer.Close()
 	}
@@ -150,7 +155,15 @@ func (p *Proxy) Whois(r *http.Request) model.Whois {
 }
 
 func (p *Proxy) watchStatus() {
-	watcher, err := p.lc.WatchIPNBus(p.ctx, ipn.NotifyInitialState|ipn.NotifyNoPrivateKeys|ipn.NotifyInitialHealthState)
+	p.mtx.Lock()
+	lc := p.lc
+	p.mtx.Unlock()
+	if lc == nil {
+		p.log.Error().Msg("tailscale.watchStatus: local client is nil")
+		return
+	}
+
+	watcher, err := lc.WatchIPNBus(p.ctx, ipn.NotifyInitialState|ipn.NotifyNoPrivateKeys|ipn.NotifyInitialHealthState)
 	if err != nil {
 		p.log.Error().Err(err).Msg("tailscale.watchStatus")
 		return
@@ -168,6 +181,7 @@ func (p *Proxy) watchStatus() {
 
 		if n.ErrMessage != nil {
 			p.log.Error().Str("error", *n.ErrMessage).Msg("tailscale.watchStatus: backend")
+			p.setStatus(model.ProxyStatusError, "", "")
 			return
 		}
 
@@ -228,13 +242,22 @@ func (p *Proxy) setStatus(status model.ProxyStatus, url string, authURL string) 
 }
 
 func (p *Proxy) getTLSCertificates() {
+	p.mtx.Lock()
+	lc := p.lc
+	tsServer := p.tsServer
+	p.mtx.Unlock()
+
+	if lc == nil || tsServer == nil {
+		return
+	}
+
 	p.log.Info().Msg("Generating TLS certificate")
-	certDomains := p.tsServer.CertDomains()
+	certDomains := tsServer.CertDomains()
 	if len(certDomains) == 0 {
 		p.log.Warn().Msg("no certificate domains available")
 		return
 	}
-	if _, _, err := p.lc.CertPair(p.ctx, certDomains[0]); err != nil {
+	if _, _, err := lc.CertPair(p.ctx, certDomains[0]); err != nil {
 		p.log.Error().Err(err).Msg("error to get TLS certificates")
 		return
 	}
