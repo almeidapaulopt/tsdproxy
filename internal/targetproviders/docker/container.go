@@ -194,12 +194,13 @@ func (c *container) getPorts() model.PortConfigList {
 
 		if !port.IsRedirect {
 			port, err = c.generateTargetFromFirstTarget(port)
-			if err == nil {
-				ports[k] = port
-			} else {
+			if err != nil {
 				c.log.Error().Err(err).Str("port", k).Msg("error generating target")
+				continue
 			}
 		}
+
+		ports[k] = port
 	}
 
 	return ports
@@ -285,8 +286,10 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 		return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
 	}
 
-	// auto detect failed or disabled, use published port
 	if publishedPort == "" {
+		if internalPort != "" && c.defaultTargetHostname != "" {
+			return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
+		}
 		return nil, ErrNoPortFoundInContainer
 	}
 
