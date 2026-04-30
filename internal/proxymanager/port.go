@@ -8,10 +8,12 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
@@ -19,6 +21,12 @@ import (
 
 	"github.com/rs/zerolog"
 )
+
+// portHandler is the interface implemented by all port types (HTTP proxy, HTTP redirect, TCP forward).
+type portHandler interface {
+	startWithListener(net.Listener) error
+	close() error
+}
 
 type port struct {
 	log        zerolog.Logger
@@ -134,6 +142,94 @@ func (p *port) close() error {
 	if p.transport != nil {
 		p.transport.CloseIdleConnections()
 	}
+
+	p.cancel()
+
+	return errs
+}
+
+// tcpPort forwards raw TCP connections from the Tailscale listener to the target backend.
+type tcpPort struct {
+	log      zerolog.Logger
+	ctx      context.Context
+	listener net.Listener
+	cancel   context.CancelFunc
+	pconfig  model.PortConfig
+	mtx      sync.Mutex
+}
+
+func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *tcpPort {
+	ctxPort, cancel := context.WithCancel(ctx)
+
+	return &tcpPort{
+		log:     log.With().Str("port", pconfig.String()).Logger(),
+		ctx:     ctxPort,
+		cancel:  cancel,
+		pconfig: pconfig,
+	}
+}
+
+func (p *tcpPort) startWithListener(l net.Listener) error {
+	p.mtx.Lock()
+	p.listener = l
+	p.mtx.Unlock()
+
+	go func() {
+		<-p.ctx.Done()
+		l.Close()
+	}()
+
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			p.log.Error().Err(err).Msg("error accepting TCP connection")
+			return fmt.Errorf("tcp accept: %w", err)
+		}
+
+		go p.handleConn(conn)
+	}
+}
+
+func (p *tcpPort) handleConn(clientConn net.Conn) {
+	defer clientConn.Close()
+
+	target := p.pconfig.GetFirstTarget()
+	if target.Host == "" {
+		p.log.Error().Msg("no target configured for TCP port")
+		return
+	}
+
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	backendConn, err := dialer.DialContext(p.ctx, "tcp", target.Host)
+	if err != nil {
+		p.log.Error().Err(err).Str("target", target.Host).Msg("error dialing backend")
+		return
+	}
+	defer backendConn.Close()
+
+	errChan := make(chan error, 2)
+	go func() {
+		_, err := io.Copy(backendConn, clientConn)
+		errChan <- err
+	}()
+	go func() {
+		_, err := io.Copy(clientConn, backendConn)
+		errChan <- err
+	}()
+
+	<-errChan
+}
+
+func (p *tcpPort) close() error {
+	p.mtx.Lock()
+	var errs error
+	if p.listener != nil {
+		errs = errors.Join(errs, p.listener.Close())
+	}
+	p.mtx.Unlock()
 
 	p.cancel()
 

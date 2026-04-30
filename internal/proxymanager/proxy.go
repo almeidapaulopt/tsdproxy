@@ -29,7 +29,7 @@ type (
 		Config        *model.Config
 		URL           *url.URL
 		cancel        context.CancelFunc
-		ports         map[string]*port
+		ports         map[string]portHandler
 		mtx           sync.RWMutex
 		status        model.ProxyStatus
 	}
@@ -68,7 +68,7 @@ func NewProxy(log zerolog.Logger,
 		ctx:           ctx,
 		cancel:        cancel,
 		providerProxy: pProvider,
-		ports:         make(map[string]*port),
+		ports:         make(map[string]portHandler),
 	}
 
 	p.initPorts()
@@ -125,19 +125,22 @@ func (proxy *Proxy) ProviderUserMiddleware(next http.Handler) http.Handler {
 }
 
 func (proxy *Proxy) initPorts() {
-	var newPort *port
 	for k, v := range proxy.Config.Ports {
 		log := proxy.log.With().Str("port", k).Logger()
+
+		var ph portHandler
 		if v.IsRedirect {
-			newPort = newPortRedirect(proxy.ctx, v, log)
+			ph = newPortRedirect(proxy.ctx, v, log)
+		} else if v.ProxyProtocol == "http" || v.ProxyProtocol == "https" {
+			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware)
 		} else {
-			newPort = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware)
+			ph = newPortTCP(proxy.ctx, v, log)
 		}
 
-		proxy.log.Debug().Any("port", newPort).Msg("newport")
+		proxy.log.Debug().Any("port", ph).Msg("newport")
 
 		proxy.mtx.Lock()
-		proxy.ports[k] = newPort
+		proxy.ports[k] = ph
 		proxy.mtx.Unlock()
 	}
 }
