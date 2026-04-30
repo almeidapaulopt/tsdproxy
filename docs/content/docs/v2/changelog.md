@@ -14,6 +14,16 @@ weight: 500
 
 #### Fixes
 
+- Fix memory leak: events channel not closed on proxy shutdown, leaking goroutines and object graphs
+- Fix SSE streaming: reverse proxy now flushes immediately so Server-Sent Events reach the client
+- Fix TCP goroutine leak: port handler connections were not cleaned up on shutdown
+- Fix Docker event watcher panic: unbuffered channel sends blocked forever after consumer exit
+- Fix dashboard SSE client race: closing message channel caused send-on-closed-channel panics
+- Fix redirect ports silently dropped when configured via Docker labels
+- Fix containers with no published ports returning error when internal port is known
+- Fix OAuth cached key reused across proxies with different tags or ephemeral settings
+- Fix healthcheck binary using hardcoded port 8080 — now reads `TSDPROXY_HTTP_PORT` from config
+- Fix broken cross-page links in documentation site
 - Tailscale watcher nil-deref on shutdown
 - TLS certificate prefetch for faster proxy startup
 - Readiness ordering (HTTP server waits for proxy manager)
