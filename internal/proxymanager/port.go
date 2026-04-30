@@ -61,7 +61,6 @@ func newPortProxy(
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(pconfig.GetFirstTarget())
 			r.Out.Host = r.In.Host
-			r.Out.Header["X-Forwarded-For"] = r.In.Header["X-Forwarded-For"]
 
 			if user, ok := model.WhoisFromContext(r.In.Context()); ok {
 				r.Out.Header.Set(consts.HeaderUsername, user.Username)
