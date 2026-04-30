@@ -38,6 +38,10 @@ func InitializeApp() (*WebApp, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Expose HTTP port for healthcheck binary to read.
+	os.Setenv("TSDPROXY_HTTP_PORT", fmt.Sprintf("%d", config.Config.HTTP.Port))
+
 	logger := core.NewLog()
 
 	httpServer := core.NewHTTPServer(logger)
