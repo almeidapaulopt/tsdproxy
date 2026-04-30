@@ -151,14 +151,26 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 				}
 				switch devent.Action {
 				case devents.ActionStart:
-					eventsChan <- c.getStartEvent(devent.Actor.ID)
+					select {
+					case <-ctx.Done():
+						return
+					case eventsChan <- c.getStartEvent(devent.Actor.ID):
+					}
 				case devents.ActionDie:
-					eventsChan <- c.getStopEvent(devent.Actor.ID)
+					select {
+					case <-ctx.Done():
+						return
+					case eventsChan <- c.getStopEvent(devent.Actor.ID):
+					}
 				}
 
 			case err, ok := <-dockererrChan:
 				if ok {
-					errChan <- err
+					select {
+					case <-ctx.Done():
+						return
+					case errChan <- err:
+					}
 				}
 				return
 			}
@@ -181,12 +193,20 @@ func (c *Client) startAllProxies(ctx context.Context, eventsChan chan targetprov
 		All:     false,
 	})
 	if err != nil {
-		errChan <- fmt.Errorf("error listing containers: %w", err)
+		select {
+		case <-ctx.Done():
+			return
+		case errChan <- fmt.Errorf("error listing containers: %w", err):
+		}
 		return
 	}
 
 	for _, container := range containers {
-		eventsChan <- c.getStartEvent(container.ID)
+		select {
+		case <-ctx.Done():
+			return
+		case eventsChan <- c.getStartEvent(container.ID):
+		}
 	}
 }
 
