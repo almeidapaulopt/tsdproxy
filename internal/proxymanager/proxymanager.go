@@ -170,8 +170,8 @@ func (pm *ProxyManager) SubscribeStatusEvents() <-chan model.ProxyEvent {
 func (pm *ProxyManager) UnsubscribeStatusEvents(ch chan model.ProxyEvent) {
 	pm.mtx.Lock()
 	delete(pm.statusSubscribers, ch)
-	pm.mtx.Unlock()
 	close(ch)
+	pm.mtx.Unlock()
 }
 
 func (pm *ProxyManager) GetProxies() ProxyList {

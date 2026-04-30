@@ -43,27 +43,27 @@ func (dash *Dashboard) AddRoutes() {
 }
 
 // index is the HandlerFunc to index page of dashboard
-func (dash *Dashboard) renderList(ch chan SSEMessage) {
+func (dash *Dashboard) renderList(client *sseClient) {
 	dash.mtx.RLock()
 	defer dash.mtx.RUnlock()
 
 	// force remove elements of proxy-list inn case of client reconnect
-	ch <- SSEMessage{
+	client.send(SSEMessage{
 		Type:    EventRemoveMessage,
 		Message: "#proxy-list>*",
-	}
+	})
 
 	proxies := dash.pm.GetProxies()
 	for name, p := range proxies {
 		if p.Config.Dashboard.Visible {
-			dash.renderProxy(ch, name, EventAppend)
+			dash.renderProxy(client, name, EventAppend)
 		}
 	}
 
-	dash.streamSortList(ch)
+	dash.streamSortList(client)
 }
 
-func (dash *Dashboard) renderProxy(ch chan SSEMessage, name string, ev EventType) {
+func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType) {
 	p, ok := dash.pm.GetProxy(name)
 	if !ok {
 		return
@@ -105,8 +105,8 @@ func (dash *Dashboard) renderProxy(ch chan SSEMessage, name string, ev EventType
 		Ports:       ports,
 	}
 
-	ch <- SSEMessage{
+	client.send(SSEMessage{
 		Type: ev,
 		Comp: pages.Proxy(a),
-	}
+	})
 }

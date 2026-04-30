@@ -30,6 +30,7 @@ type (
 	EventType int
 	sseClient struct {
 		channel chan SSEMessage
+		done    chan struct{}
 	}
 
 	SSEMessage struct {
@@ -38,6 +39,17 @@ type (
 		Type    EventType
 	}
 )
+
+// send safely sends a message on the client channel.
+// Returns false if the client is done (disconnected).
+func (c *sseClient) send(msg SSEMessage) bool {
+	select {
+	case <-c.done:
+		return false
+	case c.channel <- msg:
+		return true
+	}
+}
 
 // Handler for the `/stream` endpoint
 func (dash *Dashboard) streamHandler() http.HandlerFunc {
@@ -49,6 +61,7 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 		// Create a new client
 		client := &sseClient{
 			channel: make(chan SSEMessage, chanSizeSSEQueue),
+			done:    make(chan struct{}),
 		}
 
 		// Register client
@@ -61,8 +74,8 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 		defer dash.removeSSEClient(sessionID)
 
 		go func() {
-			dash.renderList(client.channel)
-			dash.updateUser(r, client.channel)
+			dash.renderList(client)
+			dash.updateUser(r, client)
 		}()
 
 		var err error
@@ -109,7 +122,7 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 	}
 }
 
-func (dash *Dashboard) updateUser(r *http.Request, ch chan SSEMessage) {
+func (dash *Dashboard) updateUser(r *http.Request, client *sseClient) {
 	signals := map[string]string{
 		"user_username":     r.Header.Get(consts.HeaderUsername),
 		"user_displayName":  r.Header.Get(consts.HeaderDisplayName),
@@ -122,10 +135,10 @@ func (dash *Dashboard) updateUser(r *http.Request, ch chan SSEMessage) {
 		return
 	}
 
-	ch <- SSEMessage{
+	client.send(SSEMessage{
 		Type:    EventUpdateSignals,
 		Message: string(b),
-	}
+	})
 }
 
 func (dash *Dashboard) removeSSEClient(name string) {
@@ -133,7 +146,7 @@ func (dash *Dashboard) removeSSEClient(name string) {
 
 	if client, ok := dash.sseClients[name]; ok {
 		delete(dash.sseClients, name)
-		close(client.channel)
+		close(client.done)
 	}
 	dash.mtx.Unlock()
 
@@ -146,27 +159,27 @@ func (dash *Dashboard) streamProxyUpdates() {
 		for _, sseClient := range dash.sseClients {
 			switch event.Status {
 			case model.ProxyStatusInitializing:
-				dash.renderProxy(sseClient.channel, event.ID, EventAppend)
-				dash.streamSortList(sseClient.channel)
+				dash.renderProxy(sseClient, event.ID, EventAppend)
+				dash.streamSortList(sseClient)
 
 			case model.ProxyStatusStopped:
-				sseClient.channel <- SSEMessage{
+				sseClient.send(SSEMessage{
 					Type:    EventRemoveMessage,
 					Message: "#" + event.ID,
-				}
+				})
 
 			default:
-				dash.renderProxy(sseClient.channel, event.ID, EventMerge)
+				dash.renderProxy(sseClient, event.ID, EventMerge)
 			}
 		}
 		dash.mtx.RUnlock()
 	}
 }
 
-func (dash *Dashboard) streamSortList(channel chan SSEMessage) {
-	channel <- SSEMessage{
+func (dash *Dashboard) streamSortList(client *sseClient) {
+	client.send(SSEMessage{
 		Type:    EventScript,
 		Message: "sortList()",
-	}
+	})
 }
 
