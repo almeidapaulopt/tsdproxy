@@ -189,6 +189,9 @@ func (c *container) getPorts() model.PortConfigList {
 				port.TLSValidate = false
 			case PortOptionTailscaleFunnel:
 				port.Tailscale.Funnel = true
+			default:
+				c.log.Warn().Str("option", v).Str("port", k).
+					Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel)")
 			}
 		}
 
