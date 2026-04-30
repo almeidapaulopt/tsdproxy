@@ -56,7 +56,8 @@ func newPortProxy(
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: !pconfig.TLSValidate}, //nolint
 	}
 	reverseProxy := &httputil.ReverseProxy{
-		Transport: tr,
+		Transport:     tr,
+		FlushInterval: -1, // flush immediately — required for SSE streaming
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(pconfig.GetFirstTarget())
 			r.Out.Host = r.In.Host
@@ -220,6 +221,7 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 		errChan <- err
 	}()
 
+	<-errChan
 	<-errChan
 }
 
