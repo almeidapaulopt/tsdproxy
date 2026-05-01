@@ -106,6 +106,22 @@ func (p *Proxy) Close() error {
 	return err
 }
 
+// removeStaleState removes the entire tsnet data directory so the next start
+// gets clean state. Called when tsnet reports an "invalid key" error at runtime,
+// which indicates the on-disk state no longer matches what control-plane expects
+// (e.g. after a hard crash, ephemeral node expiry, or admin-side device deletion).
+func (p *Proxy) removeStaleState() {
+	if p.tsServer == nil || p.tsServer.Dir == "" {
+		return
+	}
+	dir := p.tsServer.Dir
+	if err := os.RemoveAll(dir); err != nil {
+		p.log.Error().Err(err).Str("path", dir).Msg("failed to remove stale tsnet state directory")
+		return
+	}
+	p.log.Info().Str("path", dir).Msg("removed stale tsnet state directory")
+}
+
 func (p *Proxy) GetListener(port string) (net.Listener, error) {
 	portCfg, ok := p.config.Ports[port]
 	if !ok {
@@ -197,6 +213,15 @@ func (p *Proxy) watchStatus() {
 						" hardware attestation (not supported by tsnet)." +
 						" Verify the key is correct and check tailnet policy settings.",
 				)
+				// Remove the data directory so the next start gets clean tsnet state and
+				// a fresh stateMeta; close the events channel to signal proxymanager to
+				// trigger a one-shot restart.
+				p.removeStaleState()
+				p.setStatus(model.ProxyStatusError, "", "")
+				p.closeOnce.Do(func() {
+					close(p.events)
+				})
+				return
 			}
 
 			p.setStatus(model.ProxyStatusError, "", "")
