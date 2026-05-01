@@ -46,6 +46,32 @@ Restart TSDProxy to apply the changes.
 > If the proxy fails to authenticate after restarting, check the error logs.
 > Ensure the tags are correct and the OAuth client is enabled.
 
+#### Docker Compose with Environment Variables
+
+Instead of mounting a YAML config file, you can pass OAuth credentials via
+environment variables:
+
+```yaml {filename="docker-compose.yaml"}
+services:
+  tsdproxy:
+    image: almeidapaulopt/tsdproxy:latest
+    environment:
+      - TSDPROXY_TAILSCALE_PROVIDERS_DEFAULT_CLIENTID=${TS_CLIENTID}
+      - TSDPROXY_TAILSCALE_PROVIDERS_DEFAULT_CLIENTSECRET=${TS_SECRET}
+      - TSDPROXY_TAILSCALE_PROVIDERS_DEFAULT_TAGS=tag:tsdproxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - data:/data
+    ports:
+      - 8080:8080
+volumes:
+  data:
+```
+
+> [!Tip]
+> See [Environment Variable Overrides](../../serverconfig/#environment-variable-overrides)
+> for the full naming convention.
+
 {{% /steps %}}
 
 ### OAuth (Manual)

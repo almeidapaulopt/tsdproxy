@@ -58,6 +58,46 @@ log:
 proxyAccessLog: true # Enable container access logs (true/false)
 ```
 
+### Environment Variable Overrides
+
+Any configuration value can be set via environment variables using the naming
+convention `TSDPROXY_<PATH>`, where `<PATH>` is the uppercased config path with
+underscores separating each level.
+
+**Naming rules:**
+
+1. Start with `TSDPROXY_`
+2. Append each yaml key in uppercase, separated by `_`
+3. Multi-word yaml keys are written without separators (e.g., `defaultProxyProvider` → `DEFAULTPROXYPROVIDER`)
+4. For map fields (like `docker`, `providers`), the segment after the map name is the map key (lowercased)
+
+**Examples:**
+
+| Environment Variable | Config Path |
+|---------------------|-------------|
+| `TSDPROXY_LOG_LEVEL` | `log.level` |
+| `TSDPROXY_HTTP_PORT` | `http.port` |
+| `TSDPROXY_DEFAULTPROXYPROVIDER` | `defaultProxyProvider` |
+| `TSDPROXY_PROXYACCESSLOG` | `proxyAccessLog` |
+| `TSDPROXY_TAILSCALE_DATADIR` | `tailscale.dataDir` |
+| `TSDPROXY_TAILSCALE_PROVIDERS_DEFAULT_CLIENTID` | `tailscale.providers.default.clientId` |
+| `TSDPROXY_TAILSCALE_PROVIDERS_DEFAULT_CLIENTSECRET` | `tailscale.providers.default.clientSecret` |
+| `TSDPROXY_TAILSCALE_PROVIDERS_DEFAULT_TAGS` | `tailscale.providers.default.tags` |
+| `TSDPROXY_DOCKER_LOCAL_HOST` | `docker.local.host` |
+
+Environment variables override both the YAML file and struct defaults. Map
+entries that don't exist yet are auto-created with default values.
+
+> [!Note]
+> Map keys (e.g., provider names, docker server names) cannot contain
+> underscores since underscore is used as the path separator.
+
+> [!Important]
+> The legacy environment variables (`TSDPROXY_AUTHKEY`, `TSDPROXY_AUTHKEYFILE`,
+> `TSDPROXY_CONTROLURL`, `TSDPROXY_DATADIR`, `TSDPROXY_HOSTNAME`) from versions
+> prior to v0.6.0 are still supported during first-run config generation but are
+> not part of this override system.
+
 ### Configuration Sections
 
 #### log Section
