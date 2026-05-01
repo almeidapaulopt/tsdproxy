@@ -298,7 +298,7 @@ func (pm *ProxyManager) eventStart(event targetproviders.TargetEvent) {
 		return
 	}
 
-	pm.newAndStartProxy(pcfg.Hostname, pcfg)
+	pm.newAndStartProxy(pcfg.Hostname, pcfg, true)
 }
 
 // eventStop method stops a Proxy from a event trigger
@@ -328,8 +328,11 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 	}
 }
 
-// newAndStartProxy method creates a new proxy and starts it.
-func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config) {
+// newAndStartProxy method creates a new proxy and starts it. When restartable
+// is true, the proxy will automatically recover once from stale tsnet state
+// errors (e.g. after a container restart). The auto-restart spawns this
+// function again with restartable=false to avoid loops.
+func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config, restartable bool) {
 	pm.log.Debug().Str("proxy", name).Msg("Creating proxy")
 
 	proxyProvider, err := pm.getProxyProvider(proxyConfig)
@@ -347,6 +350,13 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	// any status change in proxy will be broadcasted
 	p.onUpdate = func(event model.ProxyEvent) {
 		pm.broadcastStatusEvents(event)
+	}
+
+	p.restartable = restartable
+	p.onRestart = func() {
+		pm.log.Info().Str("proxy", name).Msg("restarting proxy after unexpected termination")
+		pm.removeProxy(name)
+		pm.newAndStartProxy(name, proxyConfig, false)
 	}
 
 	pm.addProxy(p)
