@@ -25,13 +25,14 @@ import (
 type Client struct {
 	log zerolog.Logger
 
-	Hostname     string
-	AuthKey      string
-	clientID     string
-	clientSecret string
-	controlURL   string
-	datadir      string
-	tags         string
+	Hostname            string
+	AuthKey             string
+	clientID            string
+	clientSecret        string
+	controlURL          string
+	datadir             string
+	tags                string
+		preventDuplicates bool
 }
 
 // stateMeta tracks the configuration used to create the current tsnet state,
@@ -46,14 +47,15 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	datadir := filepath.Join(config.Config.Tailscale.DataDir, name)
 
 	return &Client{
-		log:          log.With().Str("tailscale", name).Logger(),
-		Hostname:     name,
-		AuthKey:      strings.TrimSpace(provider.AuthKey),
-		clientID:     strings.TrimSpace(provider.ClientID),
-		clientSecret: strings.TrimSpace(provider.ClientSecret),
-		tags:         strings.TrimSpace(provider.Tags),
-		datadir:      datadir,
-		controlURL:   provider.ControlURL,
+		log:                 log.With().Str("tailscale", name).Logger(),
+		Hostname:            name,
+		AuthKey:             strings.TrimSpace(provider.AuthKey),
+		clientID:            strings.TrimSpace(provider.ClientID),
+		clientSecret:        strings.TrimSpace(provider.ClientSecret),
+		tags:                strings.TrimSpace(provider.Tags),
+		datadir:             datadir,
+		controlURL:          provider.ControlURL,
+		preventDuplicates:    provider.PreventDuplicates,
 	}, nil
 }
 
@@ -67,8 +69,16 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 
 	datadir := path.Join(c.datadir, config.Hostname)
 
+	stateExists := c.tsnetStateExists(datadir)
 	c.cleanStaleState(config, datadir)
+	c.cleanupStaleDevice(config, datadir)
 	c.saveStateMeta(config, datadir)
+
+	if stateExists {
+		c.log.Info().Str("hostname", config.Hostname).Msg("Reusing existing tsnet node")
+	} else {
+		c.log.Info().Str("hostname", config.Hostname).Msg("Creating new tsnet node")
+	}
 
 	authKey, err := c.getAuthkey(config)
 	if err != nil {
@@ -143,6 +153,83 @@ func (c *Client) saveStateMeta(cfg *model.Config, datadir string) {
 	}
 }
 
+func (c *Client) tsnetStateExists(datadir string) bool {
+	info, err := os.Stat(filepath.Join(datadir, "tailscaled.state"))
+	return err == nil && !info.IsDir()
+}
+
+// cleanupStaleDevice checks if a Tailscale device with the same hostname
+// already exists in the tailnet and removes it when tsnet state is missing.
+// This prevents duplicate machines (the "-1" suffix problem) when the
+// datadir was lost (e.g. non-persistent Docker volume).
+// Only runs when OAuth credentials are configured (required for API access).
+func (c *Client) cleanupStaleDevice(cfg *model.Config, datadir string) {
+	if !c.preventDuplicates {
+		return
+	}
+
+	if c.clientID == "" || c.clientSecret == "" {
+		return
+	}
+
+	if c.tsnetStateExists(datadir) {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	defer cancel()
+
+	tsclient := c.newAPIClient()
+
+	tags := c.resolveTags(cfg)
+	if tags == "" {
+		return
+	}
+
+	tagList := strings.Split(tags, ",")
+	devices, err := tsclient.Devices().List(ctx, tailscale.WithFilter("tags", tagList))
+	if err != nil {
+		c.log.Warn().Err(err).Msg("failed to list tailnet devices, skipping stale device cleanup")
+		return
+	}
+
+	for _, d := range devices {
+		if d.Hostname != cfg.Hostname {
+			continue
+		}
+		if d.ConnectedToControl {
+			c.log.Warn().
+				Str("hostname", d.Hostname).
+				Str("node_id", d.NodeID).
+				Msg("device with same hostname is currently online, skipping cleanup")
+			continue
+		}
+
+		c.log.Info().
+			Str("hostname", d.Hostname).
+			Str("node_id", d.NodeID).
+			Msg("removing stale device from tailnet to prevent duplicate")
+
+		if err := tsclient.Devices().Delete(ctx, d.NodeID); err != nil {
+			c.log.Error().Err(err).
+				Str("hostname", d.Hostname).
+				Msg("failed to delete stale device")
+		}
+	}
+}
+
+func (c *Client) newAPIClient() *tailscale.Client {
+	return &tailscale.Client{
+		Tailnet:   "-",
+		UserAgent: "tsdproxy",
+		HTTP: tailscale.OAuthConfig{
+			ClientID:     c.clientID,
+			ClientSecret: c.clientSecret,
+			Scopes:       []string{"all:write"},
+		}.HTTPClient(),
+	}
+}
+
 // getControlURL method returns the control URL
 func (c *Client) getControlURL() string {
 	if c.controlURL == "" {
@@ -179,15 +266,7 @@ func (c *Client) getOAuth(cfg *model.Config) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
 	defer cancel()
 
-	tsclient := &tailscale.Client{
-		Tailnet:   "-",
-		UserAgent: "tsdproxy",
-		HTTP: tailscale.OAuthConfig{
-			ClientID:     c.clientID,
-			ClientSecret: c.clientSecret,
-			Scopes:       []string{"all:write"},
-		}.HTTPClient(),
-	}
+	tsclient := c.newAPIClient()
 
 	temptags := c.resolveTags(cfg)
 

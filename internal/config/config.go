@@ -85,12 +85,13 @@ type (
 
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
-		AuthKey      string `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
-		AuthKeyFile  string `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
-		ClientID     string `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
-		ClientSecret string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
-		Tags         string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
-		ControlURL   string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
+		AuthKey                string `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
+		AuthKeyFile            string `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
+		ClientID               string `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
+		ClientSecret           string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
+		Tags                   string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
+		ControlURL             string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
+		PreventDuplicates       bool   `default:"false" yaml:"preventDuplicates"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.

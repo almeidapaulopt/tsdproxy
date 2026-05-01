@@ -47,6 +47,7 @@ tailscale:
       tags: "tag:example,tag:server" # Default tags for all containers using this provider
                                      # Container-specific tags override these default tags
       controlUrl: https://controlplane.tailscale.com # Override the default Tailscale control URL
+      preventDuplicates: false # Delete stale tailnet devices before creating new nodes (OAuth only)
   dataDir: /data/ # Tailscale data directory
 http:
   hostname: 0.0.0.0 # HTTP server hostname

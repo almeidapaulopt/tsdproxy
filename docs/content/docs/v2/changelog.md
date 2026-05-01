@@ -11,6 +11,7 @@ weight: 500
 
 - Auto-detect `host.docker.internal` when generating default config
 - Support for Docker internal networks via `tryDockerInternalNetwork`
+- Opt-in `preventDuplicates` config to auto-remove stale Tailscale devices before creating new nodes (OAuth only)
 
 #### Fixes
 

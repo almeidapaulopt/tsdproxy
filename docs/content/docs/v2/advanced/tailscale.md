@@ -129,6 +129,55 @@ for requirements and limitations.
 - If tags are defined in the provider, they apply to all services.
 - If tags are defined in the service, provider tags are ignored.
 
+## Prevent Duplicate Machines
+
+When TSDProxy restarts and the data directory has been lost (e.g. non-persistent
+Docker volume), Tailscale creates a new machine instead of reconnecting the
+existing one. This results in duplicate machines in your tailnet, often with a
+`-1` suffix.
+
+The `preventDuplicates` option (default: `false`) tells TSDProxy to query the
+Tailscale API before creating a new node. If an existing device with the same
+hostname and matching tags is found **and is offline**, it is deleted first so
+the new node can take its place.
+
+> [!Warning]
+> **This deletes devices from your tailnet.** Deleting a device also removes
+> any manual configuration associated with it, including custom ACL rules,
+> tags assigned in the Tailscale admin console, and device-specific settings.
+> Only enable this if you understand the implications.
+> The safest way to prevent duplicates is to use a persistent Docker volume
+> for the `dataDir` directory.
+
+### Requirements
+
+- OAuth authentication (`clientId` + `clientSecret`) — the Tailscale API is
+  not available with auth keys alone.
+- Tags must be configured on the provider.
+
+### Configuration
+
+```yaml {filename="/config/tsdproxy.yaml"}
+tailscale:
+  providers:
+    default:
+      clientId: "your_client_id"
+      clientSecret: "your_client_secret"
+      tags: "tag:example"
+      preventDuplicates: true
+```
+
+### Safety checks
+
+A device is only deleted when **all** of these conditions are true:
+
+- It has the same hostname as the proxy being created
+- It has matching tags
+- It is currently offline (`ConnectedToControl` is false)
+- The local tsnet state file is missing (no existing identity to reuse)
+
+Online devices are never deleted.
+
 ## Identity Headers
 
 TSDProxy forwards Tailscale identity via HTTP headers: `X-Tailscale-User`, `X-Tailscale-Name`, `X-Tailscale-Profile-Picture`, `X-Forwarded-For`.
