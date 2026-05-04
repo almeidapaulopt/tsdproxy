@@ -71,6 +71,11 @@ test/cover:
 	go test -v -race -buildvcs -coverprofile=./tmp/coverage.out ./...
 	go tool cover -html=./tmp/coverage.out
 
+## test/e2e: run end-to-end tests (requires Docker and TS_AUTHKEY)
+.PHONY: test/e2e
+test/e2e:
+	cd e2e && go test -v -tags=e2e -timeout=0 -count=1 ./...
+
 ## build: build the application
 .PHONY: build
 build:

@@ -1,0 +1,9 @@
+default_provider = "keychain"
+
+[providers.keychain]
+type = "keychain"
+service = "tsdproxy"
+prefix = "tsdproxy"
+
+[secrets]
+TS_AUTHKEY= { provider = "keychain", value = "TS_AUTHKEY" }

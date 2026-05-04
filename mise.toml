@@ -7,3 +7,12 @@ golangci-lint = "latest"
 goreleaser = "latest"
 hugo = "latest"
 "npm:vite" = "latest"
+fnox = "latest"
+
+
+[plugins]
+fnox-env = "https://github.com/jdx/mise-env-fnox"
+
+
+[env]
+_.fnox-env = { tools = true }
