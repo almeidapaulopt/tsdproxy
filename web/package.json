@@ -14,7 +14,7 @@
     "@vite-pwa/assets-generator": "^1.0.2",
     "daisyui": "^5.5.19",
     "tailwindcss": "^4.2.4",
-    "tar": "^7.4.3",
+    "tar": "^7.5.13",
     "vite": "^8.0.10",
     "vite-plugin-compression2": "^2.5.3",
     "vite-plugin-pwa": "^1.2.0"
