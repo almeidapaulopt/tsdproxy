@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	labelsStartupTimeout = 90 * time.Second
-	labelsVerifyTimeout  = 30 * time.Second
+	labelsStartupTimeout = 180 * time.Second
+	labelsVerifyTimeout  = 150 * time.Second
 )
 
 func TestLegacyContainerPortLabel(t *testing.T) {

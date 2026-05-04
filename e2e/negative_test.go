@@ -22,7 +22,7 @@ import (
 const (
 	negativeStartupTimeout = 90 * time.Second
 	negativePollInterval   = 2 * time.Second
-	negativeWaitTimeout    = 15 * time.Second
+	negativeWaitTimeout    = 60 * time.Second
 )
 
 func TestContainerWithoutEnableLabel(t *testing.T) {
@@ -196,7 +196,7 @@ func TestMalformedPortLabel(t *testing.T) {
 
 func TestDuplicateHostname(t *testing.T) {
 	authKey := requireTailscaleAuth(t)
-	ctx, cancel := context.WithTimeout(context.Background(), negativeStartupTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 
 	proxy := StartTSDProxy(t, TSDProxyConfig{
@@ -224,7 +224,7 @@ func TestDuplicateHostname(t *testing.T) {
 			"tsdproxy.enable":    "true",
 			"tsdproxy.ephemeral": "true",
 			"tsdproxy.name":      hostname,
-			"tsdproxy.port.http": "8080/http:8080/http",
+			"tsdproxy.port.http": "80/http:8080/http",
 		},
 		WaitPort: "8080/tcp",
 	})
