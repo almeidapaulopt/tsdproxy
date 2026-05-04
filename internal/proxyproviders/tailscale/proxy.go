@@ -38,6 +38,7 @@ type Proxy struct {
 
 	mtx       sync.Mutex
 	closeOnce sync.Once
+	started   bool
 }
 
 var (
@@ -56,6 +57,10 @@ func (p *Proxy) Start(ctx context.Context) error {
 	if err = p.tsServer.Start(); err != nil {
 		return err
 	}
+
+	p.mtx.Lock()
+	p.started = true
+	p.mtx.Unlock()
 
 	if lc, err = p.tsServer.LocalClient(); err != nil {
 		return err
@@ -91,6 +96,14 @@ func (p *Proxy) Close() error {
 	p.closeOnce.Do(func() {
 		close(p.events)
 	})
+
+	p.mtx.Lock()
+	wasStarted := p.started
+	p.mtx.Unlock()
+
+	if !wasStarted {
+		return nil
+	}
 
 	var err error
 	if p.tsServer != nil {

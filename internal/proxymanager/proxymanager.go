@@ -38,6 +38,7 @@ type (
 
 		mtx      sync.RWMutex
 		targetMu sync.Map // map[string]*sync.Mutex — per-target-ID lock for serializing events
+		hostMu   sync.Map // map[string]*sync.Mutex — per-hostname lock for serializing proxy replacement
 	}
 )
 
@@ -254,21 +255,25 @@ func (pm *ProxyManager) addProxyProvider(provider proxyproviders.Provider, name 
 	pm.ProxyProviders[name] = provider
 }
 
-// addProxy method adds a Proxy to the ProxyManager.
-// If a proxy with the same hostname already exists (e.g., container recreated
-// with a new ID but same hostname label), the old proxy is stopped first.
-func (pm *ProxyManager) addProxy(proxy *Proxy) {
-	var old *Proxy
-
+// closeAndRemoveProxy closes and removes any proxy with the given hostname.
+func (pm *ProxyManager) closeAndRemoveProxy(hostname string) {
 	pm.mtx.Lock()
-	old = pm.Proxies[proxy.Config.Hostname]
-	pm.Proxies[proxy.Config.Hostname] = proxy
+	old, exists := pm.Proxies[hostname]
+	if exists {
+		delete(pm.Proxies, hostname)
+	}
 	pm.mtx.Unlock()
 
 	if old != nil {
 		old.Close()
-		pm.log.Debug().Str("proxy", proxy.Config.Hostname).Msg("Replaced existing proxy")
+		pm.log.Debug().Str("proxy", hostname).Msg("Closed existing proxy for replacement")
 	}
+}
+
+// getHostLock returns a per-hostname mutex, creating one if needed.
+func (pm *ProxyManager) getHostLock(hostname string) *sync.Mutex {
+	v, _ := pm.hostMu.LoadOrStore(hostname, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // removeProxy method removes a Proxy from the ProxyManager.
@@ -332,6 +337,16 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config) {
 	pm.log.Debug().Str("proxy", name).Msg("Creating proxy")
 
+	// Serialize per-hostname so that concurrent starts for the same hostname
+	// (from different target IDs) cannot race. The lock covers close-old →
+	// create → install → start, guaranteeing exactly one live proxy per
+	// hostname and preventing an evicted proxy from starting.
+	hmu := pm.getHostLock(proxyConfig.Hostname)
+	hmu.Lock()
+	defer hmu.Unlock()
+
+	pm.closeAndRemoveProxy(proxyConfig.Hostname)
+
 	proxyProvider, err := pm.getProxyProvider(proxyConfig)
 	if err != nil {
 		pm.log.Error().Err(err).Msg("Error to get ProxyProvider")
@@ -344,12 +359,13 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		return
 	}
 
-	// any status change in proxy will be broadcasted
 	p.onUpdate = func(event model.ProxyEvent) {
 		pm.broadcastStatusEvents(event)
 	}
 
-	pm.addProxy(p)
+	pm.mtx.Lock()
+	pm.Proxies[proxyConfig.Hostname] = p
+	pm.mtx.Unlock()
 
 	// broadcasts ProxyStatusInitializing
 	pm.broadcastStatusEvents(model.ProxyEvent{
