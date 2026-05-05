@@ -38,7 +38,9 @@ type Proxy struct {
 
 	mtx       sync.Mutex
 	closeOnce sync.Once
+	watchOnce sync.Once
 	started   bool
+	watchDone chan struct{}
 }
 
 var (
@@ -71,7 +73,13 @@ func (p *Proxy) Start(ctx context.Context) error {
 	p.lc = lc
 	p.mtx.Unlock()
 
-	go p.watchStatus()
+	p.watchOnce.Do(func() {
+		p.mtx.Lock()
+		p.watchDone = make(chan struct{})
+		p.mtx.Unlock()
+
+		go p.watchStatus()
+	})
 
 	return nil
 }
@@ -93,15 +101,15 @@ func (p *Proxy) getStatus() model.ProxyStatus {
 
 // Close method implements proxyconfig.Proxy Close method.
 func (p *Proxy) Close() error {
-	p.closeOnce.Do(func() {
-		close(p.events)
-	})
-
 	p.mtx.Lock()
 	wasStarted := p.started
+	watchDone := p.watchDone
 	p.mtx.Unlock()
 
 	if !wasStarted {
+		p.closeOnce.Do(func() {
+			close(p.events)
+		})
 		return nil
 	}
 
@@ -115,6 +123,14 @@ func (p *Proxy) Close() error {
 			}
 		}
 	}
+
+	if watchDone != nil {
+		<-watchDone
+	}
+
+	p.closeOnce.Do(func() {
+		close(p.events)
+	})
 
 	return err
 }
@@ -176,6 +192,14 @@ func (p *Proxy) Whois(r *http.Request) model.Whois {
 }
 
 func (p *Proxy) watchStatus() {
+	defer func() {
+		p.mtx.Lock()
+		if p.watchDone != nil {
+			close(p.watchDone)
+		}
+		p.mtx.Unlock()
+	}()
+
 	p.mtx.Lock()
 	lc := p.lc
 	p.mtx.Unlock()
@@ -254,13 +278,14 @@ func (p *Proxy) watchStatus() {
 }
 
 func (p *Proxy) setStatus(status model.ProxyStatus, url string, authURL string) {
+	p.mtx.Lock()
 	if p.status == status && p.url == url && p.authURL == authURL {
+		p.mtx.Unlock()
 		return
 	}
 
 	p.log.Debug().Str("status", status.String()).Msg("tailscale status")
 
-	p.mtx.Lock()
 	p.status = status
 	if url != "" {
 		p.url = url

@@ -25,14 +25,14 @@ import (
 type Client struct {
 	log zerolog.Logger
 
-	Hostname            string
-	AuthKey             string
-	clientID            string
-	clientSecret        string
-	controlURL          string
-	datadir             string
-	tags                string
-		preventDuplicates bool
+	Hostname          string
+	AuthKey           string
+	clientID          string
+	clientSecret      string
+	controlURL        string
+	datadir           string
+	tags              string
+	preventDuplicates bool
 }
 
 // stateMeta tracks the configuration used to create the current tsnet state,
@@ -47,15 +47,15 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	datadir := filepath.Join(config.Config.Tailscale.DataDir, name)
 
 	return &Client{
-		log:                 log.With().Str("tailscale", name).Logger(),
-		Hostname:            name,
-		AuthKey:             strings.TrimSpace(provider.AuthKey),
-		clientID:            strings.TrimSpace(provider.ClientID),
-		clientSecret:        strings.TrimSpace(provider.ClientSecret),
-		tags:                strings.TrimSpace(provider.Tags),
-		datadir:             datadir,
-		controlURL:          provider.ControlURL,
-		preventDuplicates:    provider.PreventDuplicates,
+		log:               log.With().Str("tailscale", name).Logger(),
+		Hostname:          name,
+		AuthKey:           strings.TrimSpace(provider.AuthKey),
+		clientID:          strings.TrimSpace(provider.ClientID),
+		clientSecret:      strings.TrimSpace(provider.ClientSecret),
+		tags:              strings.TrimSpace(provider.Tags),
+		datadir:           datadir,
+		controlURL:        provider.ControlURL,
+		preventDuplicates: provider.PreventDuplicates,
 	}, nil
 }
 
