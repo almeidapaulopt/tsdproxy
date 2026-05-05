@@ -62,6 +62,13 @@ func newPortProxy(
 			r.SetURL(pconfig.GetFirstTarget())
 			r.Out.Host = r.In.Host
 
+			// Always remove trusted identity headers to prevent spoofing.
+			// Unauthenticated requests (e.g. Funnel) must not pass
+			// attacker-controlled values through to the upstream.
+			r.Out.Header.Del(consts.HeaderUsername)
+			r.Out.Header.Del(consts.HeaderDisplayName)
+			r.Out.Header.Del(consts.HeaderProfilePicURL)
+
 			if user, ok := model.WhoisFromContext(r.In.Context()); ok {
 				r.Out.Header.Set(consts.HeaderUsername, user.Username)
 				r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
@@ -131,8 +138,11 @@ func (p *port) startWithListener(l net.Listener) error {
 func (p *port) close() error {
 	var errs error
 
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
 	if p.httpServer != nil {
-		errs = errors.Join(errs, p.httpServer.Shutdown(p.ctx))
+		errs = errors.Join(errs, p.httpServer.Shutdown(shutdownCtx))
 	}
 
 	if p.listener != nil {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -158,7 +159,7 @@ func (pm *ProxyManager) getTargetLock(targetID string) *sync.Mutex {
 // SubscribeStatusEvents return a channel of proxy events.
 // This events are sent by Proxies and Ports.
 func (pm *ProxyManager) SubscribeStatusEvents() <-chan model.ProxyEvent {
-	ch := make(chan model.ProxyEvent)
+	ch := make(chan model.ProxyEvent, 64)
 
 	pm.mtx.Lock()
 	pm.statusSubscribers[ch] = struct{}{}
@@ -252,7 +253,7 @@ func (pm *ProxyManager) addProxyProvider(provider proxyproviders.Provider, name 
 	pm.mtx.Lock()
 	defer pm.mtx.Unlock()
 
-	pm.ProxyProviders[name] = provider
+	pm.ProxyProviders[strings.ToLower(name)] = provider
 }
 
 // closeAndRemoveProxy closes and removes any proxy with the given hostname.
@@ -381,32 +382,25 @@ func (pm *ProxyManager) getProxyProvider(proxy *model.Config) (proxyproviders.Pr
 	pm.mtx.RLock()
 	defer pm.mtx.RUnlock()
 
-	// return ProxyProvider defined in configurtion
-	//
 	if proxy.ProxyProvider != "" {
-		p, ok := pm.ProxyProviders[proxy.ProxyProvider]
+		p, ok := pm.ProxyProviders[strings.ToLower(proxy.ProxyProvider)]
 		if !ok {
 			return nil, ErrProxyProviderNotFound
 		}
 		return p, nil
 	}
 
-	// return default ProxyProvider defined in TargetProvider
 	targetProvider, ok := pm.TargetProviders[proxy.TargetProvider]
 	if !ok {
 		return nil, ErrTargetProviderNotFound
 	}
-	if p, ok := pm.ProxyProviders[targetProvider.GetDefaultProxyProviderName()]; ok {
+	if p, ok := pm.ProxyProviders[strings.ToLower(targetProvider.GetDefaultProxyProviderName())]; ok {
 		return p, nil
 	}
 
-	// return default ProxyProvider from global configurtion
-	//
-	if p, ok := pm.ProxyProviders[config.Config.DefaultProxyProvider]; ok {
+	if p, ok := pm.ProxyProviders[strings.ToLower(config.Config.DefaultProxyProvider)]; ok {
 		return p, nil
 	}
 
-	// return the first ProxyProvider
-	//
 	return nil, ErrProxyProviderNotFound
 }

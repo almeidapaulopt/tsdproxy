@@ -207,7 +207,7 @@ func (proxy *Proxy) close() {
 		errs = errors.Join(errs, p.close())
 	}
 	if proxy.providerProxy != nil {
-		errs = errors.Join(proxy.providerProxy.Close())
+		errs = errors.Join(errs, proxy.providerProxy.Close())
 	}
 
 	if errs != nil {
