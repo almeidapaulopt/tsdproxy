@@ -37,14 +37,16 @@ func TestListProviderReload(t *testing.T) {
 
 	hostname := fmt.Sprintf("e2e-reload-%d", time.Now().UnixNano())
 	listPath := filepath.Join(e2eTestDataDir(t), "reload-list.yaml")
-	WriteListProviderFile(t, listPath, map[string]ListEntry{
-		hostname: {
-			ProxyProvider: "default",
-			Dashboard:     ListDashboard{Visible: true, Label: "Reload Test"},
-			Ports: map[string]ListPort{
-				"80/http": {Targets: []string{backendOne.URL}},
-			},
+	listEntry := ListEntry{
+		ProxyProvider: "default",
+		Tailscale:     ListTailscale{Ephemeral: true},
+		Dashboard:     ListDashboard{Visible: true, Label: "Reload Test"},
+		Ports: map[string]ListPort{
+			"80/http": {Targets: []string{backendOne.URL}},
 		},
+	}
+	WriteListProviderFile(t, listPath, map[string]ListEntry{
+		hostname: listEntry,
 	})
 
 	httpPort := getFreePort()
@@ -82,14 +84,11 @@ proxyAccessLog: true
 	WaitForProxyReachable(t, ctx, client, proxyURL, 60*time.Second)
 	VerifyHTTPResponse(t, ctx, client, proxyURL, "backend-one")
 
+	listEntry.Ports = map[string]ListPort{
+		"80/http": {Targets: []string{backendTwo.URL}},
+	}
 	WriteListProviderFile(t, listPath, map[string]ListEntry{
-		hostname: {
-			ProxyProvider: "default",
-			Dashboard:     ListDashboard{Visible: true, Label: "Reload Test"},
-			Ports: map[string]ListPort{
-				"80/http": {Targets: []string{backendTwo.URL}},
-			},
-		},
+		hostname: listEntry,
 	})
 
 	require.Eventually(t, func() bool {
