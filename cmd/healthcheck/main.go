@@ -23,4 +23,8 @@ func main() {
 		os.Exit(1)
 	}
 	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		os.Exit(1)
+	}
 }

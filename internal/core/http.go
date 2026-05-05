@@ -111,7 +111,7 @@ func (a *HTTPServer) ErrorResponse(w http.ResponseWriter, _ *http.Request, span 
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(code)
 	_, err = w.Write(a.prettyJSON(body))
 	if err != nil {
 		a.Log.Error().Err(err).Msg("Write failed in ErrorResponse")
