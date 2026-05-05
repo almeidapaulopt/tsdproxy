@@ -1,6 +1,8 @@
 package pages
 
 import (
+	"encoding/json"
+
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/components"
 	"strings"
@@ -13,18 +15,19 @@ type ProxyData struct {
 	URL         string
 	Label       string
 	ProxyStatus model.ProxyStatus
-	Ports       []model.PortConfig
+	Ports       []PortEntry
 }
 
-type Port struct {
-	ID string
+type PortEntry struct {
+	PortConfig model.PortConfig
+	URL        string
 }
 
 templ Proxy(item ProxyData) {
 	<div
 		class="proxy"
 		id={ item.Name }
-		data-signals={ "{" + modalname(item.Name) + "_label: '" + item.Label + "'}" }
+		data-signals={ signalsForItem(item) }
 		data-show={ "$" + modalname(item.Name) + "_label.toLowerCase().search($search.toLowerCase()) >-1" }
 	>
 		<figure>
@@ -60,8 +63,8 @@ templ Proxy(item ProxyData) {
 				</form>
 				<h3 class="text-lg font-bold">{ item.Name }</h3>
 			for _, port := range item.Ports {
-				<a href={ templ.URL(item.URL) } class="py-4">
-						{ port.String() }
+				<a href={ templ.URL(port.URL) } class="py-4">
+						{ port.PortConfig.String() }
 					</a>
 					<!-- TODO: add more info -->
 				}
@@ -74,7 +77,16 @@ templ Proxy(item ProxyData) {
 }
 
 func modalname(name string) string {
-	// javascript does not allow "-" in variable names
-	temp := strings.ReplaceAll(name, "-", "_")
-	return temp + "_modal"
+	replacer := strings.NewReplacer("-", "_", ".", "_", ":", "_", " ", "_")
+	return replacer.Replace(name) + "_modal"
+}
+
+func signalsForItem(item ProxyData) string {
+	key := modalname(item.Name) + "_label"
+	signals := map[string]string{key: item.Label}
+	b, err := json.Marshal(signals)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }

@@ -4,6 +4,8 @@
 package dashboard
 
 import (
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
@@ -86,11 +88,25 @@ func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType)
 		label = name
 	}
 
-	ports := make([]model.PortConfig, len(p.Config.Ports))
-	i := 0
+	hostname := strings.TrimPrefix(url, "https://")
+	hostname = strings.TrimPrefix(hostname, "http://")
+
+	ports := make([]pages.PortEntry, 0, len(p.Config.Ports))
 	for _, target := range p.Config.Ports {
-		ports[i] = target
-		i++
+		scheme := "https"
+		if target.ProxyProtocol == "http" {
+			scheme = "http"
+		}
+
+		portURL := scheme + "://" + hostname
+		if (scheme == "https" && target.ProxyPort != 443) || (scheme == "http" && target.ProxyPort != 80) {
+			portURL += ":" + strconv.Itoa(target.ProxyPort)
+		}
+
+		ports = append(ports, pages.PortEntry{
+			PortConfig: target,
+			URL:        portURL,
+		})
 	}
 
 	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusRunning

@@ -11,11 +11,12 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
 	"github.com/a-h/templ"
+	"github.com/google/uuid"
 	datastar "github.com/starfederation/datastar/sdk/go"
 )
 
 const (
-	chanSizeSSEQueue = 0
+	chanSizeSSEQueue = 64
 
 	EventAppend EventType = iota
 	EventMerge
@@ -55,6 +56,7 @@ func (c *sseClient) send(msg SSEMessage) bool {
 func (dash *Dashboard) streamHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sessionID := r.Header.Get("X-Session-ID")
+		connID := sessionID + "_" + uuid.New().String()
 
 		sse := datastar.NewSSE(w, r)
 
@@ -64,14 +66,13 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 			done:    make(chan struct{}),
 		}
 
-		// Register client
 		dash.mtx.Lock()
-		dash.sseClients[sessionID] = client
+		dash.sseClients[connID] = client
 		dash.mtx.Unlock()
 
 		dash.Log.Info().Msg("New Client connected")
 		// Ensure client is removed when disconnected
-		defer dash.removeSSEClient(sessionID)
+		defer dash.removeSSEClient(connID)
 
 		go func() {
 			dash.renderList(client)
@@ -124,8 +125,8 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 
 func (dash *Dashboard) updateUser(r *http.Request, client *sseClient) {
 	signals := map[string]string{
-		"user_username":     r.Header.Get(consts.HeaderUsername),
-		"user_displayName":  r.Header.Get(consts.HeaderDisplayName),
+		"user_username":      r.Header.Get(consts.HeaderUsername),
+		"user_displayName":   r.Header.Get(consts.HeaderDisplayName),
 		"user_profilePicUrl": r.Header.Get(consts.HeaderProfilePicURL),
 	}
 
@@ -182,4 +183,3 @@ func (dash *Dashboard) streamSortList(client *sseClient) {
 		Message: "sortList()",
 	})
 }
-
