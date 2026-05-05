@@ -101,7 +101,6 @@ Data flow: TargetProvider watches containers → emits TargetEvent → ProxyMana
 - **TODOs in validator**: `internal/config/validator.go` has `TODO: add validation for each provider` and `TODO: add default proxy provider`
 - **nolint directives**: `web/web.go` lines 40-41, `internal/proxymanager/port.go` line 47 (TLS InsecureSkipVerify), `internal/model/port.go` multiple `//nolint:mnd` for magic number suppression
 - **Config case sensitivity**: YAML config keys are case-sensitive (documented as WARNING in docs)
-- **Typos in targetproviders**: `ActionStartProt` and `ActionStopPrort` (misspellings of Port) in `targetproviders.go`
 - **Global mutable state**: `config.Config` is a package-level var set during init, accessed everywhere
 
 ## COMMANDS
