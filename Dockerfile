@@ -1,28 +1,13 @@
 
-# Build web assets
-FROM oven/bun:1 AS web-builder
-WORKDIR /app/web
-COPY web/package.json web/bun.lockb* ./
-RUN bun install
-COPY web/ ./
-RUN bun run build
-
 # Usa uma imagem oficial do Go como base para a compilação
 FROM golang:1.26 AS builder
-RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 
 # Define o diretório de trabalho
 WORKDIR /app
 
 # Copia o código fonte para o container
 COPY . .
-
-# Copy built web assets from web-builder stage
-COPY --from=web-builder /app/web/dist ./web/dist
-
-# Install templ and generate Go code from templates
-RUN go install github.com/a-h/templ/cmd/templ@latest
-RUN templ generate
 
 # Compila a aplicação Go
 RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /tsdproxyd ./cmd/server/main.go

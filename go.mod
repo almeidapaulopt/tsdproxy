@@ -1,6 +1,6 @@
 module github.com/almeidapaulopt/tsdproxy
 
-go 1.26.2
+go 1.26
 
 require (
 	github.com/a-h/templ v0.3.1001
@@ -18,8 +18,8 @@ require (
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
 	gopkg.in/yaml.v3 v3.0.1
-	tailscale.com v1.96.5
-	tailscale.com/client/tailscale/v2 v2.9.0
+	tailscale.com v1.80.3
+	tailscale.com/client/tailscale/v2 v2.5.0
 )
 
 require (
