@@ -216,7 +216,7 @@ func (c *container) generateTargetFromFirstTarget(port model.PortConfig) (model.
 	// multiple targets not supported in this TargetProvider
 	p := port.GetFirstTarget()
 
-	targetURL, err := c.getTargetURL(p)
+	targetURL, err := c.getTargetURL(p, port.IsTCPPassthrough)
 	if err != nil {
 		return port, err
 	}
@@ -256,7 +256,7 @@ func (c *container) getName() string {
 }
 
 // getTargetURL method returns the container target URL
-func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
+func (c *container) getTargetURL(iPort *url.URL, isTCPPassthrough bool) (*url.URL, error) {
 	c.log.Trace().Msg("getTargetURL")
 	defer c.log.Trace().Msg("End getTargetURL")
 
@@ -267,9 +267,30 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 		return nil, ErrNoPortFoundInContainer
 	}
 
+	// For TCP passthrough, use the container's internal port, not the published port.
+	// For HTTP/HTTPS, use the published port so the proxy reaches the service via
+	// the port-mapped address that the container listens on.
+	usePort := publishedPort
+	if isTCPPassthrough {
+		usePort = internalPort
+	}
+
+	if usePort == "" {
+		return nil, ErrNoPortFoundInContainer
+	}
+
+	// For TCP passthrough, use the container's own IP to reach it directly
+	// via the Docker network (bypasses the Docker host port mapping layer).
+	// For HTTP/HTTPS, use host.docker.internal which works with Docker port mappings.
+	targetHostname := c.defaultTargetHostname
+	if isTCPPassthrough && len(c.ipAddress) > 0 {
+		targetHostname = c.ipAddress[0]
+		c.log.Info().Str("tcpTarget", targetHostname).Msg("using container IP for TCP passthrough")
+	}
+
 	// return localhost if container same as host to serve the dashboard
 	if osname, err := os.Hostname(); err == nil && strings.HasPrefix(c.id, osname) {
-		return url.Parse("http://127.0.0.1:" + internalPort)
+		return url.Parse("http://127.0.0.1:" + usePort)
 	}
 
 	// set autodetect
@@ -277,7 +298,7 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 		// repeat auto detect in case the container is not ready
 		for try := range autoDetectTries {
 			c.log.Info().Int("try", try).Msg("Trying to auto detect target URL")
-			if port, err := c.tryConnectContainer(iPort.Scheme, internalPort, publishedPort); err == nil {
+			if port, err := c.tryConnectContainer(iPort.Scheme, usePort, publishedPort); err == nil {
 				return port, nil
 			}
 			// wait to container get ready in case of startup
@@ -286,17 +307,17 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 	}
 
 	if c.networkMode == "host" && c.defaultBridgeAddress != "" {
-		return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
+		return url.Parse(iPort.Scheme + "://" + targetHostname + ":" + usePort)
 	}
 
 	if publishedPort == "" {
-		if internalPort != "" && c.defaultTargetHostname != "" {
-			return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
+		if usePort != "" && targetHostname != "" {
+			return url.Parse(iPort.Scheme + "://" + targetHostname + ":" + usePort)
 		}
 		return nil, ErrNoPortFoundInContainer
 	}
 
-	return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + publishedPort)
+	return url.Parse(iPort.Scheme + "://" + targetHostname + ":" + usePort)
 }
 
 // getPublishedPort method returns the container port
