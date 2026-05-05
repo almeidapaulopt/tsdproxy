@@ -156,6 +156,12 @@ func (proxy *Proxy) start() {
 
 	if portsCount == 0 {
 		proxy.log.Warn().Msg("No ports configured")
+
+		// Release context and provider resources (e.g. tsnet node) without
+		// transitioning to Stopped, so the dashboard keeps showing the Error
+		// state for this misconfigured proxy.
+		proxy.cancel()
+		proxy.close()
 		proxy.setStatus(model.ProxyStatusError)
 
 		return
