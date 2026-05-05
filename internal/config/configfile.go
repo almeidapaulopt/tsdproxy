@@ -65,7 +65,7 @@ func (f *ConfigFile) Save() error {
 		return err
 	}
 
-	err = os.WriteFile(f.filename, yaml, consts.PermAllRead+consts.PermOwnerWrite)
+	err = os.WriteFile(f.filename, yaml, consts.PermOwnerRead+consts.PermOwnerWrite)
 	if err != nil {
 		return err
 	}

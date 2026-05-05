@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/creasty/defaults"
 	"github.com/rs/zerolog/log"
@@ -85,13 +86,13 @@ type (
 
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
-		AuthKey                string `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
-		AuthKeyFile            string `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
-		ClientID               string `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
-		ClientSecret           string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
-		Tags                   string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
-		ControlURL             string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
-		PreventDuplicates       bool   `default:"false" yaml:"preventDuplicates"`
+		AuthKey           string `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
+		AuthKeyFile       string `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
+		ClientID          string `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
+		ClientSecret      string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
+		Tags              string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
+		ControlURL        string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
+		PreventDuplicates bool   `default:"false" yaml:"preventDuplicates"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
@@ -174,5 +175,5 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}
-	return string(data), nil
+	return strings.TrimSpace(string(data)), nil
 }

@@ -84,6 +84,7 @@ func New(log zerolog.Logger, name string, provider *config.ListTargetProviderCon
 		proxies:       make(map[string]proxyConfig),
 		eventsChan:    make(chan targetproviders.TargetEvent),
 		errChan:       make(chan error),
+		config:        *provider,
 	}
 
 	// load default values
@@ -189,12 +190,15 @@ func (c *Client) onFileChange(_ fsnotify.Event) {
 	c.log.Info().Msg("config changed, reloading")
 	oldConfigProxies := maps.Clone(c.configProxies)
 
-	// Delete all entries because it's not deleted when loading from file
 	for k := range c.configProxies {
 		delete(c.configProxies, k)
 	}
 	if err := c.file.Load(); err != nil {
 		c.log.Error().Err(err).Msg("error loading config")
+		for k := range oldConfigProxies {
+			c.configProxies[k] = oldConfigProxies[k]
+		}
+		return
 	}
 
 	// delete proxies that don't exist in new config
