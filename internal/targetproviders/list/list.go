@@ -96,22 +96,32 @@ func New(log zerolog.Logger, name string, provider *config.ListTargetProviderCon
 	return c, nil
 }
 
-func (c *Client) WatchEvents(_ context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
+func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.log.Debug().Msg("Start WatchEvents")
 
 	c.eventsChan = eventsChan
 	c.errChan = errChan
 
-	c.file.Watch()
 	c.file.OnChange(c.onFileChange)
 
-	// start initial proxies
+	if err := c.file.Watch(); err != nil {
+		select {
+		case <-ctx.Done():
+		case errChan <- err:
+		}
+		return
+	}
+
 	go func() {
 		for k := range c.configProxies {
-			eventsChan <- targetproviders.TargetEvent{
+			select {
+			case <-ctx.Done():
+				return
+			case eventsChan <- targetproviders.TargetEvent{
 				ID:             k,
 				TargetProvider: c,
 				Action:         targetproviders.ActionStartProxy,
+			}:
 			}
 		}
 	}()

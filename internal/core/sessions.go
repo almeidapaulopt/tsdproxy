@@ -22,7 +22,7 @@ func SessionMiddleware(next http.Handler) http.Handler {
 				Value:    sessionID,
 				Path:     "/",
 				HttpOnly: true,
-				Secure:   true,
+				Secure:   r.TLS != nil,
 				SameSite: http.SameSiteStrictMode,
 			})
 		} else {

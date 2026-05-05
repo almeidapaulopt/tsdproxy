@@ -6,6 +6,7 @@ package config
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -81,17 +82,17 @@ func (f *ConfigFile) OnChange(run func(in fsnotify.Event)) {
 	f.onChange = run
 }
 
-// WatchConfig starts watching a config file for changes.
-func (f *ConfigFile) Watch() {
+// Watch starts watching a config file for changes.
+func (f *ConfigFile) Watch() error {
 	f.log.Debug().Str("file", f.filename).Msg("Start watching file")
 
-	initWG := sync.WaitGroup{}
-	initWG.Add(1)
+	errChan := make(chan error, 1)
 
 	go func() {
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
-			f.log.Fatal().Err(err).Msg("failed to create a new watcher")
+			errChan <- fmt.Errorf("failed to create a new watcher: %w", err)
+			return
 		}
 		defer watcher.Close()
 
@@ -101,21 +102,21 @@ func (f *ConfigFile) Watch() {
 		eventsWG := sync.WaitGroup{}
 		eventsWG.Add(1)
 
-		// Start listening for events.
 		go func() {
 			defer eventsWG.Done()
 			f.watchEvents(watcher, file)
 		}()
 
-		err = watcher.Add(dir)
-		if err != nil {
-			f.log.Fatal().Err(err).Str("filename", f.filename).Msg("failed to watch config file")
+		if err := watcher.Add(dir); err != nil {
+			errChan <- fmt.Errorf("failed to watch config file %s: %w", f.filename, err)
+			return
 		}
 
-		initWG.Done()
+		errChan <- nil
 		eventsWG.Wait()
 	}()
-	initWG.Wait()
+
+	return <-errChan
 }
 
 func (f *ConfigFile) watchEvents(watcher *fsnotify.Watcher, file string) {
