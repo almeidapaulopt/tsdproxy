@@ -242,7 +242,7 @@ func (p *Proxy) watchStatus() {
 
 		status, err := p.lc.Status(p.ctx)
 		if err != nil {
-			if !errors.Is(err, net.ErrClosed) {
+			if !errors.Is(err, net.ErrClosed) && !errors.Is(err, context.Canceled) {
 				p.log.Error().Err(err).Msg("tailscale.watchStatus: status")
 				return
 			}
@@ -321,7 +321,9 @@ func (p *Proxy) getTLSCertificates() {
 		return
 	}
 	if _, _, err := lc.CertPair(p.ctx, certDomains[0]); err != nil {
-		p.log.Error().Err(err).Msg("error to get TLS certificates")
+		if !errors.Is(err, context.Canceled) {
+			p.log.Error().Err(err).Msg("error to get TLS certificates")
+		}
 		return
 	}
 	p.log.Info().Msg("TLS certificate generated")

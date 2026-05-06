@@ -216,7 +216,7 @@ func (proxy *Proxy) close() {
 		errs = errors.Join(errs, proxy.providerProxy.Close())
 	}
 
-	if errs != nil {
+	if errs != nil && !errors.Is(errs, context.Canceled) && !errors.Is(errs, net.ErrClosed) {
 		proxy.log.Error().Err(errs).Msg("Error stopping proxy")
 	}
 
