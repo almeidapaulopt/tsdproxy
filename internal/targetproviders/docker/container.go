@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -104,13 +105,45 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 	c.log.Trace().Msg("start setContainerNetwork")
 	defer c.log.Trace().Msg("end setContainerNetwork")
 
-	// add ip addresses and gateways from networks
-	for _, network := range dcontainer.NetworkSettings.Networks {
-		if network.IPAddress != "" {
-			c.ipAddress = append(c.ipAddress, network.IPAddress)
+	// Collect network entries for deterministic ordering.
+	// Go map iteration order is non-deterministic, which makes c.ipAddress[0]
+	// unreliable for multi-network containers.
+	type networkEntry struct {
+		name string
+		ip   string
+		gw   string
+	}
+	var entries []networkEntry
+
+	for name, network := range dcontainer.NetworkSettings.Networks {
+		entries = append(entries, networkEntry{
+			name: name,
+			ip:   network.IPAddress,
+			gw:   network.Gateway,
+		})
+	}
+
+	// Sort by network name for stable ordering.
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].name < entries[j].name
+	})
+
+	// Prefer the network whose gateway matches defaultBridgeAddress.
+	// This ensures the proxy connects via the expected Docker network.
+	if c.defaultBridgeAddress != "" {
+		sort.SliceStable(entries, func(i, j int) bool {
+			iMatch := entries[i].gw == c.defaultBridgeAddress
+			jMatch := entries[j].gw == c.defaultBridgeAddress
+			return iMatch && !jMatch
+		})
+	}
+
+	for _, entry := range entries {
+		if entry.ip != "" {
+			c.ipAddress = append(c.ipAddress, entry.ip)
 		}
-		if network.Gateway != "" {
-			c.gateways = append(c.gateways, network.Gateway)
+		if entry.gw != "" {
+			c.gateways = append(c.gateways, entry.gw)
 		}
 	}
 }
@@ -255,7 +288,8 @@ func (c *container) getName() string {
 	return strings.TrimLeft(c.name, "/")
 }
 
-// getTargetURL method returns the container target URL
+// getTargetURL method returns the container target URL by trying resolution
+// strategies in priority order.
 func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 	c.log.Trace().Msg("getTargetURL")
 	defer c.log.Trace().Msg("End getTargetURL")
@@ -267,36 +301,124 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 		return nil, ErrNoPortFoundInContainer
 	}
 
-	// return localhost if container same as host to serve the dashboard
-	if osname, err := os.Hostname(); err == nil && strings.HasPrefix(c.id, osname) {
-		return url.Parse("http://127.0.0.1:" + internalPort)
+	// Try resolvers in priority order.
+	if u, ok := c.resolveSelfHost(internalPort); ok {
+		return u, nil
 	}
 
-	// set autodetect
-	if c.autodetect {
-		// repeat auto detect in case the container is not ready
-		for try := range autoDetectTries {
-			c.log.Info().Int("try", try).Msg("Trying to auto detect target URL")
-			if port, err := c.tryConnectContainer(iPort.Scheme, internalPort, publishedPort); err == nil {
-				return port, nil
-			}
-			// wait to container get ready in case of startup
-			time.Sleep(autoDetectSleep)
+	if u, ok := c.resolveAutoDetect(iPort.Scheme, internalPort, publishedPort); ok {
+		return u, nil
+	}
+
+	if u, ok := c.resolveHostNetwork(iPort, internalPort); ok {
+		return u, nil
+	}
+
+	if u, ok := c.resolveNonHTTPDirect(iPort, internalPort); ok {
+		return u, nil
+	}
+
+	if u, ok := c.resolvePublished(iPort, publishedPort, internalPort); ok {
+		return u, nil
+	}
+
+	return nil, ErrNoPortFoundInContainer
+}
+
+// resolveSelfHost returns a localhost target when the container IS the tsdproxy process.
+func (c *container) resolveSelfHost(internalPort string) (*url.URL, bool) {
+	osname, err := os.Hostname()
+	if err != nil {
+		return nil, false
+	}
+	if !strings.HasPrefix(c.id, osname) {
+		return nil, false
+	}
+	u, err := url.Parse("http://127.0.0.1:" + internalPort)
+	return u, err == nil
+}
+
+// resolveAutoDetect tries to auto-detect the target URL by probing connectivity.
+func (c *container) resolveAutoDetect(scheme, internalPort, publishedPort string) (*url.URL, bool) {
+	if !c.autodetect {
+		return nil, false
+	}
+	for try := range autoDetectTries {
+		c.log.Info().Int("try", try).Msg("Trying to auto detect target URL")
+		if port, err := c.tryConnectContainer(scheme, internalPort, publishedPort); err == nil {
+			return port, true
 		}
+		time.Sleep(autoDetectSleep)
+	}
+	return nil, false
+}
+
+// resolveHostNetwork resolves the target URL for host-networked containers.
+//
+// Host-network containers do not have their own Docker network IP; the
+// container's services are reachable via the host. We use defaultTargetHostname
+// (operator-configured, e.g. "host.docker.internal" or the host's LAN IP)
+// because that is the address the proxy can actually dial.
+//
+// Gating on defaultTargetHostname (rather than defaultBridgeAddress) means
+// host-network containers remain routable even when the Docker default-bridge
+// network cannot be discovered (e.g. removed, renamed, or restricted by
+// Docker socket permissions).
+func (c *container) resolveHostNetwork(iPort *url.URL, internalPort string) (*url.URL, bool) {
+	if c.networkMode != "host" || c.defaultTargetHostname == "" {
+		return nil, false
+	}
+	u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
+	return u, err == nil
+}
+
+// resolveNonHTTPDirect connects directly to the container IP for non-HTTP
+// protocols (e.g. TCP passthrough). This bypasses Docker's host-side port
+// mapping, which may not reliably forward raw TCP streams.
+//
+// This resolver is intentionally ordered after resolveHostNetwork so that
+// host-networked containers are handled by the host-network path first.
+// Host-network containers typically have no Docker network IPs, so this
+// branch would return false anyway, but the explicit check prevents
+// accidental misrouting if a host-net container somehow has IPs populated.
+//
+// Security note: this requires the proxy to share a Docker network with the
+// target container. It also bypasses any published-port ACLs that the user
+// may have configured as a soft firewall.
+func (c *container) resolveNonHTTPDirect(iPort *url.URL, internalPort string) (*url.URL, bool) {
+	if iPort.Scheme == "http" || iPort.Scheme == "https" {
+		return nil, false
+	}
+	if c.networkMode == "host" {
+		return nil, false
+	}
+	if len(c.ipAddress) == 0 || internalPort == "" {
+		return nil, false
 	}
 
-	if c.networkMode == "host" && c.defaultBridgeAddress != "" {
-		return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
-	}
+	ip := c.ipAddress[0]
+	c.log.Info().
+		Str("scheme", iPort.Scheme).
+		Str("container_ip", ip).
+		Str("internal_port", internalPort).
+		Msg("Non-HTTP protocol: connecting directly to container IP")
 
-	if publishedPort == "" {
-		if internalPort != "" && c.defaultTargetHostname != "" {
-			return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
-		}
-		return nil, ErrNoPortFoundInContainer
-	}
+	u, err := url.Parse(iPort.Scheme + "://" + ip + ":" + internalPort)
+	return u, err == nil
+}
 
-	return url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + publishedPort)
+// resolvePublished resolves the target URL using the published port or
+// falls back to the default hostname with the internal port.
+func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort string) (*url.URL, bool) {
+	if publishedPort != "" {
+		u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + publishedPort)
+		return u, err == nil
+	}
+	if internalPort != "" && c.defaultTargetHostname != "" {
+		u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
+		return u, err == nil
+	}
+	return nil, false
 }
 
 // getPublishedPort method returns the container port
