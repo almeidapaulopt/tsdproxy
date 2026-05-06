@@ -5,6 +5,7 @@ package docker
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"sort"
@@ -15,8 +16,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/web"
 
-	ctypes "github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/swarm"
+	ctypes "github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/swarm"
 	"github.com/rs/zerolog"
 )
 
@@ -32,10 +33,10 @@ type (
 		name                  string
 		hostname              string
 		networkMode           ctypes.NetworkMode
-		defaultBridgeAddress  string
+		defaultBridgeAddress  netip.Addr
 		defaultTargetHostname string
-		ipAddress             []string
-		gateways              []string
+		ipAddress             []netip.Addr
+		gateways              []netip.Addr
 		autodetect            bool
 	}
 
@@ -86,6 +87,10 @@ func (c *container) setContainerPorts(dcontainer ctypes.InspectResponse, dservic
 		return
 	}
 
+	if dcontainer.NetworkSettings == nil {
+		return
+	}
+
 	for p, b := range dcontainer.NetworkSettings.Ports {
 		if len(b) > 0 {
 			c.ports[p.Port()] = b[0].HostPort
@@ -105,13 +110,17 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 	c.log.Trace().Msg("start setContainerNetwork")
 	defer c.log.Trace().Msg("end setContainerNetwork")
 
+	if dcontainer.NetworkSettings == nil {
+		return
+	}
+
 	// Collect network entries for deterministic ordering.
 	// Go map iteration order is non-deterministic, which makes c.ipAddress[0]
 	// unreliable for multi-network containers.
 	type networkEntry struct {
 		name string
-		ip   string
-		gw   string
+		ip   netip.Addr
+		gw   netip.Addr
 	}
 	var entries []networkEntry
 
@@ -130,7 +139,7 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 
 	// Prefer the network whose gateway matches defaultBridgeAddress.
 	// This ensures the proxy connects via the expected Docker network.
-	if c.defaultBridgeAddress != "" {
+	if c.defaultBridgeAddress.IsValid() {
 		sort.SliceStable(entries, func(i, j int) bool {
 			iMatch := entries[i].gw == c.defaultBridgeAddress
 			jMatch := entries[j].gw == c.defaultBridgeAddress
@@ -139,10 +148,10 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 	}
 
 	for _, entry := range entries {
-		if entry.ip != "" {
+		if entry.ip.IsValid() {
 			c.ipAddress = append(c.ipAddress, entry.ip)
 		}
-		if entry.gw != "" {
+		if entry.gw.IsValid() {
 			c.gateways = append(c.gateways, entry.gw)
 		}
 	}
@@ -331,7 +340,7 @@ func (c *container) resolveSelfHost(internalPort string) (*url.URL, bool) {
 	if err != nil {
 		return nil, false
 	}
-	if !strings.HasPrefix(c.id, osname) {
+	if osname == "" || c.hostname != osname {
 		return nil, false
 	}
 	u, err := url.Parse("http://127.0.0.1:" + internalPort)
@@ -365,7 +374,7 @@ func (c *container) resolveAutoDetect(scheme, internalPort, publishedPort string
 // network cannot be discovered (e.g. removed, renamed, or restricted by
 // Docker socket permissions).
 func (c *container) resolveHostNetwork(iPort *url.URL, internalPort string) (*url.URL, bool) {
-	if c.networkMode != "host" || c.defaultTargetHostname == "" {
+	if !c.networkMode.IsHost() || c.defaultTargetHostname == "" {
 		return nil, false
 	}
 	u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
@@ -389,14 +398,14 @@ func (c *container) resolveNonHTTPDirect(iPort *url.URL, internalPort string) (*
 	if iPort.Scheme == "http" || iPort.Scheme == "https" {
 		return nil, false
 	}
-	if c.networkMode == "host" {
+	if c.networkMode.IsHost() {
 		return nil, false
 	}
 	if len(c.ipAddress) == 0 || internalPort == "" {
 		return nil, false
 	}
 
-	ip := c.ipAddress[0]
+	ip := c.ipAddress[0].String()
 	c.log.Info().
 		Str("scheme", iPort.Scheme).
 		Str("container_ip", ip).
@@ -458,7 +467,7 @@ func withTargetProviderName(name string) ContainerOption {
 	}
 }
 
-func withDefaultBridgeAddress(address string) ContainerOption {
+func withDefaultBridgeAddress(address netip.Addr) ContainerOption {
 	return func(c *container) {
 		c.defaultBridgeAddress = address
 	}

@@ -41,23 +41,25 @@ func (c *container) tryInternalPort(scheme, hostname, port string) (*url.URL, er
 
 	// if the container is running in host mode,
 	// try connecting to defaultBridgeAddress of the host and internal port.
-	if c.networkMode == "host" && c.defaultBridgeAddress != "" {
-		if err := c.dial(c.defaultBridgeAddress, port); err == nil {
-			c.log.Info().Str("address", c.defaultBridgeAddress).Str("port", port).Msg("Successfully connected using defaultBridgeAddress and internal port")
-			return url.Parse(scheme + "://" + c.defaultBridgeAddress + ":" + port)
+	if c.networkMode.IsHost() && c.defaultBridgeAddress.IsValid() {
+		addr := c.defaultBridgeAddress.String()
+		if err := c.dial(addr, port); err == nil {
+			c.log.Info().Str("address", addr).Str("port", port).Msg("Successfully connected using defaultBridgeAddress and internal port")
+			return url.Parse(scheme + "://" + addr + ":" + port)
 		}
 
-		c.log.Debug().Str("address", c.defaultBridgeAddress).Str("port", port).Msg("Failed to connect")
+		c.log.Debug().Str("address", addr).Str("port", port).Msg("Failed to connect")
 	}
 
 	for _, ipAddress := range c.ipAddress {
+		ip := ipAddress.String()
 		// try connecting to container IP and internal port
-		if err := c.dial(ipAddress, port); err == nil {
-			c.log.Info().Str("address", ipAddress).
+		if err := c.dial(ip, port); err == nil {
+			c.log.Info().Str("address", ip).
 				Str("port", port).Msg("Successfully connected using internal ip and internal port")
-			return url.Parse(scheme + "://" + ipAddress + ":" + port)
+			return url.Parse(scheme + "://" + ip + ":" + port)
 		}
-		c.log.Debug().Str("address", ipAddress).
+		c.log.Debug().Str("address", ip).
 			Str("port", port).Msg("Failed to connect")
 	}
 
@@ -67,12 +69,13 @@ func (c *container) tryInternalPort(scheme, hostname, port string) (*url.URL, er
 // tryPublishedPort method tries to connect to the container internal ip and published port
 func (c *container) tryPublishedPort(scheme, port string) (*url.URL, error) {
 	for _, gateway := range c.gateways {
-		if err := c.dial(gateway, port); err == nil {
-			c.log.Info().Str("address", gateway).Str("port", port).Msg("Successfully connected using docker network gateway and published port")
-			return url.Parse(scheme + "://" + gateway + ":" + port)
+		gw := gateway.String()
+		if err := c.dial(gw, port); err == nil {
+			c.log.Info().Str("address", gw).Str("port", port).Msg("Successfully connected using docker network gateway and published port")
+			return url.Parse(scheme + "://" + gw + ":" + port)
 		}
 
-		c.log.Debug().Str("address", gateway).Str("port", port).Msg("Failed to connect using docker network gateway and published port")
+		c.log.Debug().Str("address", gw).Str("port", port).Msg("Failed to connect using docker network gateway and published port")
 	}
 
 	return nil, ErrNoValidTargetFoundForPublishedPorts

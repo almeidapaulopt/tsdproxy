@@ -5,16 +5,16 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
+	"io"
+	"net/netip"
 	"sync"
 
-	ctypes "github.com/docker/docker/api/types/container"
-	devents "github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/api/types/swarm"
-	"github.com/docker/docker/client"
+	ctypes "github.com/moby/moby/api/types/container"
+	devents "github.com/moby/moby/api/types/events"
+	"github.com/moby/moby/api/types/swarm"
+	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -32,7 +32,7 @@ type (
 		host                     string
 		defaultTargetHostname    string
 		defaultProxyProvider     string
-		defaultBridgeAdress      string
+		defaultBridgeAddress     netip.Addr
 		tryDockerInternalNetwork bool
 
 		mutex sync.Mutex
@@ -89,15 +89,25 @@ func (c *Client) AddTarget(id string) (*model.Config, error) {
 
 	ctx := context.Background()
 
-	dcontainer, err := c.docker.ContainerInspect(ctx, id)
+	dcontainerResult, err := c.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("error inspecting container: %w", err)
+	}
+	dcontainer := dcontainerResult.Container
+
+	if dcontainer.Config == nil || dcontainer.HostConfig == nil {
+		return nil, fmt.Errorf("container %s missing required fields", id)
 	}
 
 	var dservice swarm.Service
 
 	if serviceID, ok := dcontainer.Config.Labels["com.docker.swarm.service.id"]; ok {
-		dservice, _, _ = c.docker.ServiceInspectWithRaw(ctx, serviceID, swarm.ServiceInspectOptions{})
+		svcRes, svcErr := c.docker.ServiceInspect(ctx, serviceID, client.ServiceInspectOptions{})
+		if svcErr == nil {
+			dservice = svcRes.Service
+		} else {
+			c.log.Debug().Err(svcErr).Str("service", serviceID).Msg("swarm service inspect failed")
+		}
 	}
 
 	return c.newProxyConfig(dcontainer, dservice)
@@ -124,19 +134,24 @@ func (c *Client) GetDefaultProxyProviderName() string {
 	return c.defaultProxyProvider
 }
 
+func enabledContainerFilter() client.Filters {
+	f := make(client.Filters)
+	f.Add("label", LabelIsEnabled)
+	return f
+}
+
 // WatchEvents method implements TargetProvider WatchEvents method
 func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.log.Trace().Msg("WatchEvents")
 	defer c.log.Trace().Msg("End WatchEvents")
 	// Filter Start/stop events for containers
 	//
-	eventsFilter := filters.NewArgs()
-	eventsFilter.Add("label", LabelIsEnabled)
+	eventsFilter := enabledContainerFilter()
 	eventsFilter.Add("type", string(devents.ContainerEventType))
 	eventsFilter.Add("event", string(devents.ActionDie))
 	eventsFilter.Add("event", string(devents.ActionStart))
 
-	dockereventsChan, dockererrChan := c.docker.Events(ctx, devents.ListOptions{
+	evRes := c.docker.Events(ctx, client.EventsListOptions{
 		Filters: eventsFilter,
 	})
 
@@ -145,7 +160,7 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 			select {
 			case <-ctx.Done():
 				return
-			case devent, ok := <-dockereventsChan:
+			case devent, ok := <-evRes.Messages:
 				if !ok {
 					return
 				}
@@ -164,8 +179,8 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 					}
 				}
 
-			case err, ok := <-dockererrChan:
-				if ok {
+			case err, ok := <-evRes.Err:
+				if ok && !errors.Is(err, context.Canceled) && !errors.Is(err, io.EOF) {
 					select {
 					case <-ctx.Done():
 						return
@@ -183,13 +198,9 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 func (c *Client) startAllProxies(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.log.Trace().Msg("startAllProxies")
 	defer c.log.Trace().Msg("End startAllProxies")
-	// Filter containers with enable set to true
-	//
-	containerFilter := filters.NewArgs()
-	containerFilter.Add("label", LabelIsEnabled)
 
-	containers, err := c.docker.ContainerList(ctx, ctypes.ListOptions{
-		Filters: containerFilter,
+	listResult, err := c.docker.ContainerList(ctx, client.ContainerListOptions{
+		Filters: enabledContainerFilter(),
 		All:     false,
 	})
 	if err != nil {
@@ -201,11 +212,11 @@ func (c *Client) startAllProxies(ctx context.Context, eventsChan chan targetprov
 		return
 	}
 
-	for _, container := range containers {
+	for _, ctr := range listResult.Items {
 		select {
 		case <-ctx.Done():
 			return
-		case eventsChan <- c.getStartEvent(container.ID):
+		case eventsChan <- c.getStartEvent(ctr.ID):
 		}
 	}
 }
@@ -216,7 +227,7 @@ func (c *Client) newProxyConfig(dcontainer ctypes.InspectResponse, dservice swar
 	defer c.log.Trace().Msg("End newProxyConfig")
 
 	ctn := newContainer(c.log, dcontainer, dservice, c.tryDockerInternalNetwork,
-		withDefaultBridgeAddress(c.defaultBridgeAdress),
+		withDefaultBridgeAddress(c.defaultBridgeAddress),
 		withDefaultTargetHostname(c.defaultTargetHostname),
 		withTargetProviderName(c.name),
 	)
@@ -284,24 +295,26 @@ func (c *Client) setDefaultBridgeAddress() {
 	c.log.Trace().Msg("getDefaultBridgeAddress")
 	defer c.log.Trace().Msg("End getDefaultBridgeAddress")
 
-	filter := filters.NewArgs()
-	networks, err := c.docker.NetworkList(context.Background(), network.ListOptions{
-		Filters: filter,
-	})
+	networkListResult, err := c.docker.NetworkList(context.Background(), client.NetworkListOptions{})
 	if err != nil {
 		c.log.Error().Err(err).Msg("Error listing Docker networks")
 		return
 	}
 
-	for _, network := range networks {
+	for _, network := range networkListResult.Items {
 		if network.Options["com.docker.network.bridge.default_bridge"] == "true" {
 			if len(network.IPAM.Config) == 0 {
 				c.log.Warn().Str("network", network.Name).Msg("default bridge network has no IPAM config")
 				continue
 			}
-			c.log.Info().Str("defaultIPAdress", network.IPAM.Config[0].Gateway).Msg("Default Network found")
+			gateway := network.IPAM.Config[0].Gateway
+			if !gateway.IsValid() {
+				c.log.Warn().Str("network", network.Name).Msg("default bridge network has no valid gateway")
+				continue
+			}
+			c.log.Info().Str("defaultIPAddress", gateway.String()).Msg("Default Network found")
 
-			c.defaultBridgeAdress = strings.TrimSpace(network.IPAM.Config[0].Gateway)
+			c.defaultBridgeAddress = gateway
 			return
 		}
 	}
