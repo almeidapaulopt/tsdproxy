@@ -39,6 +39,19 @@ var (
 	ErrInvalidTargetConfig = errors.New("invalid target configuration")
 )
 
+const (
+	minPort = 1
+	maxPort = 65535
+)
+
+// validatePortRange checks that a port number is within the valid range.
+func validatePortRange(port int) error {
+	if port < minPort || port > maxPort {
+		return fmt.Errorf("port %d out of valid range %d-%d", port, minPort, maxPort)
+	}
+	return nil
+}
+
 // NewPortLongLabel parses a port configuration string and returns a PortConfig struct.
 //
 // The input string `s` must follow one of these formats:
@@ -136,6 +149,9 @@ func parseProxySegment(segment string, config *PortConfig) error {
 	if err != nil {
 		return fmt.Errorf("invalid proxy port: %w", err)
 	}
+	if err := validatePortRange(proxyPort); err != nil {
+		return fmt.Errorf("invalid proxy port: %w", err)
+	}
 	config.ProxyPort = proxyPort
 
 	if len(proxyParts) == 2 { //nolint:mnd
@@ -151,12 +167,26 @@ func parseTargetSegment(segment string, config *PortConfig) error {
 		return ErrInvalidTargetConfig
 	}
 
-	_, err := strconv.Atoi(targetParts[0])
+	targetPort, err := strconv.Atoi(targetParts[0])
 	if err != nil {
 		return fmt.Errorf("invalid target port: %w", err)
 	}
+	if err := validatePortRange(targetPort); err != nil {
+		return fmt.Errorf("invalid target port: %w", err)
+	}
 
+	// Default target protocol to match the proxy protocol for non-HTTP schemes.
+	// This ensures that a TCP proxy (e.g. "8222/tcp:22") gets a "tcp" target
+	// rather than "http", which would cause the target URL to be routed
+	// incorrectly through Docker's HTTP-aware port mapping.
+	//
+	// NOTE: This reads config.ProxyProtocol, which is set by parseProxySegment.
+	// parseProxySegment MUST run before this function. The coupling is safe
+	// because NewPortLongLabel calls them in that order.
 	targetProtocol := "http"
+	if config.ProxyProtocol == "tcp" {
+		targetProtocol = "tcp"
+	}
 
 	if len(targetParts) == 2 { //nolint:mnd
 		targetProtocol = targetParts[1]
