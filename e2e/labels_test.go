@@ -63,7 +63,7 @@ func TestLegacyContainerPortLabel(t *testing.T) {
 	})
 
 	client := NewTSNetClient(t, authKey)
-	proxyURL := client.ProxyURL(hostname)
+	proxyURL := client.ProxyHTTPURL(hostname)
 
 	WaitForProxyReachable(t, ctx, client, proxyURL, labelsVerifyTimeout)
 	VerifyHTTPResponse(t, ctx, client, proxyURL, "legacy port OK")
@@ -163,7 +163,7 @@ func TestLegacyTLSValidateLabel(t *testing.T) {
 	})
 
 	client := NewTSNetClient(t, authKey)
-	proxyURL := client.ProxyURL(hostname)
+	proxyURL := client.ProxyHTTPURL(hostname)
 
 	WaitForProxyReachable(t, ctx, client, proxyURL, labelsVerifyTimeout)
 	VerifyHTTPResponse(t, ctx, client, proxyURL, "TLS validate OK")

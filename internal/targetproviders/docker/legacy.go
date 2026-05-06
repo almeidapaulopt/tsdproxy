@@ -16,7 +16,16 @@ func (c *container) getLegacyPort() (model.PortConfig, error) {
 		cProtocol = "http"
 	}
 
-	port, err := model.NewPortLongLabel("443/https:" + cPort + "/" + cProtocol)
+	// The legacy proxy side always uses HTTP (port 80) unless Funnel is enabled.
+	// Funnel requires HTTPS. Using HTTP on the proxy side avoids ACME TLS cert
+	// provisioning that can fail under rate limits when many proxies start at once.
+	// The target protocol (cProtocol) is independent and comes from the scheme label.
+	proxySide := "80/http"
+	if c.getLabelBool(LabelFunnel, model.DefaultTailscaleFunnel) {
+		proxySide = "443/https"
+	}
+
+	port, err := model.NewPortLongLabel(proxySide + ":" + cPort + "/" + cProtocol)
 	if err != nil {
 		return port, err
 	}

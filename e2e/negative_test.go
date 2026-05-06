@@ -186,7 +186,7 @@ func TestMalformedPortLabel(t *testing.T) {
 			return false
 		}
 		resp.Body.Close()
-		return true
+		return resp.StatusCode == http.StatusOK
 	}, negativeWaitTimeout, negativePollInterval, "proxy should NOT be reachable for container with malformed port label")
 
 	logContent := stripANSI(proxy.ReadLogFile(t))
