@@ -64,6 +64,11 @@ photos:
     443/https:
       targets:
         - http://192.168.1.10:8181
+host-ssh:
+  ports:
+    22/tcp:
+      targets:
+        - tcp://192.168.1.10:22
 ```
 
 This configuration will create two groups of proxies:

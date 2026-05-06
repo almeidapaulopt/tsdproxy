@@ -162,17 +162,14 @@ metadata:
 
 ---
 
-## TCP / gRPC Proxying
+## ~~TCP / gRPC Proxying~~ ✅ Implemented
 
-Currently HTTP/HTTPS only. Tailscale supports raw TCP — allow proxying
-databases, SSH, gRPC services.
+Raw TCP proxying is now supported. See [TCP Proxy & SSH](./tcp-proxy) for
+documentation and examples.
 
 ```yaml
-# Proposed config
 tsdproxy.port.1: "5432/tcp:5432"
 ```
-
-**Effort**: TCP reverse proxy in port handler, separate from HTTP handler.
 
 ---
 

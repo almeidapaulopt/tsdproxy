@@ -166,6 +166,9 @@ labels:
 
   # redirect to https://othersite.com
   tsdproxy.port.5: "82/http->https://othersite.com"
+
+  # TCP proxy for SSH (see TCP Proxy & SSH docs for details)
+  tsdproxy.port.6: "22/tcp:22/tcp"
 ```
 
 #### Port options
