@@ -28,6 +28,7 @@ tsdproxy/
 ├── web/                        # Frontend: Vite/Bun, embedded via go:embed dist
 ├── docs/                       # Hugo docs site (separate go.mod)
 ├── dev/                        # Dev docker-compose configs + sample tsdproxy.yaml
+├── e2e/                        # End-to-end tests (//go:build e2e, requires TS_AUTHKEY)
 └── .goreleaser.yaml            # Multi-arch release (DockerHub + GHCR, cosign)
 ```
 
@@ -46,6 +47,7 @@ tsdproxy/
 | Change logging | `internal/core/log.go` | zerolog setup + HTTP middleware |
 | Change release process | `.goreleaser.yaml` | Multi-arch Docker, version embedding |
 | Tailscale auth flow | `internal/proxyproviders/tailscale/provider.go` | OAuth vs AuthKey resolution |
+| Add E2E tests | `e2e/` | `//go:build e2e`, uses real tsdproxy binary + Tailscale + Docker containers |
 
 ## CODE MAP
 
@@ -92,7 +94,8 @@ Data flow: TargetProvider watches containers → emits TargetEvent → ProxyMana
 - **Zero-value defaults**: `github.com/creasty/defaults` for struct defaults; `model/default.go` for constants
 - **Error wrapping**: Use `fmt.Errorf("context: %w", err)` consistently
 - **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context
-- **No tests**: Zero `*_test.go` files exist. `make test` runs `go test -v -race ./...` but finds nothing
+- **Unit tests**: `internal/*/` — co-located `*_test.go` files, run with `go test ./...`
+- **E2E tests**: `e2e/` — full integration tests using real tsdproxy binary + Tailscale + Docker. Build tag `//go:build e2e`, run with `go test -tags=e2e ./e2e/`. Env vars: `TS_AUTHKEY` or `TS_AUTHKEY_FILE` (auth key), `TS_CLIENT_ID` + `TS_CLIENT_SECRET` (OAuth), `TS_TAGS` (default: `tag:tsdproxy-e2e`).
 - **Frontend build**: `web/` uses Bun + Vite; output goes to `web/dist/` which is `//go:embed`-ed into the binary via `statigz` + brotli
 - **UI framework**: `templ` for server-rendered components; `datastar` for client-side SSE DOM merging
 
@@ -112,8 +115,9 @@ make build                  # Build binary to ./tmp/tsdproxy
 make run                    # Build + run
 
 # Testing
-make test                   # Run all tests (currently none exist)
+make test                   # Run all unit tests
 make test/cover             # Tests with coverage
+go test -tags=e2e ./e2e/    # Run E2E tests (requires TS_AUTHKEY or TS_AUTHKEY_FILE)
 
 # Quality
 make audit                  # Full audit: golangci-lint, staticcheck, go vet, deadcode, govulncheck, gosec
