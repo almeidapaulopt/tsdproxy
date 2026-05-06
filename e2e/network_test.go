@@ -85,16 +85,16 @@ func TestHostNetworkMode(t *testing.T) {
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer probeCancel()
 
-	probeC, err := testcontainers.Run(probeCtx, "nginxinc/nginx-unprivileged:latest",
+	probeC, err := testcontainers.Run(probeCtx, testContainerImage,
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
-				Image:       "nginxinc/nginx-unprivileged:latest",
+				Image:       testContainerImage,
 				NetworkMode: ctypes.NetworkMode("host"),
 			},
 			Started: true,
 		}),
 		testcontainers.WithWaitStrategy(
-			wait.ForListeningPort("8080/tcp").WithStartupTimeout(15*time.Second),
+			wait.ForListeningPort("80/tcp").WithStartupTimeout(15*time.Second),
 		),
 	)
 	if err != nil {
@@ -118,15 +118,14 @@ func TestHostNetworkMode(t *testing.T) {
 	hostname := fmt.Sprintf("e2e-host-net-%d", time.Now().UnixNano())
 
 	StartContainer(t, ContainerConfig{
-		Image:       "nginxinc/nginx-unprivileged:latest",
 		NetworkMode: "host",
 		Labels: map[string]string{
 			"tsdproxy.enable":    "true",
 			"tsdproxy.ephemeral": "true",
 			"tsdproxy.name":      hostname,
-			"tsdproxy.port.http": "80/http:8080/http",
+			"tsdproxy.port.http": "80/http:80/http",
 		},
-		WaitPort: "8080/tcp",
+		WaitPort: "80/tcp",
 	})
 
 	client := NewTSNetClient(t, authKey)

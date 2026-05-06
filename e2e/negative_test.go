@@ -65,7 +65,7 @@ func TestContainerWithEnableButNoPorts(t *testing.T) {
 
 	hostname := fmt.Sprintf("e2e-no-ports-%d", time.Now().UnixNano())
 	StartContainer(t, ContainerConfig{
-		Image: "alpine",
+		Image: "nginx:alpine",
 		Cmd:   []string{"sleep", "3600"},
 		Labels: map[string]string{
 			"tsdproxy.enable": "true",
@@ -166,7 +166,7 @@ func TestMalformedPortLabel(t *testing.T) {
 
 	hostname := fmt.Sprintf("e2e-malformed-port-%d", time.Now().UnixNano())
 	StartContainer(t, ContainerConfig{
-		Image: "alpine",
+		Image: "nginx:alpine",
 		Cmd:   []string{"sleep", "3600"},
 		Labels: map[string]string{
 			"tsdproxy.enable":    "true",
@@ -218,15 +218,12 @@ func TestDuplicateHostname(t *testing.T) {
 	})
 
 	StartContainer(t, ContainerConfig{
-		Image: "nginxinc/nginx-unprivileged:latest",
-		ExposedPorts: []string{"8080/tcp"},
 		Labels: map[string]string{
 			"tsdproxy.enable":    "true",
 			"tsdproxy.ephemeral": "true",
 			"tsdproxy.name":      hostname,
-			"tsdproxy.port.http": "80/http:8080/http",
+			"tsdproxy.port.http": "80/http:80/http",
 		},
-		WaitPort: "8080/tcp",
 	})
 
 	// Verify tsdproxy is still running (health endpoint returns 200).

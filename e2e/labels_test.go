@@ -50,7 +50,7 @@ func TestLegacyContainerPortLabel(t *testing.T) {
 	hostname := fmt.Sprintf("legacy-port-%d", time.Now().UnixNano())
 
 	StartContainer(t, ContainerConfig{
-		Image:    "alpine",
+		Image:    "nginx:alpine",
 		Cmd:      []string{"sleep", "3600"},
 		WaitPort: "skip",
 		Labels: map[string]string{
@@ -93,7 +93,7 @@ func TestLegacyFunnelLabel(t *testing.T) {
 	hostname := fmt.Sprintf("legacy-funnel-%d", time.Now().UnixNano())
 
 	StartContainer(t, ContainerConfig{
-		Image:    "alpine",
+		Image:    "nginx:alpine",
 		Cmd:      []string{"sleep", "3600"},
 		WaitPort: "skip",
 		Labels: map[string]string{
@@ -149,7 +149,7 @@ func TestLegacyTLSValidateLabel(t *testing.T) {
 })
 
 	StartContainer(t, ContainerConfig{
-		Image:    "alpine",
+		Image:    "nginx:alpine",
 		Cmd:      []string{"sleep", "3600"},
 		WaitPort: "skip",
 		Labels: map[string]string{
@@ -392,7 +392,7 @@ func TestPortLabelsTakePrecedenceOverLegacy(t *testing.T) {
 	hostname := fmt.Sprintf("port-precedence-%d", time.Now().UnixNano())
 
 	StartContainer(t, ContainerConfig{
-		Image:    "alpine",
+		Image:    "nginx:alpine",
 		Cmd:      []string{"sleep", "3600"},
 		WaitPort: "skip",
 		Labels: map[string]string{

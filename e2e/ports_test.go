@@ -91,14 +91,13 @@ func TestCustomTargetPort(t *testing.T) {
 	hostname := fmt.Sprintf("e2e-custom-port-%d", time.Now().UnixNano())
 
 	StartContainer(t, ContainerConfig{
-		Image:    "nginxinc/nginx-unprivileged:latest",
-		WaitPort: "8080/tcp",
+		WaitPort: "80/tcp",
 		Labels: map[string]string{
 			"tsdproxy.enable":    "true",
 			"tsdproxy.ephemeral": "true",
 			"tsdproxy.name":      hostname,
-			"tsdproxy.port.web":  "443:8080/http",
-			"tsdproxy.port.http": "80/http:8080/http",
+			"tsdproxy.port.web":  "443:80/http",
+			"tsdproxy.port.http": "80/http:80/http",
 		},
 	})
 

@@ -566,27 +566,24 @@ func StartSelfSignedHTTPSContainer(t *testing.T, labels map[string]string) testc
 mkdir -p /srv
 printf 'HTTPS OK' > /srv/index.html
 openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/key.pem -out /tmp/cert.pem -subj '/CN=localhost' -days 1 >/dev/null 2>&1
-python - <<'PY'
-import functools
-import http.server
-import socketserver
-import ssl
-
-class Handler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
-
-handler = functools.partial(Handler, directory='/srv')
-httpd = socketserver.TCPServer(('0.0.0.0', 8443), handler)
-ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-ctx.load_cert_chain('/tmp/cert.pem', '/tmp/key.pem')
-httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
-httpd.serve_forever()
-PY`,
+cat > /tmp/nginx.conf <<'CONF'
+worker_processes 1;
+daemon off;
+events { worker_connections 64; }
+http {
+  access_log off;
+  server {
+    listen 8443 ssl;
+    ssl_certificate /tmp/cert.pem;
+    ssl_certificate_key /tmp/key.pem;
+    root /srv;
+  }
+}
+CONF
+nginx -c /tmp/nginx.conf`,
 	}
 
 	return StartContainer(t, ContainerConfig{
-		Image:        "python:3.12-alpine",
 		Cmd:          cmd,
 		Labels:       labels,
 		ExposedPorts: []string{"8443/tcp"},

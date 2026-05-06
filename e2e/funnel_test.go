@@ -38,7 +38,7 @@ func TestModernFunnelPortOption(t *testing.T) {
 	hostname := fmt.Sprintf("modern-funnel-%d", time.Now().UnixNano())
 
 	StartContainer(t, ContainerConfig{
-		Image:    "alpine",
+		Image:    "nginx:alpine",
 		Cmd:      []string{"sleep", "3600"},
 		WaitPort: "skip",
 		Labels: map[string]string{
