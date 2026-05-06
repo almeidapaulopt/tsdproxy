@@ -254,7 +254,7 @@ func (p *Proxy) watchStatus() {
 			if status.AuthURL != "" {
 				p.setStatus(model.ProxyStatusAuthenticating, "", status.AuthURL)
 			} else {
-				p.log.Error().Msg(
+				p.log.Info().Msg(
 					"tailscale is in NeedsLogin state without an auth URL." +
 						" This indicates stale tsnet state (e.g. after power loss, reboot, or changing ephemeral)." +
 						" Restart tsdproxy to auto-recover, or manually delete the proxy data directory.",
