@@ -13,13 +13,14 @@ import (
 
 type (
 	PortConfig struct {
-		name          string `validate:"string" yaml:"name"`
-		ProxyProtocol string `validate:"string" yaml:"proxyProtocol"`
-		targets       []*url.URL
-		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
-		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
-		IsRedirect    bool          `validate:"boolean" yaml:"isRedirect"`
-		Tailscale     TailscalePort `validate:"dive" yaml:"tailscale"`
+		name             string `validate:"string" yaml:"name"`
+		ProxyProtocol    string `validate:"string" yaml:"proxyProtocol"`
+		targets          []*url.URL
+		ProxyPort        int           `validate:"hostname_port" yaml:"proxyPort"`
+		TLSValidate      bool          `validate:"boolean" yaml:"tlsValidate"`
+		IsRedirect       bool          `validate:"boolean" yaml:"isRedirect"`
+		IsTCPPassthrough bool          `validate:"boolean" yaml:"-"`
+		Tailscale        TailscalePort `validate:"dive" yaml:"tailscale"`
 	}
 
 	TailscalePort struct {
@@ -156,18 +157,24 @@ func parseTargetSegment(segment string, config *PortConfig) error {
 		return fmt.Errorf("invalid target port: %w", err)
 	}
 
-	targetProtocol := "http"
+	targetProtocol := "tcp"
 
 	if len(targetParts) == 2 { //nolint:mnd
 		targetProtocol = targetParts[1]
 	}
 
-	urlParsed, err := url.Parse(targetProtocol + "://0.0.0.0:" + targetParts[0])
+	scheme := targetProtocol
+	if scheme != "tcp" && (scheme == "" || scheme == "http" || scheme == "https") {
+		scheme = "http"
+	}
+
+	urlParsed, err := url.Parse(scheme + "://0.0.0.0:" + targetParts[0])
 	if err != nil {
 		return fmt.Errorf("error to parse url: %w", err)
 	}
 
 	config.targets = []*url.URL{urlParsed}
+	config.IsTCPPassthrough = targetProtocol == "tcp"
 
 	return nil
 }

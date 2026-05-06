@@ -1,7 +1,7 @@
 
 # Usa uma imagem oficial do Go como base para a compilação
-FROM golang:1.24 AS builder
-RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
+FROM golang:1.26 AS builder
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/* 2>/dev/null || true
 
 # Define o diretório de trabalho
 WORKDIR /app
