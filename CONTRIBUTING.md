@@ -9,7 +9,7 @@ Thanks for your interest in contributing. TSDProxy is open source because people
 
 You will need these tools installed:
 
-- **Go 1.24** or later
+- **Go 1.26** or later
 - **Bun** (JavaScript runtime for frontend builds)
 - **Docker** (for running containers during development)
 - **git**

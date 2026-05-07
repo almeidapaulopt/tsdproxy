@@ -6,7 +6,7 @@
 
 ## OVERVIEW
 
-TSDProxy — Go reverse proxy that auto-exposes Docker containers via Tailscale. Labels Docker containers with `tsdproxy.*` to create per-container Tailscale machines with automatic HTTPS. Stack: Go 1.24, templ (UI), Vite/Bun (frontend), Hugo (docs), zerolog (logging).
+TSDProxy — Go reverse proxy that auto-exposes Docker containers via Tailscale. Labels Docker containers with `tsdproxy.*` to create per-container Tailscale machines with automatic HTTPS. Stack: Go 1.26, templ (UI), Vite/Bun (frontend), Hugo (docs), zerolog (logging).
 
 ## STRUCTURE
 
