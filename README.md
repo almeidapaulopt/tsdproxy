@@ -54,7 +54,7 @@ TSDProxy creates a default config at `/config/tsdproxy.yaml` on first run. Open 
 
 Your container is now available at `https://myapp.<tailnet-name>.ts.net` with automatic HTTPS.
 
-For automated (headless) setup, configure an [AuthKey or OAuth](https://almeidapaulopt.github.io/tsdproxy/docs/v2/advanced/tailscale/) before adding services.
+For automated (headless) setup, configure an [AuthKey or OAuth](https://almeidapaulopt.github.io/tsdproxy/docs/advanced/tailscale/) before adding services.
 
 ## Key Features
 
@@ -127,7 +127,7 @@ Full setup guides, configuration reference, and advanced usage:
 
 **[almeidapaulopt.github.io/tsdproxy](https://almeidapaulopt.github.io/tsdproxy/)**
 
-Key docs: [Getting Started](https://almeidapaulopt.github.io/tsdproxy/docs/v2/getting-started/) | [Docker Labels](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/docker/) | [Port Configuration](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/docker/#port-configuration) | [List Provider](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/lists/) | [TCP Proxy](https://almeidapaulopt.github.io/tsdproxy/docs/v2/advanced/tcp-proxy/) | [Funnel](https://almeidapaulopt.github.io/tsdproxy/docs/v2/security/funnel/) | [Upgrading from v1](https://almeidapaulopt.github.io/tsdproxy/docs/v2/upgrading/from-v1/)
+Key docs: [Getting Started](https://almeidapaulopt.github.io/tsdproxy/docs/getting-started/) | [Docker Labels](https://almeidapaulopt.github.io/tsdproxy/docs/providers/docker/) | [Port Configuration](https://almeidapaulopt.github.io/tsdproxy/docs/providers/docker/#port-configuration) | [List Provider](https://almeidapaulopt.github.io/tsdproxy/docs/providers/lists/) | [TCP Proxy](https://almeidapaulopt.github.io/tsdproxy/docs/advanced/tcp-proxy/) | [Funnel](https://almeidapaulopt.github.io/tsdproxy/docs/security/funnel/) | [Upgrading from v1](https://almeidapaulopt.github.io/tsdproxy/docs/upgrading/from-v1/)
 
 ## Contributing
 

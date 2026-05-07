@@ -17,7 +17,7 @@ Docker Compose:
 ```yaml docker-compose.yml
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:1
+    image: almeidapaulopt/tsdproxy:2
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - datadir:/data
@@ -25,10 +25,15 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 volumes:
   datadir:
 ```
+
+> [!IMPORTANT]
+> The `extra_hosts` entry maps `host.docker.internal` to the Docker host gateway.
+> This allows TSDProxy to detect the Docker host IP for routing traffic to containers.
 
 ### Start the TSDProxy container
 
@@ -46,9 +51,9 @@ defaultProxyProvider: default
 docker:
   local: # name of the docker target provider
     host: unix:///var/run/docker.sock # host of the docker socket or daemon
-    targetHostname: 172.31.0.1 # hostname or IP of docker server
+    targetHostname: host.docker.internal # hostname or IP of docker server (ex: host.docker.internal or 172.31.0.1)
     defaultProxyProvider: default # name of which proxy provider to use
-files: {}
+lists: {}
 tailscale:
   providers:
     default: # name of the provider
@@ -90,6 +95,18 @@ docker run -d --name sample-nginx -p 8111:80 --label "tsdproxy.enable=true" ngin
 2. Sample-nginx should appear in the dashboard. Click the button and
 authenticate with Tailscale.
 3. After authentication, the proxy will be enabled.
+
+> [!TIP]
+> For automated authentication without manual browser login, configure OAuth or
+> an AuthKey in the [Tailscale provider settings]({{< ref "/docs/advanced/tailscale" >}}).
+
+> [!IMPORTANT]
+> By default, each new proxy requires manual authentication through the Dashboard
+> (click the proxy card and authenticate with Tailscale). For automated, headless
+> operation, configure [OAuth]({{< ref "/docs/advanced/tailscale#oauth" >}}) or
+> an [AuthKey]({{< ref "/docs/advanced/tailscale#authkey" >}}) **before** adding
+> services. See [Authentication Methods]({{< ref "/docs/security/auth-methods" >}})
+> for a comparison.
 
 > [!IMPORTANT]
 > The first time you run the proxy, it will take a few seconds to start, because

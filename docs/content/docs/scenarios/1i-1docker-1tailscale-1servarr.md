@@ -1,39 +1,31 @@
 ---
-title: One TSDProxy instance, one Docker server, one Tailscale provider and a Servarr stack using network_mode service:vpn
+title: Servarr stack with network_mode service:vpn
 prev: /docs/scenarios/
 ---
-## Description
 
-In this scenario, we will have:
+Prowlarr using `network_mode: "service:vpn"` — TSDProxy connects via the VPN container's network alias.
 
-1. one TSDProxy instance.
-2. one Docker server (with a servarr stack).
-3. one Tailscale configuration.
+## Config
 
-## Scenario
+```yaml {filename="/config/tsdproxy.yaml"}
+lists:
+  media:
+    filename: /config/media.yaml
+    defaultProxyProvider: default
+```
 
-![tsdproxy with servarr](1i-1docker-1tailscale-1servarr.svg)
+```yaml {filename="/config/media.yaml"}
+prowlarr:
+  ports:
+    443/https:
+      targets:
+        - http://prowlarr:9696
+```
 
-### Server
+## Compose
 
-```yaml  {filename="docker-compose.yaml"}
+```yaml
 services:
-  tsdproxy:
-    image: tsdproxy:latest
-    user: root
-    ports:
-      - "8080:8080"
-    volumes:
-      - <PATH_TO_CONFIG>:/config
-      - data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-
-  prowlarr:
-    container_name: prowlarr
-    image: lscr.io/linuxserver/prowlarr:latest
-    network_mode: "service:vpn"
-
   vpn:
     image: qmcgaw/gluetun
     networks:
@@ -42,18 +34,9 @@ services:
           - prowlarr
 
   prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
     network_mode: "service:vpn"
-```
 
-```yaml  {filename="/config/tsdproxy.yaml"}
-files:
-  media:
-    filename: /config/media.yaml
-    defaultProxyProvider: default
-    defaultProxyAccessLog: false
-```
-
-```yaml  {filename="/config/media.yaml"}
-prowlarr:
-  url: http://prowlarr:9696
+networks:
+  tailscale:
 ```

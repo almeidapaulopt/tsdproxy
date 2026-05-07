@@ -30,15 +30,15 @@ virtual hosts in Tailscale network.
 
 ## What's different with TSDProxy?
 
-TSDProxy differs from other Tailscale proxies in that it does not require a separate Tailscale container per service.
+TSDProxy differs from other Tailscale proxies in that it does not require a separate Tailscale.
 
 ![how tsdproxy works](/images/tsdproxy-compare.svg)
 
 ## Features
 
-- **Easy to Use** - Creates virtual Tailscale addresses using Docker container labels.
-- **Really Easy to Use** - Creates virtual Tailscale addresses using a proxy list.
-- **Lightweight** - No need to spin up a dedicated Tailscale container for every service.
+- **Easy to Use** - creates virtual Tailscale addresses using Docker container labels
+- **Really Easy to Use** - creates virtual Tailscale addresses using a proxy list
+- **Lightweight** -No need to spin up a dedicated Tailscale container for every service.
 - **Quick deploy** - No need to configure virtual hosts in Tailscale network.
 - **Automatically supports TLS** - Automatically supports Tailscale/LetsEncrypt certificates
 with MagicDNS.
@@ -46,15 +46,27 @@ with MagicDNS.
 ## Questions or Feedback?
 
 > [!IMPORTANT]
-  TSDProxy is still in active development.
-  Have a question or feedback? Feel free to [open an issue](https://github.com/almeidapaulopt/tsdproxy/issues)!
+> TSDProxy is still in active development.
+> Have a question or feedback? Feel free to [open an issue](https://github.com/almeidapaulopt/tsdproxy/issues)!
 
 ## Next
 
 Dive right into the following section to get started:
 
 {{< cards >}}
+  {{< card link="concepts" title="How It Works" icon="beaker"
+    subtitle="Understand the core concepts and data flow"
+  >}}
+
   {{< card link="getting-started" title="Getting Started" icon="document-text"
     subtitle="Learn how to get started with TSDProxy"
+  >}}
+
+  {{< card link="why-tsdproxy" title="Why TSDProxy" icon="light-bulb"
+    subtitle="Compare approaches and see when TSDProxy fits"
+  >}}
+
+  {{< card link="upgrading" title="Upgrading" icon="arrow-circle-up"
+    subtitle="Migrate from v1 to v2"
   >}}
 {{< /cards >}}

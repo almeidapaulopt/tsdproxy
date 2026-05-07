@@ -1,188 +1,95 @@
 ---
 title: Changelog
+prev: /docs/faq
 weight: 500
 ---
 
 {{% steps %}}
 
-### 2.0.0-beta5
+### 2.0.0
+
+#### Breaking changes
+
+- Files provider renamed to **Lists** (config key changed from `files:` to `lists:`)
+- Lists use a new YAML format supporting multiple ports and redirects
+
+#### Deprecated Docker labels
+
+- `tsdproxy.autodetect` — use per-port `no_autodetect` option instead
+- `tsdproxy.container_port` — use the new port configuration syntax
+- `tsdproxy.funnel` — use `tailscale_funnel` port option instead
+- `tsdproxy.scheme` — use the new port configuration syntax
+- `tsdproxy.tlsvalidate` — use per-port TLS settings instead
 
 #### New features
 
-- Auto-detect `host.docker.internal` when generating default config
-- Support for Docker internal networks via `tryDockerInternalNetwork` config option
+- **Multi-port support** — expose multiple ports per container with granular protocol control
+- **TCP port forwarding** — proxy raw TCP connections (SSH, databases, gRPC) through Tailscale
+- **Tailscale Funnel** — expose services to the public internet via `tailscale_funnel` port option
+- **Real-time dashboard** — SSE-powered web UI with live proxy status, search, and alphabetical sorting
+- **OAuth authentication** — headless auth without using the dashboard
+- **Interactive login** — manual Tailscale authentication when no auth key is configured
+- **Tags on Tailscale hosts** — assign Tailscale tags to proxied machines
+- **Docker Swarm support** — full support for Docker Swarm stacks
+- **HTTP and HTTPS proxy modes** — per-port protocol selection
+- **Multiple redirects** — configure multiple HTTP→HTTPS redirects per proxy
+- **Tailscale user profile** — displayed in top-right of dashboard
+- **Identity headers** — pass Tailscale identity headers (`x-tsdproxy-username`, `x-tsdproxy-displayname`, `x-tsdproxy-profilepicurl`) and standard auth headers (`Remote-User`, `X-Forwarded-User`, `X-Auth-Request-User`) to backend services
+- **`no_autodetect` per-port option** — disable autodetection at the port level
+- **`preventDuplicates`** — opt-in config to auto-remove stale Tailscale devices before creating new nodes (OAuth only)
+- **Auto-detect `host.docker.internal`** — automatically detected when generating default config
+- **Docker internal networks** — support via `tryDockerInternalNetwork` config option
+- **Live config reload** — configuration changes take effect without restart
+- **Health check endpoint** — `/health/ready/` for Docker HEALTHCHECK and orchestrators
+- **Backup and restore** — operations for TSDProxy state persistence
+- **Standalone deployment** — run as a binary outside Docker
 
 #### Fixes
 
-- Fix memory leak: events channel not closed on proxy shutdown, leaking goroutines and object graphs
-- Fix SSE streaming: reverse proxy now flushes immediately so Server-Sent Events reach the client
-- Fix TCP goroutine leak: port handler connections were not cleaned up on shutdown
-- Fix Docker event watcher panic: unbuffered channel sends blocked forever after consumer exit
-- Fix dashboard SSE client race: closing message channel caused send-on-closed-channel panics
-- Fix redirect ports silently dropped when configured via Docker labels
-- Fix containers with no published ports returning error when internal port is known
-- Fix OAuth cached key reused across proxies with different tags or ephemeral settings
-- Fix healthcheck binary using hardcoded port 8080 — now reads `TSDPROXY_HTTP_PORT` from config
-- Fix broken cross-page links in documentation site
-- Warn on unrecognized Docker label port options (e.g. `no_autodetect`)
-- Improve \"invalid key\" error message to mention hardware attestation and expired keys
-- Warn when tsnet state is stale (e.g. after changing ephemeral) with actionable guidance
-- Tailscale watcher nil-deref on shutdown
+- Fix identity header spoofing: strip all identity headers from incoming requests before setting TSDProxy headers
+- Fix race condition in duplicate-hostname proxy replacement
+- Fix proxy manager context leak on zero-ports path causing WatchEvents goroutine leak
+- Fix memory leak: events channel not closed on proxy shutdown
+- Fix config file watcher: replace `log.Fatal` with error returns, honor context in list provider, fix session cookie `Secure` flag, survive atomic file replacement
+- Fix health endpoint returning wrong status codes; buffer template rendering
+- Fix dashboard SSE: unique connection IDs, buffer channels, escape template data, prevent send-on-closed-channel races
+- Fix config: trim whitespace from auth keys, restrict file permissions, fix list provider reload
+- Fix Tailscale: prevent panic on closed channel during shutdown, nil-deref on shutdown
+- Fix OAuth single-use auth keys cached and reused after restart causing "Invalid API Key" errors
+- Fix OAuth cached key validated against current tags and ephemeral settings
+- Fix stale tsnet state auto-recovery on restart and after changing ephemeral flag
+- Fix ephemeral nodes leaving stale state on disk causing "node key expired" on reboot
+- Fix TCP target scheme: default to matching proxy protocol (tcp→tcp instead of tcp→http)
+- Fix TCP goroutine leak: port handler connections not cleaned up on shutdown
+- Fix TCP proxy SSE streaming: add `FlushInterval` for immediate event delivery
+- Fix legacy label proxy: use HTTP for legacy labels to avoid ACME TLS cert failures on Docker bridge
+- Fix Docker networking: extract `getTargetURL` into resolve helpers with deterministic IP selection
+- Fix Docker redirect ports silently dropped when configured via labels
+- Fix Docker containers with no published ports returning error when internal port is known
+- Fix Docker event watcher panic: guard channel sends against consumer exit
+- Fix healthcheck binary: use configurable port from `TSDPROXY_HTTP_PORT` instead of hardcoded 8080
+- Fix stuck proxy in NeedsLogin state without auth URL — now shows as error in dashboard
+- Fix logging: downgrade `NeedsLogin` without auth URL from error to info, suppress expected `context.Canceled` errors
 - TLS certificate prefetch for faster proxy startup
-- Readiness ordering: HTTP server starts only after proxy manager is ready
-- Config file watcher survives atomic replacement (e.g., `docker compose cp`)
+- Readiness ordering: HTTP server waits for proxy manager
 - Race conditions in proxy lifecycle (start/stop ordering)
 - Hardened auth-key file path validation (symlink and non-regular file rejection)
+- Improve "invalid key" error messages for auth failures and hardware attestation
+- Warn on unrecognized Docker label port options
+- Remove redundant `X-Forwarded-For` header copy
+- Fix cross-page documentation links (use Hugo `ref` shortcodes)
 
 #### Changes
 
 - Migrated to Tailscale v2 client library
+- Migrated Docker client from `docker/docker` to `moby/moby` sub-modules for improved type safety
 - Unified icon download pipeline into reproducible JS script
-- Dark mode theme variable renamed internally
-- Dependency updates: tailscale.com v1.84.0, OpenTelemetry v1.36.0, templ v0.3.865, Docker client v28.x
-
-### 2.0.0-beta4
-
-#### New features
-
-- Multiple ports in each tailscale hosts
-- Enable multiple redirects
-- Proxies can use http and https
-- OAuth autentication without using the dashboard
-- Assign Tags on Tailscale hosts
-- Dashboard gets updated in real-time
-- Search in the dashboard
-- Dashboard proxies are sorted in alphabetically order
-- Add support for Docker Swarm stacks
-- Tailscale user profile in top-right of Dashboard
-- Pass Tailscale identity headers to destination service
-
-#### Breaking changes
-
-- Files provider is now Lists ( key in /config/tsdproxy.yaml changed to
-**lists:** instead of files:)
-- Lists are now a different yaml file to support multiple ports and redirects,
-please [Lists](../v2/providers/lists)
-
-#### Deprecated Docker labels
-
-- tsdproxy.autodetect
-- tsdproxy.container_port
-- tsdproxy.funnel
-- tsdproxy.scheme
-- tsdproxy.tlsvalidate
-
-### 1.4.0
-
-#### New features
-
-- OAuth authentication using the Dashboard.
-- Dashboard has now proxy status.
-- Icons and Labels can be used to customize the Dashboard.
-
-#### Fixes
-
-- Error on port when autodetect is disabled.
-
-### 1.3.0
-
-#### Breaking changes
-
-Configuration files are now validated and doesn't allow invalid configuration keys
-[Verify valid configuration keys](../serverconfig/#sample-configuration-file).
-
-#### New features
-
-- Generate TLS certificates for containers when starting proxies.
-- Configuration files are now validated.
-
-### 1.2.0
-
-#### New features
-
-Dashboard finally arrived.
-
-### 1.1.2
-
-#### Fixes
-
-Reload Proxy List Files when changes.
-
-#### New features
-
-- Quicker start with different approach to start proxies in docker
-- Add support for targets with self-signed certificates.
-
-### 1.1.1
-
-#### New Docker container labels
-
-##### tsdproxy.autodetect
-
-If TSDProxy, for any reason, can't detect the container's network you can
-disable it.
-
-##### tsdproxy.scheme
-
-If a container uses https, use tsdproxy.scheme=https label.
-
-### 1.1.0
-
-#### New File Provider
-
-TSDProxy now supports a new file provider. It's useful if you want to proxy URL
-without Docker.
-Now you can use TSDProxy even without Docker.
-
-### 1.0.0
-
-#### New Autodetection function for containers network
-
-TSDProxy now tries to connect to the container using docker internal
-ip addresses and ports. It's more reliable and faster, even in container without
-exposed ports.
-
-#### New configuration method
-
-TSDProxy still supports the Environment variable method. But there's much more
-power with the new configuration yaml file.
-
-#### Multiple Tailscale servers
-
-TSDProxy now supports multiple Tailscale servers. This option is useful if you
-have multiple Tailscale accounts, if you want to group containers with the same
-AUTHKEY or if you want to use different servers for different containers.
-
-#### Multiple Docker servers
-
-TSDProxy now supports multiple Docker servers. This option is useful if you have
-multiple Docker instances and don't want to deploy and manage TSDProxy on each one.
-
-#### New installation scenarios documentation
-
-Now there is a new  [scenarios]({{< ref "/docs/scenarios/_index.md" >}}) section.
-
-#### New logs
-
-Now logs are more readable and easier to read and with context.
-
-#### New Docker container labels
-
-**tsdproxy.proxyprovider** is the label that defines the Tailscale proxy
-provider. It's optional.
-
-#### TSDProxy can now run standalone
-
-With the new configuration file, TSDProxy can be run standalone.
-Just run tsdproxyd --config ./config .
-
-#### New flag --config
-
-This new flag allows you to specify a configuration file. It's useful if you
-want to use as a command line tool instead of a container.
-
-```bash
-tsdproxyd --config ./config/tsdproxy.yaml
-```
+- Upgraded datastar from v0.21.4 to v1.0.1
+- Upgraded tailscale.com from v1.84.0 to v1.98.0
+- Dependency updates: OpenTelemetry v1.36.0
+- Comprehensive documentation overhaul
+- Added comprehensive E2E test suite: basic proxy, health endpoints, label parsing, port config, Docker networking, cold-start discovery, TCP, WebSocket, HTTP method forwarding, auth keys, multi-provider, tags, funnel, persistence, reload, and web client tests
+- Replaced `go test` with `gotestsum` for all test targets
+- CI: bump Hugo version to 0.161.1 for hextra v0.12.2 compatibility
 
 {{% /steps %}}

@@ -42,8 +42,8 @@ menu:
     - name: About
       pageRef: /about
       weight: 2
-    - name: Try v2
-      pageRef: /docs/v2
+    - name: Legacy v1 Docs
+      pageRef: /docs/v1
       weight: 3
     - name: Search
       weight: 4
