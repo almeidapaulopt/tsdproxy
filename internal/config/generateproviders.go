@@ -69,7 +69,7 @@ func (c *config) generateTailscaleConfig() {
 		var err error
 		authKey, err = c.getAuthKeyFromFile(authKeyFile)
 		if err != nil {
-			fmt.Printf("Error loading auth key from file: %v", err)
+			fmt.Println("Error loading auth key from file")
 		}
 	}
 
