@@ -37,7 +37,7 @@ func init() {
 func buildIconIndex() {
 	iconIndex = make(map[string]string)
 	for _, dir := range []string{"dist/icons/mdi", "dist/icons/sh", "dist/icons/si"} {
-		fs.WalkDir(dist, dir, func(path string, d fs.DirEntry, err error) error {
+		_ = fs.WalkDir(dist, dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".svg") {
 				return nil
 			}
