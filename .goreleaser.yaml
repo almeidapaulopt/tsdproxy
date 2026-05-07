@@ -15,7 +15,7 @@ before:
   hooks:
     - bun i --cwd ./web
     - bun run --cwd web build
-    - go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
+    - sh -c 'go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk "{print \$2}")'
     - go generate ./...
 
 snapshot:
