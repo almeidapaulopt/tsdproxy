@@ -59,6 +59,6 @@ jobs:
           args: release -f .goreleaser-dev.yaml --skip validate --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCKER_PASSWORD: $${{ secrets.DOCKER_PASSWORD }}
-          DOCKER_USERNAME: $${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           TAILSCALE_VERSION: ${{ env.TAILSCALE_VERSION }}
