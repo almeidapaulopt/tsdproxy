@@ -11,7 +11,7 @@ require (
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
 	github.com/rs/zerolog v1.35.1
-	github.com/starfederation/datastar-go v1.0.1
+	github.com/starfederation/datastar-go v1.2.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/vearutop/statigz v1.5.0
