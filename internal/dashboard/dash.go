@@ -49,10 +49,10 @@ func (dash *Dashboard) renderList(client *sseClient) {
 	dash.mtx.RLock()
 	defer dash.mtx.RUnlock()
 
-	// force remove elements of proxy-list inn case of client reconnect
+	// force remove elements of proxy-list in case of client reconnect
 	client.send(SSEMessage{
-		Type:    EventRemoveMessage,
-		Message: "#proxy-list>*",
+		Type:    EventClearList,
+		Message: "#proxy-list",
 	})
 
 	proxies := dash.pm.GetProxies()

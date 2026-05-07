@@ -12,7 +12,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/google/uuid"
-	datastar "github.com/starfederation/datastar/sdk/go"
+	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -21,7 +21,8 @@ const (
 	EventAppend EventType = iota
 	EventMerge
 	EventMergeMessage
-	EventRemoveMessage
+	EventClearList
+	EventRemoveElement
 	EventScript
 	EventUpdateSignals
 )
@@ -89,29 +90,35 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 				break LOOP
 			case message := <-client.channel:
 				switch message.Type {
-				case EventAppend:
-					err = sse.MergeFragmentTempl(
-						message.Comp,
-						datastar.WithMergeMode(datastar.FragmentMergeModeAppend),
-						datastar.WithSelector("#proxy-list"),
-					)
+			case EventAppend:
+				err = sse.PatchElementTempl(
+					message.Comp,
+					datastar.WithModeAppend(),
+					datastar.WithSelector("#proxy-list"),
+				)
 
-				case EventMerge:
-					err = sse.MergeFragmentTempl(
-						message.Comp,
-					)
+			case EventMerge:
+				err = sse.PatchElementTempl(
+					message.Comp,
+				)
 
-				case EventMergeMessage:
-					err = sse.MergeFragments(message.Message)
+			case EventMergeMessage:
+				err = sse.PatchElements(message.Message)
 
-				case EventRemoveMessage:
-					err = sse.RemoveFragments(message.Message)
+			case EventClearList:
+				err = sse.PatchElements("",
+					datastar.WithModeInner(),
+					datastar.WithSelector(message.Message),
+				)
 
-				case EventScript:
-					err = sse.ExecuteScript(message.Message)
+			case EventRemoveElement:
+				err = sse.RemoveElement(message.Message)
 
-				case EventUpdateSignals:
-					err = sse.MergeSignals([]byte(message.Message))
+			case EventScript:
+				err = sse.ExecuteScript(message.Message)
+
+			case EventUpdateSignals:
+				err = sse.PatchSignals([]byte(message.Message))
 				}
 			}
 
@@ -165,7 +172,7 @@ func (dash *Dashboard) streamProxyUpdates() {
 
 			case model.ProxyStatusStopped:
 				sseClient.send(SSEMessage{
-					Type:    EventRemoveMessage,
+					Type:    EventRemoveElement,
 					Message: "#" + event.ID,
 				})
 

@@ -36,7 +36,7 @@ templ Proxy(item ProxyData) {
 		<div class="card-body">
 			<h2 class="card-title">
 				<span data-text={ "$" + modalname(item.Name) + "_label" }></span>
-				<button data-on-click={ modalname(item.Name) + ".showModal()" } aria-label="proxy details">
+				<button data-on:click={ modalname(item.Name) + ".showModal()" } aria-label="proxy details">
 					<img src={ components.IconURL("mdi/information-variant") } alt="details"/>
 				</button>
 			</h2>

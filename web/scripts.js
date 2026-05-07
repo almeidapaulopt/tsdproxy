@@ -1,5 +1,4 @@
-import { load } from "./node_modules/@starfederation/datastar/dist/bundles/datastar.js";
-load();
+import "./node_modules/datastar/bundles/datastar.js";
 
 
 window.sortList = function() {
