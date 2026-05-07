@@ -206,8 +206,6 @@ homebrew_casks:
 
 aurs:
   - name: tsdproxy-bin
-    ids:
-      - server
     homepage: "https://github.com/almeidapaulopt/tsdproxy"
     description: "Tailscale Docker reverse proxy — expose containers with one label"
     maintainers:
