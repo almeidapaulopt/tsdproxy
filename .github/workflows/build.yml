@@ -26,6 +26,8 @@ jobs:
         run: go install github.com/a-h/templ/cmd/templ@latest
       - name: Generate
         run: go generate ./...
+      - name: Build frontend
+        run: bun run build --cwd ./web
       - name: Build
         run: go build -v ./...
       - name: Test
