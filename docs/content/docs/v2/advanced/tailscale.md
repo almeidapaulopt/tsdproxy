@@ -182,17 +182,52 @@ Online devices are never deleted.
 
 ## Identity Headers
 
-TSDProxy forwards Tailscale identity to your backend services via the following
-HTTP headers. These are set on every proxied request after stripping any
-user-supplied values to prevent header injection:
+TSDProxy resolves the Tailscale identity of each incoming request and forwards
+it to your backend services via HTTP headers. All identity headers are stripped
+from the incoming request before being set, preventing header injection attacks.
 
-| Header | Description |
-|--------|-------------|
-| `x-tsdproxy-username` | Tailscale username |
+Unauthenticated requests (e.g. via Funnel) will not receive identity headers.
+
+### TSDProxy Headers
+
+| Header | Value |
+|--------|-------|
+| `x-tsdproxy-username` | Tailscale login name |
 | `x-tsdproxy-displayname` | Tailscale display name |
 | `x-tsdproxy-profilepicurl` | Tailscale profile picture URL |
+
+### Standard Auth Headers
+
+These headers are recognized by common reverse-proxy-aware backends
+(Authelia, OAuth2 Proxy, Traefik, FileBrowser, etc.):
+
+| Header | Value | Used by |
+|--------|-------|---------|
+| `Remote-User` | Tailscale login name | Apache, Nginx, FileBrowser |
+| `X-Forwarded-User` | Tailscale login name | Traefik, Authelia, many apps |
+| `X-Auth-Request-User` | Tailscale login name | OAuth2 Proxy |
+| `X-Forwarded-Email` | Tailscale login name | Keycloak, Authentik |
+| `X-Auth-Request-Email` | Tailscale login name | OAuth2 Proxy |
+| `X-Forwarded-Preferred-Username` | Tailscale display name | OpenShift, Kubernetes |
+
+### Standard Proxy Headers
+
+| Header | Value |
+|--------|-------|
 | `X-Forwarded-For` | Client IP address |
 | `X-Forwarded-Host` | Original host header |
+| `X-Forwarded-Proto` | Original protocol |
+
+### Usage Example: FileBrowser
+
+FileBrowser supports proxy authentication out of the box. Configure it to read
+the `X-Forwarded-User` header set by TSDProxy:
+
+```bash
+filebrowser --auth.method=proxy --auth.header=X-Forwarded-User
+```
+
+Users will be automatically logged in with their Tailscale login name.
 
 ## Proxy Provider Resolution
 

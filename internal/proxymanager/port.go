@@ -68,11 +68,23 @@ func newPortProxy(
 			r.Out.Header.Del(consts.HeaderUsername)
 			r.Out.Header.Del(consts.HeaderDisplayName)
 			r.Out.Header.Del(consts.HeaderProfilePicURL)
+			r.Out.Header.Del(consts.HeaderRemoteUser)
+			r.Out.Header.Del(consts.HeaderXForwardedUser)
+			r.Out.Header.Del(consts.HeaderXAuthRequestUser)
+			r.Out.Header.Del(consts.HeaderXForwardedEmail)
+			r.Out.Header.Del(consts.HeaderXAuthRequestEmail)
+			r.Out.Header.Del(consts.HeaderXForwardedPreferredUsername)
 
 			if user, ok := model.WhoisFromContext(r.In.Context()); ok {
 				r.Out.Header.Set(consts.HeaderUsername, user.Username)
 				r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
 				r.Out.Header.Set(consts.HeaderProfilePicURL, user.ProfilePicURL)
+				r.Out.Header.Set(consts.HeaderRemoteUser, user.Username)
+				r.Out.Header.Set(consts.HeaderXForwardedUser, user.Username)
+				r.Out.Header.Set(consts.HeaderXAuthRequestUser, user.Username)
+				r.Out.Header.Set(consts.HeaderXForwardedEmail, user.Username)
+				r.Out.Header.Set(consts.HeaderXAuthRequestEmail, user.Username)
+				r.Out.Header.Set(consts.HeaderXForwardedPreferredUsername, user.DisplayName)
 			}
 
 			r.SetXForwarded()

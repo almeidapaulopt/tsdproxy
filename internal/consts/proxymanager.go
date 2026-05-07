@@ -7,4 +7,11 @@ const (
 	HeaderUsername      = "x-tsdproxy-username"
 	HeaderDisplayName   = "x-tsdproxy-displayname"
 	HeaderProfilePicURL = "x-tsdproxy-profilepicurl"
+
+	HeaderRemoteUser         = "Remote-User"
+	HeaderXForwardedUser     = "X-Forwarded-User"
+	HeaderXAuthRequestUser   = "X-Auth-Request-User"
+	HeaderXForwardedEmail    = "X-Forwarded-Email"
+	HeaderXAuthRequestEmail  = "X-Auth-Request-Email"
+	HeaderXForwardedPreferredUsername = "X-Forwarded-Preferred-Username"
 )
