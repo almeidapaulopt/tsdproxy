@@ -104,7 +104,7 @@ tailscale:
 
 ## Grant remote access to the docker socket
 
-On the nodes without the TSDproxy, you need to enable the remote access to the socket. 
+On the nodes without the TSDProxy, you need to enable the remote access to the socket. 
 
 [!CAUTION]
 Be aware of potential security risks!

@@ -1,6 +1,7 @@
 ---
 title: Troubleshooting (v2)
-prev: /docs/v2/advanced
+prev: /docs/v2/security
+next: /docs/v2/faq
 weight: 400
 ---
 

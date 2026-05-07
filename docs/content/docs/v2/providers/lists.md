@@ -1,8 +1,8 @@
 ---
 title: Lists
-prev: /docs/v2/providers/docker
+prev: /docs/v2/providers/docker-reference
 next: /docs/v2/advanced
-weight: 4
+weight: 5
 ---
 
 TSDProxy can be configured to proxy using a YAML configuration file.

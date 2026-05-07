@@ -180,7 +180,7 @@ The port for the HTTP server. Defaults to `8080`.
 
 ##### level
 
-Defines the logging level. Options are `info`, `error`, `debug` or `trace`.
+Defines the logging level. Options are `debug`, `info`, `warn`, `error`, `fatal`, `panic`, or `trace`.
 The default is `info`.
 
 ##### json

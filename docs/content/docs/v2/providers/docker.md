@@ -261,7 +261,9 @@ labels:
 ## Legacy Labels (v1)
 
 > [!WARNING]
-> The following labels are **deprecated** in v2. They still work for backward compatibility but will be removed in a future version. Use the [port configuration](#port-configuration) labels instead.
+> The following labels are **deprecated** in v2. They still work for backward
+> compatibility but will be removed in a future version (planned for v2.1+).
+> Migrate to the new [port configuration](#port-configuration) labels as soon as possible.
 
 | Deprecated Label | Replacement |
 |-----------------|-------------|

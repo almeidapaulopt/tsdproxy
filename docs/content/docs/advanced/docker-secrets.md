@@ -16,7 +16,7 @@ authkey in it. We can do that using the following command:
 printf "Your Tailscale AuthKey" | docker secret create authkey -
 ```
 
-### TsDProxy Docker compose
+### TSDProxy Docker compose
 
 ```yaml docker-compose.yml
 services:
@@ -37,7 +37,7 @@ secrets:
     external: true
 ```
 
-### TsDProxy configuration
+### TSDProxy configuration
 
 ```yaml /config/tsdproxy.yaml
 tailscale:

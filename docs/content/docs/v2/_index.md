@@ -6,11 +6,9 @@ weight: 400
 
 👋 Welcome to the TSDProxy documentation!
 
-> [!CAUTION]
-> Version 2 still in beta, but it's already available for testing.
->
-> As a beta version, it may have some bugs, missing features, documentation errors,
-> or other issues.
+> [!NOTE]
+> Version 2 is now in Release Candidate. It is feature-complete and ready for
+> production testing. Feedback and bug reports are welcome.
 
 ## What is TSDProxy?
 
@@ -60,6 +58,10 @@ with MagicDNS.
 Dive right into the following section to get started:
 
 {{< cards >}}
+  {{< card link="concepts" title="How It Works" icon="beaker"
+    subtitle="Understand the core concepts and data flow"
+  >}}
+
   {{< card link="getting-started" title="Getting Started" icon="document-text"
     subtitle="Learn how to get started with TSDProxy"
   >}}

@@ -101,6 +101,14 @@ authenticate with Tailscale.
 > an AuthKey in the [Tailscale provider settings]({{< ref "/docs/v2/advanced/tailscale" >}}).
 
 > [!IMPORTANT]
+> By default, each new proxy requires manual authentication through the Dashboard
+> (click the proxy card and authenticate with Tailscale). For automated, headless
+> operation, configure [OAuth]({{< ref "/docs/v2/advanced/tailscale#oauth" >}}) or
+> an [AuthKey]({{< ref "/docs/v2/advanced/tailscale#authkey" >}}) **before** adding
+> services. See [Authentication Methods]({{< ref "/docs/v2/security/auth-methods" >}})
+> for a comparison.
+
+> [!IMPORTANT]
 > The first time you run the proxy, it will take a few seconds to start, because
 > it needs to connect to the Tailscale network, generate the certificates, and start
 > the proxy.
