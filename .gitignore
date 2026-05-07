@@ -53,6 +53,7 @@ web/public/icons/mdi
 
 # other
 tmp
+.plans/
 web/main.zip
 web/.tmp-icons
 web/scripts/.download-cache.json

@@ -69,7 +69,7 @@ menu:
       weight: 2
 
 params:
-  description: TSDProxy is a proxy for tailscale
+  description: "Automatic reverse proxy for Docker containers on Tailscale. Zero sidecars, label-based config, automatic HTTPS."
   navbar:
     displayTitle: true
     displayLogo: false

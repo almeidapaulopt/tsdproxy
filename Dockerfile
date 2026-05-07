@@ -1,15 +1,15 @@
 
-# Usa uma imagem oficial do Go como base para a compilação
-FROM golang:1.24 AS builder
+# Use an official Go image as the build base
+FROM golang:1.26 AS builder
 RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
 
-# Define o diretório de trabalho
+# Set the working directory
 WORKDIR /app
 
-# Copia o código fonte para o container
+# Copy the source code into the container
 COPY . .
 
-# Compila a aplicação Go
+# Build the Go application
 RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /tsdproxyd ./cmd/server/main.go
 RUN CGO_ENABLED=0 GOOS=linux go build -o /healthcheck ./cmd/healthcheck/main.go
 

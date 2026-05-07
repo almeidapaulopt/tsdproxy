@@ -1,91 +1,139 @@
-# TSDProxy - Tailscale Proxy
+# TSDProxy - Tailscale Docker Proxy
 
-TSDProxy simplifies the process of securely exposing services and Docker containers
-to your Tailscale network by automatically creating Tailscale machines for each
-tagged container. This allows services to be accessible via unique, secure URLs
-without the need for complex configurations or additional Tailscale containers.
+**The easiest way to expose Docker containers on your Tailscale network. One label. Zero sidecars.**
 
-## Version 2
+[![GitHub Stars](https://img.shields.io/github/stars/almeidapaulopt/tsdproxy?style=flat&label=stars)](https://github.com/almeidapaulopt/tsdproxy/stargazers)
+[![GitHub Issues](https://img.shields.io/github/issues/almeidapaulopt/tsdproxy?style=flat)](https://github.com/almeidapaulopt/tsdproxy/issues)
+[![Docker Pulls](https://img.shields.io/docker/pulls/almeidapaulopt/tsdproxy?style=flat)](https://hub.docker.com/r/almeidapaulopt/tsdproxy)
+[![License](https://img.shields.io/github/license/almeidapaulopt/tsdproxy?style=flat)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/almeidapaulopt/tsdproxy?style=flat&label=Go)](https://go.dev/)
+[![Release](https://img.shields.io/github/v/release/almeidapaulopt/tsdproxy?style=flat&label=latest)](https://github.com/almeidapaulopt/tsdproxy/releases)
 
-Version 2 is already in beta. Please try and open issues if bugs detected.
-Some configurations of Version 1.x are deprecated or changed please verify it in
- [Documentation changelog](https://almeidapaulopt.github.io/tsdproxy/docs/changelog/).
+## Quick Start
 
-Because of some breaking changes, final version 2 arrive will not set as latest
-Docker image. We will wait some weeks to give you time to update.
+Get running in under a minute. One compose file, one label.
 
-Version 1 will not get new features.
+**Step 1: Create `docker-compose.yml`**
 
-## Full Documentation
+```yaml
+services:
+  tsdproxy:
+    image: almeidapaulopt/tsdproxy:2
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - tsdproxy-data:/data
+      - ./config:/config
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
 
-- [Official Documentation](https://almeidapaulopt.github.io/tsdproxy/)
+  myapp:
+    image: nginx:alpine
+    labels:
+      tsdproxy.enable: "true"
+      tsdproxy.name: "myapp"
 
-## Breaking Changes
+volumes:
+  tsdproxy-data:
+```
 
-Please read the [Documentation changelog](https://almeidapaulopt.github.io/tsdproxy/docs/changelog/)
-for details.
+**Step 2: Start it up**
 
-## Help needed
+```bash
+docker compose up -d
+```
 
-Please help with documentation, tests development, new features, bug fixes.
-If you don't feel comfortable to this kind of tasks, [sponsor](https://github.com/sponsors/almeidapaulopt)
-the project.
+TSDProxy creates a default config at `/config/tsdproxy.yaml` on first run. Open the dashboard at `http://localhost:8080`, click the proxy card, and authenticate with Tailscale.
 
-## Docker Images
+Your container is now available at `https://myapp.<tailnet-name>.ts.net` with automatic HTTPS.
 
-1. almeidapaulopt/tsdproxy:vx.x.x  - Version x.x.x
-2. almeidapaulopt/tsdproxy:1       - Latest stable release of version 1.x.x
-3. almeidapaulopt/tsdproxy:2       - Latest beta release of version 2.x.x
-4. almeidapaulopt/tsdproxy:latest  - Latest stable release
-5. almeidapaulopt/tsdproxy:dev     - Latest Development Build
-
-## Core Functionality
-
-- **Automatic Tailscale Machine Creation**: For each Docker container tagged
-with the appropriate labels, TSDProxy creates a new Tailscale machine.
-- **Default Serving**: By default, each service is accessible via
-`https://{machine-name}.funny-name.ts.net`, where `{machine-name}` is derived
-from your container name or custom label.
+For automated (headless) setup, configure an [AuthKey or OAuth](https://almeidapaulopt.github.io/tsdproxy/docs/v2/advanced/tailscale/) before adding services.
 
 ## Key Features
 
-- **Simplified Networking**: Eliminates the need for a separate Tailscale
-container for each service.
-- **Label-Based Configuration**: Easy setup using Docker container labels.
-- **Automatic HTTPS**: Leverages Tailscale's built-in LetsEncrypt certificate support.
-- **Flexible Protocol Support**: Handles HTTP and HTTPS traffic (defaulting to HTTPS).
-- **Lightweight Architecture**: Efficient, Docker-based design for minimal overhead.
+| Feature | Description |
+|---------|-------------|
+| Zero sidecars | No Tailscale container needed per service. One proxy handles everything. |
+| Label-based config | Add `tsdproxy.enable=true` to any container. Done. |
+| Automatic HTTPS | Tailscale provisions Let's Encrypt certs for every machine. |
+| Multi-port support | Expose multiple ports per container with granular protocol control. |
+| TCP proxying | Proxy TCP traffic (SSH, databases) alongside HTTP/HTTPS services. |
+| Funnel support | Expose services to the public internet with `tailscale_funnel` option. |
+| Dynamic lifecycle | Containers start and stop. Tailscale machines appear and disappear. |
+| Live config reload | Change settings without restarting TSDProxy. |
+| Dashboard | Real-time web UI with SSE streaming to monitor all your proxies. |
+| List provider | Expose non-Docker services via a simple YAML file. |
 
 ## How It Works
 
-TSDProxy operates by creating a seamless integration between your Docker
-containers and Tailscale network:
+```mermaid
+graph LR
+    A[Docker Containers] -->|tsdproxy.enable label| B[TSDProxy]
+    B -->|creates tsnet.Server| C[Tailscale Network]
+    C -->|automatic HTTPS| D[Secure URLs]
+    D -->|reverse proxy| A
+```
 
-1. **Container Scanning**: TSDProxy continuously monitors your Docker
-environment for containers with the `tsdproxy.enable=true` label.
-2. **Tailscale Machine Creation**: When a tagged container is detected, TSDProxy
-automatically creates a new Tailscale machine for that container.
-3. **Hostname Assignment**: The Tailscale machine is assigned a hostname based
-on the `tsdproxy.name` label or the container's name.
-4. **Port Mapping**: TSDProxy maps the container's internal port to the Tailscale
-machine.
-5. **Traffic Routing**: Incoming requests to the Tailscale machine are routed to
-the appropriate Docker container and port.
-6. **Dynamic Management**: As containers start and stop, TSDProxy automatically
-creates and removes the corresponding Tailscale machines and routing configurations.
+Under the hood:
 
-## Requirements
+1. **Container Scanning** - TSDProxy watches your Docker daemon for containers tagged with `tsdproxy.enable=true`.
+2. **Machine Creation** - When a tagged container appears, TSDProxy spins up a Tailscale machine via `tsnet`.
+3. **Hostname Assignment** - The machine gets a hostname from the `tsdproxy.name` label or the container name.
+4. **Port Mapping** - TSDProxy maps the container's internal port to the Tailscale machine.
+5. **Traffic Routing** - Incoming requests to `https://myapp.<tailnet>.ts.net` are reverse-proxied to the container.
+6. **Dynamic Cleanup** - When a container stops, its Tailscale machine and routes are removed automatically.
 
-Before using this application, make sure you have:
+## Port Configuration
 
-- [Tailscale](https://tailscale.com/) installed and configured on your host machine.
-- [Docker](https://www.docker.com/) installed and running.
+Expose multiple ports with per-port protocol and options:
 
-## License
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "myservice"
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file
-for details.
+  # HTTPS on 443 -> container port 80
+  tsdproxy.port.1: "443/https:80/http"
+
+  # HTTP on 80 -> container port 8080
+  tsdproxy.port.2: "80/http:8080/http"
+
+  # HTTP redirect to HTTPS
+  tsdproxy.port.3: "81/http->https://myservice.tailnet.ts.net"
+
+  # TCP proxy for SSH
+  tsdproxy.port.4: "22/tcp:22/tcp"
+```
+
+## Docker Images
+
+| Tag | Description |
+|-----|-------------|
+| `almeidapaulopt/tsdproxy:2` | Latest v2 release |
+| `almeidapaulopt/tsdproxy:latest` | Latest stable release |
+| `almeidapaulopt/tsdproxy:dev` | Latest development build |
+| `almeidapaulopt/tsdproxy:vx.x.x` | Specific version |
+
+## Documentation
+
+Full setup guides, configuration reference, and advanced usage:
+
+**[almeidapaulopt.github.io/tsdproxy](https://almeidapaulopt.github.io/tsdproxy/)**
+
+Key docs: [Getting Started](https://almeidapaulopt.github.io/tsdproxy/docs/v2/getting-started/) | [Docker Labels](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/docker/) | [Port Configuration](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/docker/#port-configuration) | [List Provider](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/lists/) | [TCP Proxy](https://almeidapaulopt.github.io/tsdproxy/docs/v2/advanced/tcp-proxy/) | [Funnel](https://almeidapaulopt.github.io/tsdproxy/docs/v2/security/funnel/) | [Upgrading from v1](https://almeidapaulopt.github.io/tsdproxy/docs/v2/upgrading/from-v1/)
 
 ## Contributing
 
-Contributions are welcome! Feel free to open issues or submit pull requests to help improve the app.
+Bug reports, feature requests, documentation improvements, and pull requests are all welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+If you'd rather support the project financially, [sponsorships](https://github.com/sponsors/almeidapaulopt) help keep development going.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---
+
+[![Star History Chart](https://api.star-history.com/svg?repos=almeidapaulopt/tsdproxy&type=Date)](https://star-history.com/#almeidapaulopt/tsdproxy&Date)
