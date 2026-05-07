@@ -33,7 +33,7 @@ func TestGetTargetURL_HTTPWithPublishedPort(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("http://0.0.0.0:3000")
-	result, err := c.getTargetURL(inputURL)
+	result, err := c.getTargetURL(inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestGetTargetURL_TCPWithPublishedPort(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL)
+	result, err := c.getTargetURL(inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestGetTargetURL_TCPFallbackUsesContainerIP(t *testing.T) {
 	c := newTestContainer("host.docker.internal", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL)
+	result, err := c.getTargetURL(inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestGetTargetURL_TCPShouldUseContainerIP(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL)
+	result, err := c.getTargetURL(inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

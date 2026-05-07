@@ -231,9 +231,11 @@ func (c *container) getPorts() model.PortConfigList {
 				port.TLSValidate = false
 			case PortOptionTailscaleFunnel:
 				port.Tailscale.Funnel = true
+			case PortOptionNoAutoDetect:
+				port.NoAutoDetect = true
 			default:
 				c.log.Warn().Str("option", v).Str("port", k).
-					Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel)")
+					Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect)")
 			}
 		}
 
@@ -258,7 +260,7 @@ func (c *container) generateTargetFromFirstTarget(port model.PortConfig) (model.
 	// multiple targets not supported in this TargetProvider
 	p := port.GetFirstTarget()
 
-	targetURL, err := c.getTargetURL(p)
+	targetURL, err := c.getTargetURL(p, port.NoAutoDetect)
 	if err != nil {
 		return port, err
 	}
@@ -299,7 +301,7 @@ func (c *container) getName() string {
 
 // getTargetURL method returns the container target URL by trying resolution
 // strategies in priority order.
-func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
+func (c *container) getTargetURL(iPort *url.URL, noAutoDetect bool) (*url.URL, error) {
 	c.log.Trace().Msg("getTargetURL")
 	defer c.log.Trace().Msg("End getTargetURL")
 
@@ -315,7 +317,7 @@ func (c *container) getTargetURL(iPort *url.URL) (*url.URL, error) {
 		return u, nil
 	}
 
-	if u, ok := c.resolveAutoDetect(iPort.Scheme, internalPort, publishedPort); ok {
+	if u, ok := c.resolveAutoDetect(iPort.Scheme, internalPort, publishedPort, noAutoDetect); ok {
 		return u, nil
 	}
 
@@ -348,8 +350,8 @@ func (c *container) resolveSelfHost(internalPort string) (*url.URL, bool) {
 }
 
 // resolveAutoDetect tries to auto-detect the target URL by probing connectivity.
-func (c *container) resolveAutoDetect(scheme, internalPort, publishedPort string) (*url.URL, bool) {
-	if !c.autodetect {
+func (c *container) resolveAutoDetect(scheme, internalPort, publishedPort string, noAutoDetect bool) (*url.URL, bool) {
+	if !c.autodetect || noAutoDetect {
 		return nil, false
 	}
 	for try := range autoDetectTries {

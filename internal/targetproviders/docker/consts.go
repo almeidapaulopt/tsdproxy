@@ -49,4 +49,5 @@ const (
 	// Port options
 	PortOptionNoTLSValidate   = "no_tlsvalidate"
 	PortOptionTailscaleFunnel = "tailscale_funnel"
+	PortOptionNoAutoDetect    = "no_autodetect"
 )
