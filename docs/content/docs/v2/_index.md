@@ -66,6 +66,10 @@ Dive right into the following section to get started:
     subtitle="Learn how to get started with TSDProxy"
   >}}
 
+  {{< card link="why-tsdproxy" title="Why TSDProxy" icon="light-bulb"
+    subtitle="Compare approaches and see when TSDProxy fits"
+  >}}
+
   {{< card link="upgrading" title="Upgrading" icon="arrow-circle-up"
     subtitle="Migrate from v1 to v2"
   >}}
