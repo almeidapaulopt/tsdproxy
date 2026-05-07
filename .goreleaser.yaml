@@ -15,15 +15,11 @@ before:
   hooks:
     - bun i --cwd ./web
     - bun run --cwd web build
-    - go mod tidy
-    - go install github.com/a-h/templ/cmd/templ@latest
+    - go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
     - go generate ./...
 
 snapshot:
   version_template: "{{ incpatch .Version }}-{{ .Env.LATEST }}"
-
-gomod:
-  proxy: false
 
 report_sizes: true
 
@@ -67,14 +63,12 @@ builds:
       - -tags=prod
     ldflags:
       - -s -w
-      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.version={{ .Version  }}"
-      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.BuildDate={{ .Date }}"
-      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.GitCommit={{ .ShortCommit }}"
-      - -X "tailscale.com/version.Short={{ .Env.TAILSCALE_VERSION  }}"
-      - -X "tailscale.com/version.Long={{ .Env.TAILSCALE_VERSION  }}-TSDProxy"
+      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.version={{ .Version }}"
+      - -X "tailscale.com/version.Short={{ .Env.TAILSCALE_VERSION }}"
+      - -X "tailscale.com/version.Long={{ .Env.TAILSCALE_VERSION }}-TSDProxy"
       - -X "tailscale.com/version.GitCommit={{ .ShortCommit }}"
-      - -X "tailscale.com/version.shortStamp={{ .Env.TAILSCALE_VERSION  }}"
-      - -X "tailscale.com/version.longStamp={{ .Env.TAILSCALE_VERSION  }}-TSDProxy"
+      - -X "tailscale.com/version.shortStamp={{ .Env.TAILSCALE_VERSION }}"
+      - -X "tailscale.com/version.longStamp={{ .Env.TAILSCALE_VERSION }}-TSDProxy"
       - -X "tailscale.com/version.gitCommitStamp={{ .ShortCommit }}"
 
   - id: healthcheck
@@ -104,6 +98,14 @@ universal_binaries:
 
 checksum:
   name_template: "checksums.txt"
+
+sboms:
+  - artifacts: archive
+    args:
+      - "$artifact"
+      - --output
+      - spdx-json
+      - "--file=${artifact}.sbom.json"
 
 changelog:
   sort: asc
@@ -153,11 +155,11 @@ dockers:
     dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-amd64"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version  }}-amd64"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major  }}-amd64"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major }}-amd64"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version   }}-amd64"
-      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major   }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-amd64"
     build_flag_templates:
       - "--pull"
       - '--label=io.artifacthub.package.maintainers=[{"name":"Paulo Almeida","email":"almeidapaulopt@gmail.com"}]'
@@ -170,7 +172,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--platform=linux/amd64"
   - use: buildx
     goos: linux
@@ -178,11 +179,11 @@ dockers:
     dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-arm64v8"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version   }}-arm64v8"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-arm64v8"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major }}-arm64v8"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-arm64v8"
-      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version   }}-arm64v8"
-      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major  }}-arm64v8"
+      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-arm64v8"
+      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-arm64v8"
     build_flag_templates:
       - "--pull"
       - '--label=io.artifacthub.package.maintainers=[{"name":"Paulo Almeida","email":"almeidapaulopt@gmail.com"}]'
@@ -195,7 +196,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--platform=linux/arm64/v8"
   - use: buildx
     goos: linux
@@ -204,10 +204,10 @@ dockers:
     dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv6"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version  }}-armv6"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major  }}-armv6"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv6"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major }}-armv6"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv6"
-      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version   }}-armv6"
+      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv6"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-armv6"
     build_flag_templates:
       - "--pull"
@@ -221,7 +221,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--platform=linux/arm/v6"
   - use: buildx
     goos: linux
@@ -230,10 +229,10 @@ dockers:
     dockerfile: "{{ .Env.DOCKERFILE }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv7"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version   }}-armv7"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv7"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major }}-armv7"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv7"
-      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version   }}-armv7"
+      - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv7"
       - "ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-armv7"
     build_flag_templates:
       - "--pull"
@@ -247,7 +246,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--platform=linux/arm/v7"
 
 docker_manifests:
@@ -257,12 +255,12 @@ docker_manifests:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-arm64v8"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv6"
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv7"
-  - name_template: "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version   }}"
+  - name_template: "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}"
     image_templates:
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version   }}-amd64"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version  }}-arm64v8"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version  }}-armv6"
-      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version  }}-armv7"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-amd64"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-arm64v8"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv6"
+      - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv7"
   - name_template: "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major }}"
     image_templates:
       - "{{ .Env.DOCKER_ORG }}/{{ .ProjectName }}:{{ .Major }}-amd64"
@@ -275,18 +273,18 @@ docker_manifests:
       - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-arm64v8
       - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv6
       - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Env.LATEST }}-armv7
-  - name_template: ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version  }}
+  - name_template: ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}
     image_templates:
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version  }}-amd64
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version  }}-arm64v8
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version  }}-armv6
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version  }}-armv7
-  - name_template: ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major  }}
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-amd64
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-arm64v8
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv6
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Version }}-armv7
+  - name_template: ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}
     image_templates:
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major  }}-amd64
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major  }}-arm64v8
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major  }}-armv6
-      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major  }}-armv7
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-amd64
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-arm64v8
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-armv6
+      - ghcr.io/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}:{{ .Major }}-armv7
 
 docker_signs:
   - cmd: cosign
@@ -296,3 +294,43 @@ docker_signs:
       - "sign"
       - "${artifact}@${digest}"
       - --yes
+
+brews:
+  - name: tsdproxy
+    directory: Formula
+    homepage: "https://github.com/almeidapaulopt/tsdproxy"
+    description: "Tailscale Docker reverse proxy — expose containers with one label"
+    license: "MIT"
+    skip_upload: auto
+    install: |
+      bin.install "tsdproxyd"
+    test: |
+      system "#{bin}/tsdproxyd", "--version"
+    repository:
+      owner: almeidapaulopt
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+
+aurs:
+  - name: tsdproxy-bin
+    ids:
+      - server
+    homepage: "https://github.com/almeidapaulopt/tsdproxy"
+    description: "Tailscale Docker reverse proxy — expose containers with one label"
+    maintainers:
+      - "Paulo Almeida <almeidapaulopt at gmail dot com>"
+    license: "MIT"
+    private_key: "{{ .Env.AUR_KEY }}"
+    git_url: "ssh://aur@aur.archlinux.org/tsdproxy-bin.git"
+    skip_upload: auto
+    provides:
+      - tsdproxy
+    conflicts:
+      - tsdproxy
+    package: |-
+      install -Dm755 "./tsdproxyd" "${pkgdir}/usr/bin/tsdproxyd"
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/tsdproxy-bin/LICENSE"
+    commit_author:
+      name: almeidapaulopt
+      email: almeidapaulopt@gmail.com

@@ -15,12 +15,8 @@ before:
   hooks:
     - bun i --cwd ./web
     - bun run --cwd web build
-    - go mod tidy
-    - go install github.com/a-h/templ/cmd/templ@latest
+    - go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
     - go generate ./...
-
-gomod:
-  proxy: false
 
 report_sizes: true
 
@@ -58,14 +54,12 @@ builds:
       - -tags=prod
     ldflags:
       - -s -w
-      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.version={{ incpatch .Version }}-{{ .Env.LATEST  }}"
-      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.BuildDate={{ .Date }}"
-      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.GitCommit={{ .ShortCommit }}"
-      - -X "tailscale.com/version.Short={{ .Env.TAILSCALE_VERSION  }}"
-      - -X "tailscale.com/version.Long={{ .Env.TAILSCALE_VERSION  }}-TSDProxy"
+      - -X "github.com/almeidapaulopt/tsdproxy/internal/core.version={{ incpatch .Version }}-{{ .Env.LATEST }}"
+      - -X "tailscale.com/version.Short={{ .Env.TAILSCALE_VERSION }}"
+      - -X "tailscale.com/version.Long={{ .Env.TAILSCALE_VERSION }}-TSDProxy"
       - -X "tailscale.com/version.GitCommit={{ .ShortCommit }}"
-      - -X "tailscale.com/version.shortStamp={{ .Env.TAILSCALE_VERSION  }}"
-      - -X "tailscale.com/version.longStamp={{ .Env.TAILSCALE_VERSION  }}-TSDProxy"
+      - -X "tailscale.com/version.shortStamp={{ .Env.TAILSCALE_VERSION }}"
+      - -X "tailscale.com/version.longStamp={{ .Env.TAILSCALE_VERSION }}-TSDProxy"
       - -X "tailscale.com/version.gitCommitStamp={{ .ShortCommit }}"
 
   - id: healthcheck
@@ -126,7 +120,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{incpatch .Version }}-{{ .Env.LATEST }}"
       - "--platform=linux/amd64"
   - use: buildx
     goos: linux
@@ -147,7 +140,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{incpatch .Version }}-{{ .Env.LATEST }}"
       - "--platform=linux/arm64/v8"
   - use: buildx
     goos: linux
@@ -169,7 +161,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{incpatch .Version }}-{{ .Env.LATEST }}"
       - "--platform=linux/arm/v6"
   - use: buildx
     goos: linux
@@ -191,7 +182,6 @@ dockers:
       - "--label=org.opencontainers.image.description={{ .ProjectName }}"
       - "--label=org.opencontainers.image.url=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
       - "--label=org.opencontainers.image.source=https://github.com/{{ .Env.GITHUB_ORG }}/{{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{incpatch .Version }}-{{ .Env.LATEST }}"
       - "--platform=linux/arm/v7"
 
 docker_manifests:

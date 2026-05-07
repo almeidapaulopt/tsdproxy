@@ -3,9 +3,8 @@ name: goreleaser
 
 on:
   push:
-    # run only against v1 tags
     tags:
-      - "v1.*"
+      - "v*"
 
 permissions:
   contents: write
@@ -23,12 +22,12 @@ jobs:
           fetch-depth: 0
 
       - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: "go.mod"
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - uses: sigstore/cosign-installer@v3.7.0
@@ -57,6 +56,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCKER_PASSWORD: $${{ secrets.DOCKER_PASSWORD }}
-          DOCKER_USERNAME: $${{ secrets.DOCKER_USERNAME }}
           TAILSCALE_VERSION: ${{ env.TAILSCALE_VERSION }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          AUR_KEY: ${{ secrets.AUR_KEY }}
