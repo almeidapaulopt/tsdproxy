@@ -18,6 +18,7 @@ type (
 		targets       []*url.URL
 		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
 		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
+		NoAutoDetect  bool          `validate:"boolean" yaml:"noAutoDetect"`
 		IsRedirect    bool          `validate:"boolean" yaml:"isRedirect"`
 		Tailscale     TailscalePort `validate:"dive" yaml:"tailscale"`
 	}
