@@ -1,0 +1,42 @@
+# TSDProxy
+
+> Go reverse proxy that auto-exposes Docker containers on your Tailscale network. Add one label to any container and it gets its own Tailscale machine with automatic HTTPS. No sidecars, no per-service Tailscale installs, no manual cert management.
+
+TSDProxy watches Docker for containers tagged with `tsdproxy.enable=true` and creates a Tailscale machine for each one via tsnet. It supports Docker and List (YAML file) target providers, multi-port configurations with per-port protocol control (HTTP, HTTPS, TCP), HTTP-to-HTTPS redirects, Tailscale Funnel for public exposure, and a real-time SSE dashboard. Configuration is live-reloaded from a YAML file without restarts. Stack: Go 1.24, templ, Vite/Bun, zerolog. MIT license.
+
+## Getting Started
+
+- [Quick Start](https://almeidapaulopt.github.io/tsdproxy/docs/v2/getting-started/): One compose file, one label, under a minute
+- [Docker Images](https://hub.docker.com/r/almeidapaulopt/tsdproxy): `almeidapaulopt/tsdproxy:2` for latest v2 release
+- [Upgrading from v1](https://almeidapaulopt.github.io/tsdproxy/docs/v2/upgrading/from-v1/): Migration guide for v1 users
+
+## Configuration
+
+- [Configuration Reference](https://almeidapaulopt.github.io/tsdproxy/docs/v2/getting-started/): tsdproxy.yaml format, defaults, and live reload
+- [Tailscale Auth](https://almeidapaulopt.github.io/tsdproxy/docs/v2/advanced/tailscale/): AuthKey and OAuth setup for headless operation
+- [List Provider](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/lists/): Expose non-Docker services via YAML file
+
+## Docker Labels
+
+- [Docker Provider](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/docker/): All `tsdproxy.*` labels for container configuration
+- [Port Configuration](https://almeidapaulopt.github.io/tsdproxy/docs/v2/providers/docker/#port-configuration): Multi-port, TCP, redirect, and protocol options
+
+## Ports and Protocols
+
+- [TCP Proxy](https://almeidapaulopt.github.io/tsdproxy/docs/v2/advanced/tcp-proxy/): Proxy SSH, databases, and other TCP services
+- [Funnel](https://almeidapaulopt.github.io/tsdproxy/docs/v2/security/funnel/): Expose services to the public internet
+
+## Architecture
+
+- [GitHub Repository](https://github.com/almeidapaulopt/tsdproxy): Source code, issues, and releases
+- [Contributing Guide](https://github.com/almeidapaulopt/tsdproxy/blob/main/CONTRIBUTING.md): Code style, project structure, and PR process
+
+## Development
+
+- [Contributing](https://github.com/almeidapaulopt/tsdproxy/blob/main/CONTRIBUTING.md): Setup with `make bootstrap`, dev with `make dev`, quality with `make audit`
+- [Source Code](https://github.com/almeidapaulopt/tsdproxy): Go 1.24, templ UI, Vite/Bun frontend, Hugo docs
+
+## Optional
+
+- [Sponsor the Project](https://github.com/sponsors/almeidapaulopt): Support ongoing development
+- [Tailscale](https://tailscale.com/): The mesh VPN platform TSDProxy builds on

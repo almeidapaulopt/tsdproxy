@@ -9,6 +9,11 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/almeidapaulopt/tsdproxy?style=flat&label=Go)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/almeidapaulopt/tsdproxy?style=flat&label=latest)](https://github.com/almeidapaulopt/tsdproxy/releases)
 
+<div align="center">
+  <!-- Replace with demo GIF: docker compose up → containers appear in Tailscale admin → HTTPS URL loads -->
+  <img src="https://github.com/almeidapaulopt/tsdproxy/raw/main/docs/assets/demo.gif" alt="TSDProxy Demo" width="800" onerror="this.style.display='none'"/>
+</div>
+
 ## Quick Start
 
 Get running in under a minute. One compose file, one label.
