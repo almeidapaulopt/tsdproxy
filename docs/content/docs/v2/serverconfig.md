@@ -60,17 +60,6 @@ proxyAccessLog: true # Enable container access logs (true/false)
 
 ### Configuration Sections
 
-#### log Section
-
-##### level
-
-Defines the logging level. Options are `info`, `error`, `debug` or `trace`.
-The default is `info`.
-
-##### json
-
-Enables JSON-formatted logging when set to `true`. Defaults to `false`.
-
 #### tailscale Section
 
 Configures Tailscale integration.
@@ -158,6 +147,51 @@ containers in specific cases.
 Specifies the default Tailscale provider (defined in the `tailscale.providers`
 section) to use for containers on this Docker server. Container-specific labels
 override this setting.
+
+##### tryDockerInternalNetwork
+
+Defaults to `false`. When set to `true`, containers default to using
+auto-detection of the target URL via connectivity probing. This sets the default
+for the per-container `tsdproxy.autodetect` label. Individual containers can
+still override this with the `tsdproxy.autodetect` label.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  local:
+    host: unix:///var/run/docker.sock
+    targetHostname: host.docker.internal
+    defaultProxyProvider: default
+    tryDockerInternalNetwork: true
+```
+
+#### http Section
+
+Configures the built-in HTTP server that serves the dashboard and health endpoints.
+
+##### hostname
+
+The bind address for the HTTP server. Defaults to `0.0.0.0` (all interfaces).
+
+##### port
+
+The port for the HTTP server. Defaults to `8080`.
+
+#### log Section
+
+##### level
+
+Defines the logging level. Options are `info`, `error`, `debug` or `trace`.
+The default is `info`.
+
+##### json
+
+Enables JSON-formatted logging when set to `true`. Defaults to `false`.
+
+##### proxyAccessLog
+
+Enables access logging for proxied requests. Defaults to `true`. Can be
+overridden per-container with the `tsdproxy.containeraccesslog` label or
+per-list with `defaultProxyAccessLog`.
 
 {{% /steps %}}
 

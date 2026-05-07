@@ -1,5 +1,6 @@
 ---
 title: Changelog
+prev: /docs/v2/troubleshooting
 weight: 500
 ---
 

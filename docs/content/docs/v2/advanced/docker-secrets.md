@@ -25,12 +25,12 @@ authkey in it. We can do that using the following command:
 printf "Your Tailscale AuthKey" | docker secret create authkey -
 ```
 
-### TsDProxy Docker compose
+### TSDProxy Docker compose
 
-```yaml docker-compose.yml
+```yaml  {filename="docker-compose.yml"}
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:latest
+    image: almeidapaulopt/tsdproxy:2
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - datadir:/data
@@ -46,18 +46,21 @@ secrets:
     external: true
 ```
 
-### TsDProxy configuration
+### TSDProxy configuration
 
-```yaml /config/tsdproxy.yaml
+```yaml  {filename="/config/tsdproxy.yaml"}
 tailscale:
   providers:
-     default: # name of the provider
-      authkeyfile: "/run/secrets/authkey" 
+    default:
+      authKeyFile: "/run/secrets/authkey"
 ```
 
-### Restart tsdproxy
+> [!CAUTION]
+> Configuration files are case-sensitive. The field is `authKeyFile` (camelCase), not `authkeyfile`.
 
-``` bash
+### Restart TSDProxy
+
+```bash
 docker compose restart
 ```
 

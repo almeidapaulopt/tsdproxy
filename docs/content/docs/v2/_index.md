@@ -52,8 +52,8 @@ with MagicDNS.
 ## Questions or Feedback?
 
 > [!IMPORTANT]
-  TSDProxy is still in active development.
-  Have a question or feedback? Feel free to [open an issue](https://github.com/almeidapaulopt/tsdproxy/issues)!
+> TSDProxy is still in active development.
+> Have a question or feedback? Feel free to [open an issue](https://github.com/almeidapaulopt/tsdproxy/issues)!
 
 ## Next
 

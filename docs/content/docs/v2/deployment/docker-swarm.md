@@ -39,6 +39,10 @@ secrets:
 
 Deploy: `docker stack deploy -c docker-compose.yml tsdproxy`
 
+> [!NOTE]
+> If TSDProxy needs to reach containers on the host network, add
+> `extra_hosts: ["host.docker.internal:host-gateway"]` to the tsdproxy service.
+
 ## Service Labels
 
 Service labels work identically to container labels:

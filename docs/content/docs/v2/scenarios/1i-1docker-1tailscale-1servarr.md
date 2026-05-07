@@ -36,4 +36,7 @@ services:
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
     network_mode: "service:vpn"
+
+networks:
+  tailscale:
 ```

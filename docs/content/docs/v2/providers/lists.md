@@ -1,13 +1,14 @@
 ---
 title: Lists
-next: /docs/advanced
+prev: /docs/v2/providers/docker
+next: /docs/v2/advanced
 weight: 4
 ---
 
 TSDProxy can be configured to proxy using a YAML configuration file.
 Multiple lists can be used, and they are referred to as target providers.
-Each target provider could be used to group the way you decide better to help
-you manage your proxies. Or can use a single file to proxy all your targets.
+Organize your proxies into groups or use a single file for all targets —
+whatever works best for your setup.
 
 > [!CAUTION]
 > Configuration files are case sensitive

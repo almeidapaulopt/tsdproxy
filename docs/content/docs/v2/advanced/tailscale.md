@@ -1,11 +1,13 @@
 ---
 title: Tailscale
-next: /docs/scenarios
+prev: /docs/v2/advanced/icons
+next: /docs/v2/scenarios
 ---
 
 
 This document guides you through the different authentication and configuration
-options for Tailscale with TSDProxy.
+options for Tailscale with TSDProxy. For a quick comparison of authentication
+methods, see [Authentication Methods]({{< ref "/docs/v2/security/auth-methods" >}}).
 
 ## Authentication Methods
 
@@ -180,7 +182,17 @@ Online devices are never deleted.
 
 ## Identity Headers
 
-TSDProxy forwards Tailscale identity via HTTP headers: `X-Tailscale-User`, `X-Tailscale-Name`, `X-Tailscale-Profile-Picture`, `X-Forwarded-For`.
+TSDProxy forwards Tailscale identity to your backend services via the following
+HTTP headers. These are set on every proxied request after stripping any
+user-supplied values to prevent header injection:
+
+| Header | Description |
+|--------|-------------|
+| `x-tsdproxy-username` | Tailscale username |
+| `x-tsdproxy-displayname` | Tailscale display name |
+| `x-tsdproxy-profilepicurl` | Tailscale profile picture URL |
+| `X-Forwarded-For` | Client IP address |
+| `X-Forwarded-Host` | Original host header |
 
 ## Proxy Provider Resolution
 

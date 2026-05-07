@@ -96,6 +96,10 @@ docker run -d --name sample-nginx -p 8111:80 --label "tsdproxy.enable=true" ngin
 authenticate with Tailscale.
 3. After authentication, the proxy will be enabled.
 
+> [!TIP]
+> For automated authentication without manual browser login, configure OAuth or
+> an AuthKey in the [Tailscale provider settings]({{< ref "/docs/v2/advanced/tailscale" >}}).
+
 > [!IMPORTANT]
 > The first time you run the proxy, it will take a few seconds to start, because
 > it needs to connect to the Tailscale network, generate the certificates, and start

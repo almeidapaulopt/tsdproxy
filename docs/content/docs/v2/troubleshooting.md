@@ -12,7 +12,7 @@ weight: 400
 4. Self-signed certs: add `no_tlsvalidate` option
 5. Check firewall
 6. Same Docker network as TSDProxy
-7. Network issues: use `no_autodetect` + specify port
+7. Network issues: use `tsdproxy.autodetect: "false"` label and specify port explicitly
 
 ## Lists provider
 
@@ -34,11 +34,13 @@ Firewall fix: `sudo ufw allow in from 172.17.0.0/16`
 
 ### Funnel doesn't work
 
-Enable in ACL, add `tailscale_funnel` port option.
+Enable in ACL, add `tailscale_funnel` port option. See
+[Funnel Security]({{< ref "/docs/v2/security/funnel#troubleshooting" >}}) for details.
 
 ### Proxy stuck "Authenticating"
 
 Verify OAuth credentials or AuthKey. Check logs.
+See [Authentication Methods]({{< ref "/docs/v2/security/auth-methods" >}}) for setup.
 
 ### Enabling debug logging
 
@@ -47,12 +49,30 @@ log:
   level: trace
 ```
 
-### pprof debug
+### pprof debug profiling
 
-```bash
-TSDPROXY_PPROF=true tsdproxy
+Set the `TSDPROXY_PPROF` environment variable to `"true"` before starting
+TSDProxy to enable Go profiling endpoints:
+
+```yaml
+services:
+  tsdproxy:
+    image: almeidapaulopt/tsdproxy:2
+    environment:
+      TSDPROXY_PPROF: "true"
 ```
 
-Exposes `/debug/pprof/` — not for production.
+This exposes the following endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/debug/pprof/` | Profile index |
+| `/debug/pprof/cmdline` | Command line |
+| `/debug/pprof/profile` | CPU profile |
+| `/debug/pprof/symbol` | Symbol table |
+| `/debug/pprof/trace` | Execution trace |
+
+> [!WARNING]
+> pprof endpoints expose internal runtime data. Never enable in production.
 
 {{% /steps %}}

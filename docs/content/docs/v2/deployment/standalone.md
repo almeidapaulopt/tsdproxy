@@ -37,8 +37,10 @@ WantedBy=multi-user.target
 
 ## Requirements
 
-- Docker daemon accessible
-- Port 8080 available for Dashboard
+- Docker daemon accessible (for Docker provider)
+- Port 8080 available for Dashboard (configurable via `http.port`)
 
 > [!NOTE]
-> Most users should prefer Docker deployment. Standalone mode is for development.
+> Standalone mode is useful for running TSDProxy directly on a host without
+> Docker, or for development. Most users should use the Docker deployment
+> described in [Getting Started]({{< ref "/docs/v2/getting-started" >}}).

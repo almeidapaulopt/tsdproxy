@@ -8,9 +8,9 @@ weight: 5
 {{< cards >}}
   {{< card link="dashboard" title="Dashboard" icon="view-boards" >}}
   {{< card link="docker-secrets" title="Docker secrets" icon="key" >}}
-  {{< card link="host-mode" title="Service with Host Network Mode" icon="view-boards" >}}
-  {{< card link="tcp-proxy" title="TCP Proxy & SSH" icon="server" >}}
-  {{< card link="icons" title="Dashboard icons" icon="view-boards" >}}
-  {{< card link="tailscale" title="Tailscale" icon="key" >}}
+  {{< card link="host-mode" title="Service with Host Network Mode" icon="server" >}}
+  {{< card link="tcp-proxy" title="TCP Proxy & SSH" icon="terminal" >}}
+  {{< card link="icons" title="Dashboard icons" icon="photograph" >}}
+  {{< card link="tailscale" title="Tailscale" icon="globe-alt" >}}
   {{< card link="roadmap" title="Roadmap" icon="lightning-bolt" >}}
 {{< /cards >}}

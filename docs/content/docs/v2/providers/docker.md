@@ -1,5 +1,7 @@
 ---
 title: Docker
+prev: /docs/v2/providers
+next: /docs/v2/providers/lists
 weight: 3
 ---
 
@@ -8,7 +10,7 @@ service container.
 
 ## How to enable
 
-Just add the label `tsdproxy.enable` to true and restart you service. The
+Just add the label `tsdproxy.enable` to true and restart your service. The
 container will be started and TSDProxy will be enabled.
 
 ```yaml
@@ -16,7 +18,7 @@ labels:
   tsdproxy.enable: "true"
 ```
 
-TSProxy will use container name as Tailscale server, and will use the first docker
+TSDProxy will use container name as Tailscale server, and will use the first docker
 exposed port to proxy traffic. If TSDProxy doesn't detect the port you want to
 proxy, you can use `tsdproxy.port` label, more details in [Port configuration](#port-configuration).
 
@@ -48,8 +50,9 @@ labels:
 {{% /details %}}
 {{% details title="tsdproxy.autodetect" %}}
 
-Defaults to true, if your having problem with the internal network interfaces
-autodetection, set to false.
+Defaults to true. If you are having problems with the internal network interfaces
+autodetection, set to false. You can also use the `no_autodetect` port option
+(see [Port options](#port-options)).
 
 ```yaml
 labels:
@@ -57,25 +60,6 @@ labels:
   tsdproxy.autodetect: "false"
 ```
 
-{{% /details %}}
-
-
-### Legacy Labels (v1)
-
-> [!WARNING]
-> The following labels are **deprecated** in v2. They still work for backward compatibility but will be removed in a future version. Use the [port configuration](#port-configuration) labels instead.
-
-{{% details title="tsdproxy.container_port (deprecated)" %}}
-Deprecated. Use `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.scheme (deprecated)" %}}
-Deprecated. Use the protocol in `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.tlsvalidate (deprecated)" %}}
-Deprecated. Use the `no_tlsvalidate` option in `tsdproxy.port.*` labels.
-{{% /details %}}
-{{% details title="tsdproxy.funnel (deprecated)" %}}
-Deprecated. Use the `tailscale_funnel` option in `tsdproxy.port.*` labels.
 {{% /details %}}
 {{% details title="tsdproxy.containeraccesslog" %}}
 
@@ -89,34 +73,16 @@ labels:
 
 {{% /details %}}
 
-
-### Legacy Labels (v1)
-
-> [!WARNING]
-> The following labels are **deprecated** in v2. They still work for backward compatibility but will be removed in a future version. Use the [port configuration](#port-configuration) labels instead.
-
-{{% details title="tsdproxy.container_port (deprecated)" %}}
-Deprecated. Use `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.scheme (deprecated)" %}}
-Deprecated. Use the protocol in `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.tlsvalidate (deprecated)" %}}
-Deprecated. Use the `no_tlsvalidate` option in `tsdproxy.port.*` labels.
-{{% /details %}}
-{{% details title="tsdproxy.funnel (deprecated)" %}}
-Deprecated. Use the `tailscale_funnel` option in `tsdproxy.port.*` labels.
-{{% /details %}}
-### Port configuration
+## Port configuration
 
 To have better control over the ports you want to proxy, you can use the
 `tsdproxy.port` labels.
 TSDProxy v2 enables the possibility to define multiple ports to proxy. You can
 also define http redirects.
 
-#### How to use it
+### How to use it
 
-You can use multiple ports to proxy, just define multiple the `tsdproxy.port` label with a different index.
+You can use multiple ports to proxy, just define the `tsdproxy.port` label with a different index.
 
 ***Proxy***
 
@@ -125,11 +91,11 @@ tsdproxy.port.<index>: "<proxy port>/<proxy Protocol>:<container port>/<containe
 ```
 
 - **\<index\>** is the index of the port, starting from 1.
-- **\<proxy port\>** is the port that will be exposed on the Tailscale network. (Examples: 443,80,8080)
-- **\<proxy protocol\>** is the protocol that will be used on the proxy. (Examples: http,https)
-- **\<container port\>** is the port that will be proxied to the container. (Examples: 80,8080)|
-- **\<container protocol\>** is the protocol that will be used on the container. (Examples: http,https)
-- **\<options\>** is a comma separated list of options. : `no_tlsvalidate`, `tailscale_funnel`
+- **\<proxy port\>** is the port that will be exposed on the Tailscale network. (Examples: 443, 80, 8080)
+- **\<proxy protocol\>** is the protocol that will be used on the proxy. (Examples: http, https)
+- **\<container port\>** is the port that will be proxied to the container. (Examples: 80, 8080)
+- **\<container protocol\>** is the protocol that will be used on the container. (Examples: http, https)
+- **\<options\>** is a comma separated list of options. See [Port options](#port-options).
 
 ***Redirect***
 
@@ -138,11 +104,11 @@ tsdproxy.port.<index>: "<proxy port>/<proxy Protocol> -> <url>"
 ```
 
 - **\<index\>** is the index of the port, starting from 1.
-- **\<proxy port\>** is the port that will be exposed on the Tailscale network. (Examples: 443,80,8080)
-- **\<proxy protocol\>** is the protocol that will be used on the proxy. (Examples: http,https)
+- **\<proxy port\>** is the port that will be exposed on the Tailscale network. (Examples: 443, 80, 8080)
+- **\<proxy protocol\>** is the protocol that will be used on the proxy. (Examples: http, https)
 - **\<url\>** is the url that will be redirected to.
 
-#### Examples
+### Examples
 
 ```yaml
 labels:
@@ -152,7 +118,7 @@ labels:
   # add a https proxy to container target port 80
   tsdproxy.port.1: "443/https:80/http"
 
-  # add a http proxy to container target port 8080, do not try to autodetect
+  # add a http proxy to container target port 8080, disable TLS validation
   tsdproxy.port.2: "80/http:8080/http, no_tlsvalidate"
 
   # short format: proxy only (auto-detects port)
@@ -161,9 +127,6 @@ labels:
   # redirect to https://test.funny-name.ts.net
   tsdproxy.port.4: "81/http->https://test.funny-name.ts.net"
 
-  # short format: proxy only (auto-detects port)
-  tsdproxy.port.3: "443/https"
-
   # redirect to https://othersite.com
   tsdproxy.port.5: "82/http->https://othersite.com"
 
@@ -171,12 +134,13 @@ labels:
   tsdproxy.port.6: "22/tcp:22/tcp"
 ```
 
-#### Port options
+### Port options
 
 | Option | Description |
-|-----|---|
-|no_tlsvalidate | Disable TLS validation on the target certificate (TLS validation is enabled by default) |
-|tailscale_funnel| Activate Tailscale Funnel on the port|
+|--------|-------------|
+| `no_tlsvalidate` | Disable TLS validation on the target certificate (TLS validation is enabled by default) |
+| `tailscale_funnel` | Activate Tailscale Funnel on the port |
+| `no_autodetect` | Disable auto-detection of the target URL for this port |
 
 ## Tailscale Labels
 
@@ -192,16 +156,16 @@ labels:
 ```
 
 {{% /details %}}
-{{% details title="tsdproxy.webclient" %}}
+{{% details title="tsdproxy.runwebclient" %}}
 
-If you want to enable the Tailscale webclient (port 5252), you can define it
-with the label `tsdproxy.webclient`.
+If you want to enable the Tailscale web client (port 5252), you can define it
+with the label `tsdproxy.runwebclient`.
 
 ```yaml
 labels:
   tsdproxy.enable: "true"
   tsdproxy.name: "myserver"
-  tsdproxy.webclient: "true"
+  tsdproxy.runwebclient: "true"
 ```
 
 {{% /details %}}
@@ -220,9 +184,9 @@ labels:
 {{% /details %}}
 {{% details title="tsdproxy.authkey" %}}
 
-Enable TSDProxy authentication with a different Authkey.
-This give the possibility to add tags on your containers if were defined when
-created the Authkey.
+Enable TSDProxy authentication with a different AuthKey.
+This gives the possibility to add tags on your containers if they were defined when
+created the AuthKey.
 
 ```yaml
 labels:
@@ -233,39 +197,20 @@ labels:
 {{% /details %}}
 {{% details title="tsdproxy.authkeyfile" %}}
 
-Authkeyfile is the path to your Authkey. This is useful if you want to use
-docker secrets.
+Path to a file containing the AuthKey. This is useful if you want to use
+Docker secrets.
 
 ```yaml
 labels:
   tsdproxy.enable: "true"
-  tsdproxy.authkey: "/run/secrets/authkey"
+  tsdproxy.authkeyfile: "/run/secrets/authkey"
 ```
 
 {{% /details %}}
-
-
-### Legacy Labels (v1)
-
-> [!WARNING]
-> The following labels are **deprecated** in v2. They still work for backward compatibility but will be removed in a future version. Use the [port configuration](#port-configuration) labels instead.
-
-{{% details title="tsdproxy.container_port (deprecated)" %}}
-Deprecated. Use `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.scheme (deprecated)" %}}
-Deprecated. Use the protocol in `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.tlsvalidate (deprecated)" %}}
-Deprecated. Use the `no_tlsvalidate` option in `tsdproxy.port.*` labels.
-{{% /details %}}
-{{% details title="tsdproxy.funnel (deprecated)" %}}
-Deprecated. Use the `tailscale_funnel` option in `tsdproxy.port.*` labels.
-{{% /details %}}
 {{% details title="tsdproxy.tags" %}}
 
-Use it to apply tags to your proxy. tsdproxy.tags is as comma separated list
-of tags.
+Use it to apply tags to your proxy. `tsdproxy.tags` is a comma separated list
+of tags. Tags only work with OAuth authentication.
 
 ```yaml
 labels:
@@ -275,24 +220,6 @@ labels:
 
 {{% /details %}}
 
-
-### Legacy Labels (v1)
-
-> [!WARNING]
-> The following labels are **deprecated** in v2. They still work for backward compatibility but will be removed in a future version. Use the [port configuration](#port-configuration) labels instead.
-
-{{% details title="tsdproxy.container_port (deprecated)" %}}
-Deprecated. Use `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.scheme (deprecated)" %}}
-Deprecated. Use the protocol in `tsdproxy.port.*` labels instead.
-{{% /details %}}
-{{% details title="tsdproxy.tlsvalidate (deprecated)" %}}
-Deprecated. Use the `no_tlsvalidate` option in `tsdproxy.port.*` labels.
-{{% /details %}}
-{{% details title="tsdproxy.funnel (deprecated)" %}}
-Deprecated. Use the `tailscale_funnel` option in `tsdproxy.port.*` labels.
-{{% /details %}}
 ## Dashboard Labels
 
 {{% details title="tsdproxy.dash.visible" %}}
@@ -320,7 +247,7 @@ labels:
 {{% /details %}}
 {{% details title="tsdproxy.dash.icon" %}}
 
-Sets the proxy icon on dashboard. If not defined, TSDProxy will try to find a
+Sets the proxy icon on dashboard. If not defined, TSDProxy will try to find an
 icon based on the image name. See available icons in [icons]({{< ref "/docs/v2/advanced/icons" >}}).
 
 ```yaml
@@ -330,3 +257,15 @@ labels:
 ```
 
 {{% /details %}}
+
+## Legacy Labels (v1)
+
+> [!WARNING]
+> The following labels are **deprecated** in v2. They still work for backward compatibility but will be removed in a future version. Use the [port configuration](#port-configuration) labels instead.
+
+| Deprecated Label | Replacement |
+|-----------------|-------------|
+| `tsdproxy.container_port` | Use `tsdproxy.port.*` labels instead |
+| `tsdproxy.scheme` | Use the protocol in `tsdproxy.port.*` labels |
+| `tsdproxy.tlsvalidate` | Use the `no_tlsvalidate` option in `tsdproxy.port.*` labels |
+| `tsdproxy.funnel` | Use the `tailscale_funnel` option in `tsdproxy.port.*` labels |

@@ -4,7 +4,8 @@ prev: /docs/v2/security
 weight: 2
 ---
 
-TSDProxy supports three authentication methods for Tailscale proxies.
+TSDProxy supports three authentication methods for Tailscale proxies. For
+detailed setup instructions, see [Tailscale configuration]({{< ref "/docs/v2/advanced/tailscale" >}}).
 
 ## Comparison
 
@@ -26,8 +27,8 @@ tailscale:
       tags: "tag:example"
 ```
 
-OAuth uses `all:write` scope to automatically authenticate proxies.
-Keys are cached at `{dataDir}/{provider}/{hostname}/tsdproxy.yaml`.
+OAuth generates short-lived auth keys automatically. Keys are cached at
+`{dataDir}/{provider}/{hostname}/tsdproxy.yaml` and renewed on restart.
 
 ## Method 2: OAuth (Manual)
 
