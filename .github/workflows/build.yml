@@ -30,7 +30,7 @@ jobs:
       - name: Generate
         run: go generate ./...
       - name: Build frontend
-        run: bun run build --cwd ./web
+        run: bun run --cwd web build
       - name: Build
         run: go build -v ./...
       - name: Test
