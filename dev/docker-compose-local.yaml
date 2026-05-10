@@ -7,12 +7,14 @@ services:
       - 93:8080
     labels:
       - tsdproxy.enable=true
-      - tsdproxy.name=testeff
+      - tsdproxy.name=nginx-main
+      - tsdproxy.dash.label=NGINX Main
+      - tsdproxy.dash.icon=sh/nginx
       - tsdproxy.ephemeral=true
       - tsdproxy.funnel=true
       - tsdproxy.container_port=80
       - tsdproxy.dash.visible=true
-      # - tsdproxy.port.1=443/https:80/http, no_autodetect
+      - tsdproxy.dash.category=infra
     # networks:
     # - c1
 
@@ -22,7 +24,10 @@ services:
       - 82:80
     labels:
       - tsdproxy.enable=true
-      # - tsdproxy.port.1=443/https:80/http
+      - tsdproxy.name=nginx-old
+      - tsdproxy.dash.label=NGINX Legacy
+      - tsdproxy.dash.icon=sh/nginx
+      - tsdproxy.dash.category=infra
     networks:
       - c2
 
@@ -32,46 +37,35 @@ services:
       - 83:8080
     labels:
       - tsdproxy.enable=true
+      - tsdproxy.name=nginx-unpriv
+      - tsdproxy.dash.label=NGINX Unprivileged
+      - tsdproxy.dash.icon=sh/nginx
       - tsdproxy.autodetect=true
-      # - tsdproxy.port.1=443/https:8080/http
+      - tsdproxy.dash.category=media
     # networks:
     #   - c2
 
-  s1:
-    image: nginx
-    ports:
-      - 101:80
-      - 102:8000
-      - 103:8080
-    deploy:
-      labels:
-        - tsdproxy.enable=true
-        - tsdproxy.name=testeff
-        - tsdproxy.ephemeral=true
-        - tsdproxy.funnel=true
-        - tsdproxy.container_port=80
-        - tsdproxy.dash.visible=true
-    networks:
-      - c1
+  # Unhealthy container: runs but has no HTTP server on port 8080
+  broken:
+    image: busybox
+    command: sleep infinity
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=broken-service
+      - tsdproxy.dash.label=Broken Service
+      - tsdproxy.dash.icon=mdi/alert-circle
+      - tsdproxy.container_port=8080
+      - tsdproxy.dash.category=infra
 
-  s2:
-    image: nginx
+  standalone:
+    image: nginx:alpine
     ports:
-      - 112:80
-    deploy:
-      labels:
-        - tsdproxy.enable=true
-    networks:
-      - c2
-
-  s3:
-    image: nginx
-    network_mode: host
-    ports:
-      - 113:80
-    deploy:
-      labels:
-        - tsdproxy.enable=true
+      - 84:80
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=standalone-app
+      - tsdproxy.dash.label=Standalone App
+      - tsdproxy.dash.icon=mdi/application
 
 volumes:
   tsdata:

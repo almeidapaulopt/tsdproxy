@@ -27,6 +27,7 @@ type ProxyData struct {
 	AuthURL               string
 	HealthStatus          string
 	HealthLatency         string
+	Category              string
 }
 
 type PortEntry struct {
@@ -39,8 +40,13 @@ templ Proxy(item ProxyData) {
 	<div
 		class="proxy"
 		id={ item.Name }
+		data-category={ item.Category }
+		data-status={ item.ProxyStatus.String() }
+		data-health={ healthValue(item.HealthStatus) }
+		data-provider={ item.TargetProvider }
+		data-label={ item.Label }
 		data-signals={ signalsForItem(item) }
-		data-show={ "$" + modalname(item.Name) + "_searchtext.search($search.toLowerCase()) >-1" }
+		data-show={ "($" + modalname(item.Name) + "_searchtext||'').search(($search||'').toLowerCase())>-1 && ($filterStatus==='all' || '" + item.ProxyStatus.String() + "'===$filterStatus) && ($filterHealth==='all' || '" + healthValue(item.HealthStatus) + "'===$filterHealth)" }
 	>
 		<figure>
 			<img src={ components.IconURL(item.Icon) } alt={ item.Icon }/>
@@ -181,6 +187,13 @@ templ Proxy(item ProxyData) {
 	</div>
 }
 
+func healthValue(h string) string {
+	if h == "" {
+		return "unknown"
+	}
+	return h
+}
+
 func modalname(name string) string {
 	replacer := strings.NewReplacer("-", "_", ".", "_", ":", "_", " ", "_")
 	return replacer.Replace(name) + "_modal"
@@ -189,7 +202,7 @@ func modalname(name string) string {
 func signalsForItem(item ProxyData) string {
 	modal := modalname(item.Name)
 	// Build a single searchable text from all relevant fields
-	searchParts := []string{item.Label, item.Name, item.Hostname, item.TargetProvider, item.TailscaleTags, item.TargetImage}
+	searchParts := []string{item.Label, item.Name, item.Hostname, item.TargetProvider, item.TailscaleTags, item.TargetImage, item.Category}
 	searchText := strings.ToLower(strings.Join(searchParts, " "))
 
 	signals := map[string]string{

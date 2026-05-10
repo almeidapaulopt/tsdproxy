@@ -37,6 +37,7 @@ const (
 	LabelDashboardVisible = LabelDashboardPrefix + "visible"
 	LabelDashboardLabel   = LabelDashboardPrefix + "label"
 	LabelDashboardIcon    = LabelDashboardPrefix + "icon"
+	LabelDashboardCategory = LabelDashboardPrefix + "category"
 
 	// docker only defaults
 	DefaultTargetScheme = "http"

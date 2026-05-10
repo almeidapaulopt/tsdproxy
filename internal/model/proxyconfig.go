@@ -34,9 +34,10 @@ type (
 	}
 
 	Dashboard struct {
-		Label   string `validate:"string" yaml:"label"`
-		Icon    string `default:"tsdproxy" validate:"string" yaml:"icon"`
-		Visible bool   `default:"true" validate:"boolean" yaml:"visible"`
+		Label    string `validate:"string" yaml:"label"`
+		Icon     string `default:"tsdproxy" validate:"string" yaml:"icon"`
+		Visible  bool   `default:"true" validate:"boolean" yaml:"visible"`
+		Category string `validate:"string" yaml:"category"`
 	}
 
 	PortConfigList map[string]PortConfig

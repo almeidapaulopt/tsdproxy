@@ -50,6 +50,13 @@ func (dash *Dashboard) renderList(client *sseClient) {
 	dash.mtx.RLock()
 	defer dash.mtx.RUnlock()
 
+	// Ensure filter signals are initialized before proxy cards arrive,
+	// so data-show expressions evaluate correctly on SSE-appended elements.
+	client.send(SSEMessage{
+		Type:    EventUpdateSignals,
+		Message: `{"filterStatus":"all","filterHealth":"all"}`,
+	})
+
 	// force remove elements of proxy-list in case of client reconnect
 	client.send(SSEMessage{
 		Type:    EventClearList,
@@ -148,6 +155,7 @@ func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType)
 		AuthURL:               authURL,
 		HealthStatus:          healthStatus,
 		HealthLatency:         healthLatency,
+		Category:              p.Config.Dashboard.Category,
 	}
 
 	client.send(SSEMessage{

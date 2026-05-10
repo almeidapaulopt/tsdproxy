@@ -190,6 +190,7 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	pcfg.Dashboard.Visible = c.getLabelBool(LabelDashboardVisible, model.DefaultDashboardVisible)
 	pcfg.Dashboard.Label = c.getLabelString(LabelDashboardLabel, pcfg.Hostname)
 
+	pcfg.Dashboard.Category = c.getLabelString(LabelDashboardCategory, "")
 	pcfg.Dashboard.Icon = c.getLabelString(LabelDashboardIcon, "")
 	if pcfg.Dashboard.Icon == "" {
 		pcfg.Dashboard.Icon = web.GuessIcon(c.image)

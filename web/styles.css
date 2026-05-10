@@ -9,7 +9,7 @@
   themes: tsdproxy-light --default, tsdproxy-dark;
   include: reset, properties, scrollbar, rootscrolllock, rootscrollgutter, rootcolor,
     link, button, toggle, tooltip, card, card-body, badge, label, navbar, footer, menu,
-    dropdown, checkbox, radius, modal, kbd, input;
+    dropdown, checkbox, filter, radius, modal, kbd, input, select;
 }
 
 @import "./tsdproxy-light.css";
@@ -24,12 +24,53 @@
 }
 
 @layer components {
+  .toolbar {
+    @apply flex flex-wrap items-center gap-2 sm:gap-3 px-4 py-2 sm:px-7 bg-base-200 dark:bg-base-300;
+  }
+
   #proxy-list {
-    @apply flex flex-wrap gap-4 px-4 mt-8 sm:px-7;
+    @apply flex flex-wrap gap-4 px-4 mt-4 sm:px-7;
+
+    .proxy-group {
+      @apply w-full;
+    }
+
+    .proxy-group-header {
+      @apply flex items-center gap-2 px-3 py-2 cursor-pointer select-none rounded-lg bg-base-200 dark:bg-base-100 mb-1 hover:bg-base-300 dark:hover:bg-base-200 transition-colors;
+
+      .proxy-group-name {
+        @apply text-sm font-semibold text-base-content/70;
+      }
+
+      .proxy-group-count {
+        @apply ml-1;
+      }
+
+      .proxy-group-chevron {
+        @apply ml-auto text-base-content/40 transition-transform duration-200;
+      }
+    }
+
+    .proxy-group.is-collapsed .proxy-group-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .proxy-group-items {
+      @apply flex flex-wrap gap-4;
+
+      &.collapsed {
+        display: none;
+      }
+    }
 
     .proxy {
-
       @apply card card-side card-xs shadow-md bg-base-300 dark:bg-base-200 basis-2xs grow;
+      transition: outline-offset 0.15s, outline-color 0.15s;
+
+      &.focused {
+        outline: 2px solid oklch(var(--p));
+        outline-offset: 2px;
+      }
 
       figure {
         @apply size-20 p-4;
@@ -98,6 +139,11 @@
   flex-direction: column;
   gap: 0.25rem;
 
+  .proxy-group-items {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
   .proxy {
     flex-direction: row;
     align-items: center;
@@ -139,5 +185,25 @@
         }
       }
     }
+  }
+}
+
+@media (max-width: 640px) {
+  dialog.modal {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  dialog.modal .modal-box {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: 100%;
+    width: 100%;
+    max-height: 85vh;
+    border-radius: 1rem 1rem 0 0;
+    margin-bottom: 0;
+    overscroll-behavior: contain;
   }
 }

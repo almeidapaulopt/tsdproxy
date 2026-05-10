@@ -12,9 +12,15 @@
 
 <body data-signals:dark="localStorage.getItem('dark')==='true'"
   data-signals:view="localStorage.getItem('view')||'card'"
-  data-effect="localStorage.setItem('dark',$dark);localStorage.setItem('view',$view)"
+  data-signals:sort="localStorage.getItem('sort')||'name'"
+  data-signals:grouped="localStorage.getItem('grouped')==='true'"
+  data-signals:search=""
+  data-signals:filterStatus="'all'"
+  data-signals:filterHealth="'all'"
+  data-signals:focused=""
+  data-effect="localStorage.setItem('dark',$dark);localStorage.setItem('view',$view);localStorage.setItem('sort',$sort);localStorage.setItem('grouped',$grouped);if(typeof sortList==='function')sortList($sort);if(typeof groupList==='function')groupList($grouped,$sort)"
   data-attr:data-theme="$dark?'tsdproxy-dark':'tsdproxy-light'"
-  data-on:keydown__window="evt.ctrlKey && evt.key === 'f' && (evt.preventDefault(), document.getElementById('searchInput').focus())">
+  data-on:keydown__window="handleKeyboard(evt)">
   <nav class="navbar bg-base-300 dark:bg-base-200 shadow-md">
     <div class="navbar-start">
       <a href="/" class="flex-0 btn btn-ghost gap-1 px-2 md:gap-2">
@@ -34,7 +40,7 @@
     </div>
     <div class="navbar-end gap-4">
 
-      <label class="input hidden md:flex min-w-50">
+      <label class="input flex flex-1 sm:flex-none sm:min-w-50">
         <svg class="h-[1em] opacity-50" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
           <g stroke-linejoin="round" stroke-linecap="round" stroke-width="2.5" fill="none" stroke="currentColor">
             <circle cx="11" cy="11" r="8"></circle>
@@ -42,8 +48,8 @@
           </g>
         </svg>
         <input id="searchInput" data-bind:search placeholder="Search..." type="search" class="grow" tabindex="0" />
-        <kbd class="kbd kbd-sm">ctrl</kbd>
-        <kbd class="kbd kbd-sm">f</kbd>
+        <kbd class="kbd kbd-sm hidden sm:inline">ctrl</kbd>
+        <kbd class="kbd kbd-sm hidden sm:inline">f</kbd>
       </label>
       <a class="btn btn-ghost hidden sm:inline-flex"
         href="https://almeidapaulopt.github.io/tsdproxy/docs/">Documentation</a>
@@ -52,8 +58,8 @@
         a Sponsor</a>
 
       <div class="join hidden sm:inline-flex">
-        <button class="btn btn-xs join-item"
-          data-class:btn-active="$view==='card'"
+        <button class="btn btn-xs join-item btn-primary"
+          data-class:btn-primary="$view==='card'"
           data-on:click="$view='card'" aria-label="card view">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -62,7 +68,7 @@
           </svg>
         </button>
         <button class="btn btn-xs join-item"
-          data-class:btn-active="$view==='compact'"
+          data-class:btn-primary="$view==='compact'"
           data-on:click="$view='compact'" aria-label="compact view">
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -124,6 +130,38 @@
           </div>
           <ul tabindex="0" class="menu menu-sm dropdown-content bg-base-100 rounded-box z-1 mt-3 w-52 p-2 shadow">
             <li>
+              <div class="join w-full">
+                <button class="btn btn-xs join-item flex-1 btn-primary"
+                  data-class:btn-primary="$view==='card'" data-on:click="$view='card'" aria-label="card view">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/>
+                    <rect width="7" height="7" x="3" y="14" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/>
+                  </svg>
+                  Card
+                </button>
+                <button class="btn btn-xs join-item flex-1"
+                  data-class:btn-primary="$view==='compact'" data-on:click="$view='compact'" aria-label="compact view">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/>
+                    <line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
+                  </svg>
+                  Compact
+                </button>
+              </div>
+            </li>
+            <li>
+              <button class="flex items-center gap-2" onclick="requestNotifications()" aria-label="enable notifications">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+                  <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+                </svg>
+                Notifications
+              </button>
+            </li>
+            <li>
               <a href="https://almeidapaulopt.github.io/tsdproxy/docs/">Documentation</a>
             <li><a class="bg-secondary" href="https://buymeacoffee.com/almeidapaulopt" target="_blank"
                 rel="noopener noreferrer">Become
@@ -151,8 +189,44 @@
     </div>
   </nav>
 
+  <div class="toolbar">
+    <button class="btn btn-xs" data-class:btn-primary="$grouped" data-on:click="$grouped=!$grouped" aria-label="group toggle">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 13V2l8 4-8 4"/><path d="M20.55 10.23A9 9 0 1 1 8 4.94"/>
+      </svg>
+      Group
+    </button>
+    <div class="flex items-center gap-2">
+      <label class="text-xs opacity-50">Sort</label>
+      <select class="select select-xs select-bordered" data-on:change="$sort=el.value">
+        <option value="name" data-attr:selected="$sort==='name'">Name</option>
+        <option value="status" data-attr:selected="$sort==='status'">Status</option>
+        <option value="provider" data-attr:selected="$sort==='provider'">Provider</option>
+        <option value="health" data-attr:selected="$sort==='health'">Health</option>
+      </select>
+    </div>
+      <div class="flex items-center gap-1">
+      <label class="text-xs opacity-50 mr-1">Status</label>
+      <div class="filter">
+        <input class="btn btn-xs filter-reset" type="radio" name="filterStatus" aria-label="All" data-on:change="$filterStatus='all'" checked>
+        <input class="btn btn-xs" type="radio" name="filterStatus" aria-label="Running" data-on:change="$filterStatus='Running'">
+        <input class="btn btn-xs" type="radio" name="filterStatus" aria-label="Stopped" data-on:change="$filterStatus='Stopped'">
+        <input class="btn btn-xs" type="radio" name="filterStatus" aria-label="Error" data-on:change="$filterStatus='Error'">
+      </div>
+    </div>
+    <div class="flex items-center gap-1">
+      <label class="text-xs opacity-50 mr-1">Health</label>
+      <div class="filter">
+        <input class="btn btn-xs filter-reset" type="radio" name="filterHealth" aria-label="All" data-on:change="$filterHealth='all'" checked>
+        <input class="btn btn-xs" type="radio" name="filterHealth" aria-label="Healthy" data-on:change="$filterHealth='healthy'">
+        <input class="btn btn-xs" type="radio" name="filterHealth" aria-label="Unhealthy" data-on:change="$filterHealth='down'">
+      </div>
+    </div>
+  </div>
+
   <main data-init="@get('/stream')">
-    <div id='proxy-list' data-class:compact="$view==='compact'"></div>
+    <div id='proxy-list' data-class:compact="$view==='compact'" data-signals:filterStatus="'all'" data-signals:filterHealth="'all'"></div>
   </main>
 
   <footer class="footer sm:footer-horizontal bg-base-300 dark:bg-base-200 px-10 py-4 mt-8">
