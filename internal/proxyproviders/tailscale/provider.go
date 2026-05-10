@@ -17,6 +17,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/semaphore"
 	"tailscale.com/client/tailscale/v2"
 	"tailscale.com/tsnet"
 )
@@ -33,6 +34,8 @@ type Client struct {
 	datadir           string
 	tags              string
 	preventDuplicates bool
+
+	certSem *semaphore.Weighted
 }
 
 // stateMeta tracks the configuration used to create the current tsnet state,
@@ -46,6 +49,11 @@ var _ proxyproviders.Provider = (*Client)(nil)
 func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig) (*Client, error) {
 	datadir := filepath.Join(config.Config.Tailscale.DataDir, name)
 
+	concurrency := provider.MaxCertConcurrency
+	if concurrency < 1 {
+		concurrency = model.DefaultMaxCertConcurrency
+	}
+
 	return &Client{
 		log:               log.With().Str("tailscale", name).Logger(),
 		Hostname:          name,
@@ -56,6 +64,7 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		datadir:           datadir,
 		controlURL:        provider.ControlURL,
 		preventDuplicates: provider.PreventDuplicates,
+		certSem:           semaphore.NewWeighted(concurrency),
 	}, nil
 }
 
@@ -112,6 +121,7 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		log:      log,
 		config:   config,
 		tsServer: tserver,
+		certSem:  c.certSem,
 		events:   make(chan model.ProxyEvent, 10), //nolint:mnd
 	}, nil
 }

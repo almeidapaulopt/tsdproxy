@@ -17,6 +17,11 @@ const (
 	DefaultTailscaleFunnel       = false
 	DefaultTailscaleControlURL   = ""
 
+	// Max concurrent TLS cert generations against the Tailscale local API.
+	// Prevents "context deadline exceeded" when many ephemeral containers
+	// restart at once and all proxies request certs simultaneously.
+	DefaultMaxCertConcurrency int64 = 2
+
 	// Dashboard defauts
 	DefaultDashboardVisible = true
 	DefaultDashboardIcon    = "tsdproxy"

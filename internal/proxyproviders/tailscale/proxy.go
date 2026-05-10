@@ -12,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/semaphore"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/tsnet"
@@ -41,6 +43,7 @@ type Proxy struct {
 	watchOnce sync.Once
 	started   bool
 	watchDone chan struct{}
+	certSem   *semaphore.Weighted
 }
 
 var (
@@ -312,6 +315,19 @@ func (p *Proxy) getTLSCertificates() {
 
 	if lc == nil || tsServer == nil {
 		return
+	}
+
+	waitStart := time.Now()
+	if err := p.certSem.Acquire(p.ctx, 1); err != nil {
+		if !errors.Is(err, context.Canceled) {
+			p.log.Error().Err(err).Msg("failed to acquire cert semaphore")
+		}
+		return
+	}
+	defer p.certSem.Release(1)
+
+	if wait := time.Since(waitStart); wait > time.Second {
+		p.log.Warn().Dur("wait", wait).Msg("cert generation delayed by semaphore contention")
 	}
 
 	p.log.Info().Msg("Generating TLS certificate")

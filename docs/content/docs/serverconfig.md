@@ -48,6 +48,7 @@ tailscale:
                                      # Container-specific tags override these default tags
       controlUrl: https://controlplane.tailscale.com # Override the default Tailscale control URL
       preventDuplicates: false # Delete stale tailnet devices before creating new nodes (OAuth only)
+      maxCertConcurrency: 2 # Max parallel TLS cert generation requests (default: 2)
   dataDir: /data/ # Tailscale data directory
 http:
   hostname: 0.0.0.0 # HTTP server hostname
