@@ -81,6 +81,18 @@ func (r *LogRecord) Flush() {
 	}
 }
 
+// Unwrap exposes the underlying ResponseWriter so that
+// [http.NewResponseController] can reach optional methods
+// such as SetReadDeadline / SetWriteDeadline implemented
+// by the http server's connection writer.
+//
+// Without this, wrappers between the server and a streaming
+// handler (e.g. httputil.ReverseProxy for SSE) cannot
+// access those methods.
+func (r *LogRecord) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 // LoggerMiddleware is a middleware function that logs incoming HTTP requests.
 func LoggerMiddleware(l zerolog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
