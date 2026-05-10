@@ -58,6 +58,27 @@ func newPortProxy(
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,
 		FlushInterval: -1, // flush immediately — required for SSE streaming
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			// When the client disconnects (typical for SSE/long-lived
+			// connections) the request context is canceled. Don't write
+			// a 502 in that case — there is nobody to read it, and
+			// EventSource clients would otherwise interpret the body
+			// as a real backend failure. Aborting silently lets the
+			// browser's EventSource auto-reconnect.
+			if errors.Is(err, context.Canceled) ||
+				errors.Is(r.Context().Err(), context.Canceled) {
+				log.Debug().
+					Str("port", pconfig.String()).
+					Str("url", r.URL.String()).
+					Msg("client closed connection")
+				return
+			}
+			log.Error().Err(err).
+				Str("port", pconfig.String()).
+				Str("url", r.URL.String()).
+				Msg("proxy error")
+			w.WriteHeader(http.StatusBadGateway)
+		},
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetURL(pconfig.GetFirstTarget())
 			r.Out.Host = r.In.Host
