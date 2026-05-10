@@ -9,18 +9,27 @@ import (
 )
 
 type ProxyData struct {
-	Enabled     bool
-	Name        string
-	Icon        string
-	URL         string
-	Label       string
-	ProxyStatus model.ProxyStatus
-	Ports       []PortEntry
+	Enabled               bool
+	Name                  string
+	Icon                  string
+	URL                   string
+	Label                 string
+	ProxyStatus           model.ProxyStatus
+	Ports                 []PortEntry
+	Hostname              string
+	TargetProvider        string
+	TargetID              string
+	TailscaleTags         string
+	TailscaleEphemeral    bool
+	TailscaleRunWebClient bool
+	ProxyAccessLog        bool
+	AuthURL               string
 }
 
 type PortEntry struct {
 	PortConfig model.PortConfig
 	URL        string
+	TargetURL  string
 }
 
 templ Proxy(item ProxyData) {
@@ -28,7 +37,7 @@ templ Proxy(item ProxyData) {
 		class="proxy"
 		id={ item.Name }
 		data-signals={ signalsForItem(item) }
-		data-show={ "$" + modalname(item.Name) + "_label.toLowerCase().search($search.toLowerCase()) >-1" }
+		data-show={ "$" + modalname(item.Name) + "_searchtext.search($search.toLowerCase()) >-1" }
 	>
 		<figure>
 			<img src={ components.IconURL(item.Icon) } alt={ item.Icon }/>
@@ -57,16 +66,94 @@ templ Proxy(item ProxyData) {
 			</div>
 		</div>
 		<dialog id={ modalname(item.Name) } class="modal">
-			<div class="modal-box">
+			<div class="modal-box max-w-lg">
 				<form method="dialog">
 					<button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
 				</form>
-				<h3 class="text-lg font-bold">{ item.Name }</h3>
-			for _, port := range item.Ports {
-				<a href={ templ.URL(port.URL) } class="py-4">
-						{ port.PortConfig.String() }
-					</a>
-					<!-- TODO: add more info -->
+				<div class="flex items-center gap-3 mb-4">
+					<figure class="size-12">
+						<img src={ components.IconURL(item.Icon) } alt={ item.Icon }/>
+					</figure>
+					<div>
+						<h3 class="text-lg font-bold">{ item.Label }</h3>
+						if item.Name != item.Label {
+							<p class="text-sm opacity-60">{ item.Name }</p>
+						}
+					</div>
+					<div class={ "badge ml-auto", item.ProxyStatus.String() }>{ item.ProxyStatus.String() }</div>
+				</div>
+
+				<!-- FQDN with copy -->
+				<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2 mb-4">
+					<span class="text-sm font-mono truncate flex-1">{ item.Hostname }</span>
+					<button class="btn btn-xs btn-ghost" data-on:click="navigator.clipboard.writeText('{ item.Hostname }')">
+						<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-4"/>
+					</button>
+				</div>
+
+				<!-- Meta badges -->
+				<div class="flex flex-wrap gap-1.5 mb-4">
+					if item.TargetProvider != "" {
+						<span class="badge badge-outline badge-sm">{ item.TargetProvider }</span>
+					}
+					if item.TailscaleEphemeral {
+						<span class="badge badge-ghost badge-sm">ephemeral</span>
+					}
+					if item.TailscaleRunWebClient {
+						<span class="badge badge-ghost badge-sm">web client</span>
+					}
+					if item.ProxyAccessLog {
+						<span class="badge badge-ghost badge-sm">access log</span>
+					}
+				</div>
+
+				<!-- Tags -->
+				if item.TailscaleTags != "" {
+					<div class="mb-4">
+						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Tags</p>
+						<div class="flex flex-wrap gap-1">
+							for _, tag := range strings.Split(item.TailscaleTags, ",") {
+								<span class="badge badge-primary badge-sm">{ strings.TrimSpace(tag) }</span>
+							}
+						</div>
+					</div>
+				}
+
+				<!-- Ports -->
+				if len(item.Ports) > 0 {
+					<div class="mb-4">
+						<p class="text-xs font-semibold uppercase opacity-50 mb-2">Ports</p>
+						<div class="flex flex-col gap-2">
+							for _, port := range item.Ports {
+								<div class="bg-base-200 rounded-lg px-3 py-2">
+									<div class="flex items-center justify-between gap-2">
+										<a href={ templ.URL(port.URL) } target="_blank" rel="noopener noreferrer" class="link link-primary font-mono text-sm truncate">{ port.URL }</a>
+										if port.PortConfig.Tailscale.Funnel {
+											<span class="badge badge-warning badge-xs shrink-0">funnel</span>
+										}
+									</div>
+									<div class="flex items-center gap-2 mt-1">
+										<span class="text-xs opacity-40">→</span>
+										<span class="text-xs font-mono opacity-50 truncate">{ port.TargetURL }</span>
+										if port.PortConfig.IsRedirect {
+											<span class="badge badge-info badge-xs shrink-0">redirect</span>
+										}
+										if !port.PortConfig.TLSValidate {
+											<span class="badge badge-error badge-xs shrink-0">skip TLS</span>
+										}
+									</div>
+								</div>
+							}
+						</div>
+					</div>
+				}
+
+				<!-- Auth URL -->
+				if item.AuthURL != "" && item.ProxyStatus == model.ProxyStatusAuthenticating {
+					<div class="mb-2">
+						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Authentication</p>
+						<a href={ templ.URL(item.AuthURL) } target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-warning">Authenticate</a>
+					</div>
 				}
 			</div>
 			<form method="dialog" class="modal-backdrop">
@@ -82,8 +169,15 @@ func modalname(name string) string {
 }
 
 func signalsForItem(item ProxyData) string {
-	key := modalname(item.Name) + "_label"
-	signals := map[string]string{key: item.Label}
+	modal := modalname(item.Name)
+	// Build a single searchable text from all relevant fields
+	searchParts := []string{item.Label, item.Name, item.Hostname, item.TargetProvider, item.TailscaleTags}
+	searchText := strings.ToLower(strings.Join(searchParts, " "))
+
+	signals := map[string]string{
+		modal + "_label":      item.Label,
+		modal + "_searchtext": searchText,
+	}
 	b, err := json.Marshal(signals)
 	if err != nil {
 		return "{}"

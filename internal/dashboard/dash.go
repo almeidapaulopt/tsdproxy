@@ -103,22 +103,38 @@ func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType)
 			portURL += ":" + strconv.Itoa(target.ProxyPort)
 		}
 
+		targetURL := target.GetFirstTarget().String()
+
 		ports = append(ports, pages.PortEntry{
 			PortConfig: target,
 			URL:        portURL,
+			TargetURL:  targetURL,
 		})
+	}
+
+	authURL := ""
+	if status == model.ProxyStatusAuthenticating {
+		authURL = p.GetAuthURL()
 	}
 
 	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusRunning
 
 	a := pages.ProxyData{
-		Enabled:     enabled,
-		Name:        name,
-		URL:         url,
-		ProxyStatus: status,
-		Icon:        icon,
-		Label:       label,
-		Ports:       ports,
+		Enabled:               enabled,
+		Name:                  name,
+		URL:                   url,
+		ProxyStatus:           status,
+		Icon:                  icon,
+		Label:                 label,
+		Ports:                 ports,
+		Hostname:              hostname,
+		TargetProvider:        p.Config.TargetProvider,
+		TargetID:              p.Config.TargetID,
+		TailscaleTags:         p.Config.Tailscale.Tags,
+		TailscaleEphemeral:    p.Config.Tailscale.Ephemeral,
+		TailscaleRunWebClient: p.Config.Tailscale.RunWebClient,
+		ProxyAccessLog:        p.Config.ProxyAccessLog,
+		AuthURL:               authURL,
 	}
 
 	client.send(SSEMessage{
