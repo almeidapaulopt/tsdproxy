@@ -17,6 +17,7 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
 	"github.com/rs/zerolog"
@@ -44,6 +45,9 @@ func newPortProxy(
 	log zerolog.Logger,
 	accessLog bool,
 	whoisFunc func(next http.Handler) http.Handler,
+	m *metrics.Metrics,
+	proxyName string,
+	portName string,
 ) *port {
 	//
 	log = log.With().Str("port", pconfig.String()).Logger()
@@ -116,6 +120,11 @@ func newPortProxy(
 	// add logger to proxy
 	if accessLog {
 		handler = core.LoggerMiddleware(log, handler)
+	}
+
+	// add metrics as outermost middleware
+	if m != nil {
+		handler = m.Middleware(proxyName, portName)(handler)
 	}
 
 	// main http Server

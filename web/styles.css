@@ -61,11 +61,81 @@
         }
       }
 
+      .health-dot {
+        @apply w-2 h-2 rounded-full bg-base-content/20;
+
+        &.healthy {
+          @apply bg-success;
+        }
+
+        &.down {
+          @apply bg-error;
+          animation: pulse-error 2s ease-in-out infinite;
+        }
+
+        &.unknown {
+          @apply bg-warning;
+        }
+      }
+
+      @keyframes pulse-error {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+
       .openbtn {
         @apply card-actions justify-end absolute right-2 bottom-2;
 
         a {
           @apply btn btn-primary btn-sm;
+        }
+      }
+    }
+  }
+}
+
+#proxy-list.compact {
+  flex-direction: column;
+  gap: 0.25rem;
+
+  .proxy {
+    flex-direction: row;
+    align-items: center;
+    flex-basis: auto;
+    box-shadow: 0 1px 2px 0 oklch(0% 0 0 / 0.05);
+
+    figure {
+      width: 2.5rem;
+      height: 2.5rem;
+      padding: 0.5rem;
+    }
+
+    .card-body {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.5rem;
+
+      .card-title {
+        font-size: 0.875rem;
+
+        button {
+          position: static;
+          margin: 0;
+          padding: 0.25rem;
+        }
+      }
+
+      .status, .health-dot {
+        font-size: 0.625rem;
+      }
+
+      .openbtn {
+        position: static;
+
+        a {
+          font-size: 0.6875rem;
+          padding-inline: 0.75rem;
         }
       }
     }

@@ -12,4 +12,18 @@ window.sortList = function() {
   items.forEach(item => list.appendChild(item));
 }
 
+window.showProxyNotification = function(name, status) {
+  if (Notification.permission !== 'granted') return;
+  const el = document.getElementById(name);
+  const label = el ? el.querySelector('.card-title span')?.textContent : name;
+  new Notification(`TSDProxy: ${label}`, {
+    body: `Status changed to ${status}`,
+    icon: '/icons/tsdproxy.svg',
+  });
+}
 
+window.requestNotifications = function() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}

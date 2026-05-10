@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"sync"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
 
@@ -32,6 +33,8 @@ type (
 		ports         map[string]portHandler
 		mtx           sync.RWMutex
 		status        model.ProxyStatus
+		metrics       *metrics.Metrics
+		health        *healthChecker
 	}
 )
 
@@ -39,6 +42,7 @@ type (
 func NewProxy(log zerolog.Logger,
 	pcfg *model.Config,
 	proxyProvider proxyproviders.Provider,
+	m *metrics.Metrics,
 ) (*Proxy, error) {
 	//
 	var err error
@@ -69,6 +73,7 @@ func NewProxy(log zerolog.Logger,
 		cancel:        cancel,
 		providerProxy: pProvider,
 		ports:         make(map[string]portHandler),
+		metrics:       m,
 	}
 
 	p.initPorts()
@@ -78,6 +83,8 @@ func NewProxy(log zerolog.Logger,
 
 func (proxy *Proxy) Start() {
 	go proxy.start()
+
+	proxy.startHealthChecker()
 
 	go func() {
 		for event := range proxy.providerProxy.WatchEvents() {
@@ -89,6 +96,8 @@ func (proxy *Proxy) Start() {
 // Close method is a method that initiate proxy close procedure.
 func (proxy *Proxy) Close() {
 	proxy.setStatus(model.ProxyStatusStopping)
+
+	proxy.stopHealthChecker()
 
 	// cancel context
 	proxy.cancel()
@@ -114,6 +123,40 @@ func (proxy *Proxy) GetAuthURL() string {
 	return proxy.providerProxy.GetAuthURL()
 }
 
+func (proxy *Proxy) GetHealth() HealthResult {
+	return proxy.health.GetHealth()
+}
+
+func (proxy *Proxy) startHealthChecker() {
+	for _, pc := range proxy.Config.Ports {
+		if pc.IsRedirect {
+			continue
+		}
+		target := pc.GetFirstTarget()
+		if target == nil || target.Host == "" {
+			continue
+		}
+
+		scheme := pc.ProxyProtocol
+		var checkTarget string
+		if scheme == "http" || scheme == "https" {
+			checkTarget = target.String()
+		} else {
+			checkTarget = target.Host
+		}
+
+		proxy.health = newHealthChecker(proxy.log, checkTarget, scheme)
+		proxy.health.start()
+		return
+	}
+}
+
+func (proxy *Proxy) stopHealthChecker() {
+	if proxy.health != nil {
+		proxy.health.stop()
+	}
+}
+
 func (proxy *Proxy) ProviderUserMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		who := proxy.providerProxy.Whois(r)
@@ -132,7 +175,7 @@ func (proxy *Proxy) initPorts() {
 		if v.IsRedirect {
 			ph = newPortRedirect(proxy.ctx, v, log)
 		} else if v.ProxyProtocol == "http" || v.ProxyProtocol == "https" {
-			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware)
+			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware, proxy.metrics, proxy.Config.Hostname, k)
 		} else {
 			ph = newPortTCP(proxy.ctx, v, log)
 		}

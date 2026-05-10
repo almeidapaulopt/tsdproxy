@@ -16,6 +16,7 @@ type (
 		Ports          PortConfigList `validate:"dive"`
 		TargetProvider string
 		TargetID       string
+		TargetImage    string
 		ProxyProvider  string
 		Hostname       string
 		Dashboard      Dashboard `validate:"dive"`

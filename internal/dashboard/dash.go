@@ -4,6 +4,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -119,6 +120,15 @@ func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType)
 
 	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusRunning
 
+	health := p.GetHealth()
+	healthStatus := health.Status.String()
+	healthLatency := ""
+	if health.Status == 0 {
+		healthStatus = ""
+	} else if health.Latency > 0 {
+		healthLatency = fmt.Sprintf("(%dms)", health.Latency.Milliseconds())
+	}
+
 	a := pages.ProxyData{
 		Enabled:               enabled,
 		Name:                  name,
@@ -130,11 +140,14 @@ func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType)
 		Hostname:              hostname,
 		TargetProvider:        p.Config.TargetProvider,
 		TargetID:              p.Config.TargetID,
+		TargetImage:           p.Config.TargetImage,
 		TailscaleTags:         p.Config.Tailscale.Tags,
 		TailscaleEphemeral:    p.Config.Tailscale.Ephemeral,
 		TailscaleRunWebClient: p.Config.Tailscale.RunWebClient,
 		ProxyAccessLog:        p.Config.ProxyAccessLog,
 		AuthURL:               authURL,
+		HealthStatus:          healthStatus,
+		HealthLatency:         healthLatency,
 	}
 
 	client.send(SSEMessage{

@@ -181,6 +181,7 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	}
 
 	pcfg.TargetID = c.id
+	pcfg.TargetImage = c.image
 	pcfg.Hostname = hostname
 	pcfg.TargetProvider = c.targetProviderName
 	pcfg.Tailscale = *tailscale

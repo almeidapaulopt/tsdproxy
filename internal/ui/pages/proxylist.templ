@@ -19,11 +19,14 @@ type ProxyData struct {
 	Hostname              string
 	TargetProvider        string
 	TargetID              string
+	TargetImage           string
 	TailscaleTags         string
 	TailscaleEphemeral    bool
 	TailscaleRunWebClient bool
 	ProxyAccessLog        bool
 	AuthURL               string
+	HealthStatus          string
+	HealthLatency         string
 }
 
 type PortEntry struct {
@@ -50,6 +53,9 @@ templ Proxy(item ProxyData) {
 				</button>
 			</h2>
 			<div class={ "status" , item.ProxyStatus.String() }>{ item.ProxyStatus.String() }</div>
+			if item.ProxyStatus == model.ProxyStatusRunning && item.HealthStatus != "" {
+				<div class={ "health-dot" , item.HealthStatus } title={ "health: " + item.HealthStatus + " " + item.HealthLatency }></div>
+			}
 			<div class="openbtn">
 				<a
 					href={ templ.URL(item.URL) }
@@ -106,6 +112,18 @@ templ Proxy(item ProxyData) {
 						<span class="badge badge-ghost badge-sm">access log</span>
 					}
 				</div>
+
+				if item.TargetImage != "" {
+					<div class="mb-4">
+						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Image</p>
+						<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
+							<span class="text-sm font-mono truncate flex-1">{ item.TargetImage }</span>
+							<button class="btn btn-xs btn-ghost" data-on:click="navigator.clipboard.writeText('{ item.TargetImage }')">
+								<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-4"/>
+							</button>
+						</div>
+					</div>
+				}
 
 				<!-- Tags -->
 				if item.TailscaleTags != "" {
@@ -171,7 +189,7 @@ func modalname(name string) string {
 func signalsForItem(item ProxyData) string {
 	modal := modalname(item.Name)
 	// Build a single searchable text from all relevant fields
-	searchParts := []string{item.Label, item.Name, item.Hostname, item.TargetProvider, item.TailscaleTags}
+	searchParts := []string{item.Label, item.Name, item.Hostname, item.TargetProvider, item.TailscaleTags, item.TargetImage}
 	searchText := strings.ToLower(strings.Join(searchParts, " "))
 
 	signals := map[string]string{

@@ -5,6 +5,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
@@ -172,12 +173,22 @@ func (dash *Dashboard) streamProxyUpdates() {
 
 			case model.ProxyStatusStopped:
 				sseClient.send(SSEMessage{
+					Type:    EventScript,
+					Message: fmt.Sprintf("showProxyNotification('%s', 'Stopped')", event.ID),
+				})
+				sseClient.send(SSEMessage{
 					Type:    EventRemoveElement,
 					Message: "#" + event.ID,
 				})
 
 			default:
 				dash.renderProxy(sseClient, event.ID, EventMerge)
+				if event.Status == model.ProxyStatusError {
+					sseClient.send(SSEMessage{
+						Type:    EventScript,
+						Message: fmt.Sprintf("showProxyNotification('%s', 'Error')", event.ID),
+					})
+				}
 			}
 		}
 		dash.mtx.RUnlock()

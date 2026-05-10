@@ -7,12 +7,14 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"net/http"
 	"strings"
 	"sync"
 
 	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders/tailscale"
@@ -40,6 +42,8 @@ type (
 		mtx      sync.RWMutex
 		targetMu sync.Map // map[string]*sync.Mutex — per-target-ID lock for serializing events
 		hostMu   sync.Map // map[string]*sync.Mutex — per-hostname lock for serializing proxy replacement
+
+		metrics *metrics.Metrics
 	}
 )
 
@@ -56,6 +60,7 @@ func NewProxyManager(logger zerolog.Logger) *ProxyManager {
 		ProxyProviders:    make(ProxyProviderList),
 		statusSubscribers: make(map[chan model.ProxyEvent]struct{}),
 		log:               logger.With().Str("module", "proxymanager").Logger(),
+		metrics:           metrics.New(),
 	}
 
 	return pm
@@ -190,6 +195,11 @@ func (pm *ProxyManager) GetProxy(name string) (*Proxy, bool) {
 	proxy, ok := pm.Proxies[name]
 
 	return proxy, ok
+}
+
+// MetricsHandler returns an http.Handler that serves Prometheus metrics.
+func (pm *ProxyManager) MetricsHandler() http.Handler {
+	return pm.metrics.Handler()
 }
 
 // broadcastStatusEvents broadcasts proxy status event to all SubscribeStatusEvents
@@ -354,7 +364,7 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		return
 	}
 
-	p, err := NewProxy(pm.log, proxyConfig, proxyProvider)
+	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics)
 	if err != nil {
 		pm.log.Error().Err(err).Msg("Error creating proxy")
 		return
