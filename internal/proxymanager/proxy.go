@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -19,7 +20,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const maxStatusHistory = 5
+
 type (
+	StatusTransition struct {
+		Status    model.ProxyStatus
+		Timestamp time.Time
+	}
+
 	// Proxy struct is a struct that contains all the information needed to run a proxy.
 	Proxy struct {
 		onUpdate func(event model.ProxyEvent)
@@ -35,6 +43,8 @@ type (
 		status        model.ProxyStatus
 		metrics       *metrics.Metrics
 		health        *healthChecker
+		statusHistory []StatusTransition
+		startedAt     time.Time
 	}
 )
 
@@ -74,6 +84,8 @@ func NewProxy(log zerolog.Logger,
 		providerProxy: pProvider,
 		ports:         make(map[string]portHandler),
 		metrics:       m,
+		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
+		startedAt:     time.Now(),
 	}
 
 	p.initPorts()
@@ -125,6 +137,25 @@ func (proxy *Proxy) GetAuthURL() string {
 
 func (proxy *Proxy) GetHealth() HealthResult {
 	return proxy.health.GetHealth()
+}
+
+func (proxy *Proxy) GetStatusHistory() []StatusTransition {
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+
+	history := make([]StatusTransition, len(proxy.statusHistory))
+	copy(history, proxy.statusHistory)
+	return history
+}
+
+func (proxy *Proxy) GetUptime() time.Duration {
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+
+	if proxy.startedAt.IsZero() {
+		return 0
+	}
+	return time.Since(proxy.startedAt)
 }
 
 func (proxy *Proxy) startHealthChecker() {
@@ -275,6 +306,15 @@ func (proxy *Proxy) setStatus(status model.ProxyStatus) {
 	}
 
 	proxy.status = status
+
+	proxy.statusHistory = append(proxy.statusHistory, StatusTransition{
+		Status:    status,
+		Timestamp: time.Now(),
+	})
+	if len(proxy.statusHistory) > maxStatusHistory {
+		proxy.statusHistory = proxy.statusHistory[len(proxy.statusHistory)-maxStatusHistory:]
+	}
+
 	proxy.mtx.Unlock()
 
 	if proxy.onUpdate != nil {

@@ -28,6 +28,14 @@ type ProxyData struct {
 	HealthStatus          string
 	HealthLatency         string
 	Category              string
+	StatusHistory         []StatusHistoryEntry
+	Uptime                string
+}
+
+type StatusHistoryEntry struct {
+	Status    string
+	Timestamp string
+	When      string
 }
 
 type PortEntry struct {
@@ -79,6 +87,7 @@ templ Proxy(item ProxyData) {
 		</div>
 		<dialog id={ modalname(item.Name) } class="modal">
 			<div class="modal-box max-w-lg">
+				<div class="drag-handle sm:hidden"></div>
 				<form method="dialog">
 					<button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
 				</form>
@@ -143,6 +152,33 @@ templ Proxy(item ProxyData) {
 					</div>
 				}
 
+				<!-- Uptime -->
+				if item.ProxyStatus == model.ProxyStatusRunning && item.Uptime != "" {
+					<div class="mb-4">
+						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Uptime</p>
+						<div class="flex items-center gap-2">
+							<div class="w-2 h-2 rounded-full bg-success"></div>
+							<span class="text-sm font-mono">{ item.Uptime }</span>
+						</div>
+					</div>
+				}
+
+				<!-- Status Timeline -->
+				if len(item.StatusHistory) > 0 {
+					<div class="mb-4">
+						<p class="text-xs font-semibold uppercase opacity-50 mb-2">Status Timeline</p>
+						<div class="flex flex-col gap-1">
+							for _, entry := range item.StatusHistory {
+								<div class="flex items-center gap-2 text-xs">
+									<div class={ "w-1.5 h-1.5 rounded-full shrink-0", statusDotClass(entry.Status) }></div>
+									<span class="opacity-70">{ entry.Status }</span>
+									<span class="opacity-40 tabular-nums ml-auto">{ entry.When }</span>
+								</div>
+							}
+						</div>
+					</div>
+				}
+
 				<!-- Ports -->
 				if len(item.Ports) > 0 {
 					<div class="mb-4">
@@ -197,6 +233,21 @@ func healthValue(h string) string {
 func modalname(name string) string {
 	replacer := strings.NewReplacer("-", "_", ".", "_", ":", "_", " ", "_")
 	return replacer.Replace(name) + "_modal"
+}
+
+func statusDotClass(status string) string {
+	switch status {
+	case "Running":
+		return "bg-success"
+	case "Authenticating", "Initializing", "Starting":
+		return "bg-info animate-pulse"
+	case "Error", "Stopped":
+		return "bg-error"
+	case "Stopping":
+		return "bg-warning"
+	default:
+		return "bg-base-content/30"
+	}
 }
 
 func signalsForItem(item ProxyData) string {

@@ -195,7 +195,7 @@
         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 13V2l8 4-8 4"/><path d="M20.55 10.23A9 9 0 1 1 8 4.94"/>
       </svg>
-      Group
+      <span class="hidden sm:inline">Group</span>
     </button>
     <div class="flex items-center gap-2">
       <label class="text-xs opacity-50">Sort</label>
@@ -206,18 +206,18 @@
         <option value="health" data-attr:selected="$sort==='health'">Health</option>
       </select>
     </div>
-      <div class="flex items-center gap-1">
-      <label class="text-xs opacity-50 mr-1">Status</label>
-      <div class="filter">
+      <div class="flex items-center gap-1 min-w-0">
+      <label class="text-xs opacity-50 sm:mr-1 shrink-0">Status</label>
+      <div class="filter filter-scroll">
         <input class="btn btn-xs filter-reset" type="radio" name="filterStatus" aria-label="All" data-on:change="$filterStatus='all'" checked>
         <input class="btn btn-xs" type="radio" name="filterStatus" aria-label="Running" data-on:change="$filterStatus='Running'">
         <input class="btn btn-xs" type="radio" name="filterStatus" aria-label="Stopped" data-on:change="$filterStatus='Stopped'">
         <input class="btn btn-xs" type="radio" name="filterStatus" aria-label="Error" data-on:change="$filterStatus='Error'">
       </div>
     </div>
-    <div class="flex items-center gap-1">
-      <label class="text-xs opacity-50 mr-1">Health</label>
-      <div class="filter">
+    <div class="flex items-center gap-1 min-w-0">
+      <label class="text-xs opacity-50 sm:mr-1 shrink-0">Health</label>
+      <div class="filter filter-scroll">
         <input class="btn btn-xs filter-reset" type="radio" name="filterHealth" aria-label="All" data-on:change="$filterHealth='all'" checked>
         <input class="btn btn-xs" type="radio" name="filterHealth" aria-label="Healthy" data-on:change="$filterHealth='healthy'">
         <input class="btn btn-xs" type="radio" name="filterHealth" aria-label="Unhealthy" data-on:change="$filterHealth='down'">

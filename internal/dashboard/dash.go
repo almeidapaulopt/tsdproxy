@@ -5,9 +5,11 @@ package dashboard
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -136,6 +138,18 @@ func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType)
 		healthLatency = fmt.Sprintf("(%dms)", health.Latency.Milliseconds())
 	}
 
+	statusHistory := p.GetStatusHistory()
+	history := make([]pages.StatusHistoryEntry, len(statusHistory))
+	for i, t := range statusHistory {
+		history[i] = pages.StatusHistoryEntry{
+			Status:    t.Status.String(),
+			Timestamp: t.Timestamp.Format(time.RFC3339),
+			When:      formatAgo(t.Timestamp),
+		}
+	}
+
+	uptime := formatDuration(p.GetUptime())
+
 	a := pages.ProxyData{
 		Enabled:               enabled,
 		Name:                  name,
@@ -156,10 +170,62 @@ func (dash *Dashboard) renderProxy(client *sseClient, name string, ev EventType)
 		HealthStatus:          healthStatus,
 		HealthLatency:         healthLatency,
 		Category:              p.Config.Dashboard.Category,
+		StatusHistory:         history,
+		Uptime:                uptime,
 	}
 
 	client.send(SSEMessage{
 		Type: ev,
 		Comp: pages.Proxy(a),
 	})
+}
+
+func formatAgo(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		m := int(math.Round(d.Minutes()))
+		if m == 1 {
+			return "1m ago"
+		}
+		return fmt.Sprintf("%dm ago", m)
+	case d < 24*time.Hour:
+		h := int(math.Round(d.Hours()))
+		if h == 1 {
+			return "1h ago"
+		}
+		return fmt.Sprintf("%dh ago", h)
+	default:
+		days := int(math.Round(d.Hours() / 24))
+		if days == 1 {
+			return "1d ago"
+		}
+		return fmt.Sprintf("%dd ago", days)
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return ""
+	}
+	days := int(d.Hours() / 24)
+	hours := int(math.Mod(d.Hours(), 24))
+	minutes := int(math.Mod(d.Minutes(), 60))
+
+	var parts []string
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 || len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	return strings.Join(parts, " ")
 }
