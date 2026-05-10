@@ -180,6 +180,30 @@ A device is only deleted when **all** of these conditions are true:
 
 Online devices are never deleted.
 
+## Certificate Concurrency
+
+When many ephemeral containers restart at once, TSDProxy requests TLS
+certificates for all of them simultaneously. The Tailscale local API cannot
+handle this thundering herd, resulting in `context deadline exceeded` errors
+and failed certificate generation.
+
+The `maxCertConcurrency` option (default: `2`) limits how many certificate
+generation requests run in parallel. Requests that exceed the limit wait for
+a slot and are logged at `warn` level if delayed by more than one second.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+tailscale:
+  providers:
+    default:
+      maxCertConcurrency: 3 # allow up to 3 parallel cert requests
+```
+
+> [!Tip]
+> The default of `2` is sufficient for most deployments. Increase it only
+> if you run 50+ containers and want faster startup at the cost of higher
+> load on the Tailscale coordination server. Values below `1` are invalid
+> and fall back to the default.
+
 ## Identity Headers
 
 TSDProxy resolves the Tailscale identity of each incoming request and forwards
