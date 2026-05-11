@@ -45,6 +45,7 @@ type (
 		health        *healthChecker
 		statusHistory []StatusTransition
 		startedAt     time.Time
+		logBuffer     *LogRingBuffer
 	}
 )
 
@@ -76,6 +77,11 @@ func NewProxy(log zerolog.Logger,
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	var logBuffer *LogRingBuffer
+	if pcfg.ProxyAccessLog {
+		logBuffer = NewLogRingBuffer(log, DefaultLogBufferSize)
+	}
+
 	p := &Proxy{
 		log:           log,
 		Config:        pcfg,
@@ -86,6 +92,7 @@ func NewProxy(log zerolog.Logger,
 		metrics:       m,
 		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
 		startedAt:     time.Now(),
+		logBuffer:     logBuffer,
 	}
 
 	p.initPorts()
@@ -113,6 +120,11 @@ func (proxy *Proxy) Close() {
 
 	// cancel context
 	proxy.cancel()
+
+	// Close log subscribers so SSE handlers unblock.
+	if proxy.logBuffer != nil {
+		proxy.logBuffer.Close()
+	}
 
 	// make sure all listeners are closed
 	proxy.close()
@@ -156,6 +168,24 @@ func (proxy *Proxy) GetUptime() time.Duration {
 		return 0
 	}
 	return time.Since(proxy.startedAt)
+}
+
+// SubscribeLogs returns a snapshot of existing log lines and a channel for
+// live updates. Returns nil slice and nil channel if access logging is disabled.
+func (proxy *Proxy) SubscribeLogs() (snapshot []string, ch chan string) {
+	if proxy.logBuffer == nil {
+		return nil, nil
+	}
+	return proxy.logBuffer.SubscribeWithSnapshot()
+}
+
+// UnsubscribeLogs removes a log subscription. Safe to call with nil channel
+// or when access logging is disabled.
+func (proxy *Proxy) UnsubscribeLogs(ch chan string) {
+	if ch == nil || proxy.logBuffer == nil {
+		return
+	}
+	proxy.logBuffer.Unsubscribe(ch)
 }
 
 func (proxy *Proxy) startHealthChecker() {
@@ -206,7 +236,7 @@ func (proxy *Proxy) initPorts() {
 		if v.IsRedirect {
 			ph = newPortRedirect(proxy.ctx, v, log)
 		} else if v.ProxyProtocol == "http" || v.ProxyProtocol == "https" {
-			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware, proxy.metrics, proxy.Config.Hostname, k)
+			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware, proxy.metrics, proxy.Config.Hostname, k, proxy.logBuffer)
 		} else {
 			ph = newPortTCP(proxy.ctx, v, log)
 		}

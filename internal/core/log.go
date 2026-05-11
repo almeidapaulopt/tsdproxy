@@ -6,9 +6,12 @@ package core
 import (
 	"bufio"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -93,35 +96,67 @@ func (r *LogRecord) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
-// LoggerMiddleware is a middleware function that logs incoming HTTP requests.
-func LoggerMiddleware(l zerolog.Logger, next http.Handler) http.Handler {
+// LoggerMiddlewareOption configures LoggerMiddleware behavior.
+type LoggerMiddlewareOption func(*loggerMiddlewareConfig)
+
+type loggerMiddlewareConfig struct {
+	accessLogWriter io.Writer
+}
+
+// WithAccessLogWriter writes a compact access log line to w for every request.
+// The line contains only the path to avoid leaking tokens in query strings.
+// The caller must NOT pass a typed-nil pointer (e.g. (*LogRingBuffer)(nil))
+// as an io.Writer; guard the call with a nil check on the concrete pointer.
+func WithAccessLogWriter(w io.Writer) LoggerMiddlewareOption {
+	return func(c *loggerMiddlewareConfig) {
+		c.accessLogWriter = w
+	}
+}
+
+// LoggerMiddleware logs incoming HTTP requests and optionally writes to an access log.
+func LoggerMiddleware(l zerolog.Logger, next http.Handler, opts ...LoggerMiddlewareOption) http.Handler {
+	cfg := loggerMiddlewareConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lw := &LogRecord{
 			ResponseWriter: w,
 			status:         http.StatusOK,
 		}
 
-		// Call the next handler in the chain
-		// lw := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		t0 := time.Now()
 		next.ServeHTTP(lw, r)
-		// Log the request method and URL
+		elapsed := time.Since(t0)
+
+		msg := "request"
+		var event *zerolog.Event
 		if lw.status >= http.StatusBadRequest {
-			l.Error().
-				Err(lw.err).
-				Int("status", lw.status).
-				Str("method", r.Method).
-				Str("host", r.Host).
-				Str("client", r.RemoteAddr).
-				Str("url", r.URL.String()).
-				Msg("error")
+			event = l.Error()
+			if lw.err != nil {
+				event = event.Err(lw.err)
+			}
+			msg = "error"
 		} else {
-			l.Info().
-				Int("status", lw.status).
-				Str("method", r.Method).
-				Str("host", r.Host).
-				Str("client", r.RemoteAddr).
-				Str("url", r.URL.String()).
-				Msg("request")
+			event = l.Info()
+		}
+		event.
+			Int("status", lw.status).
+			Str("method", r.Method).
+			Str("host", r.Host).
+			Str("client", r.RemoteAddr).
+			Str("url", r.URL.Path).
+			Dur("elapsed", elapsed).
+			Msg(msg)
+
+		if cfg.accessLogWriter != nil {
+			fmt.Fprintf(cfg.accessLogWriter, "%s %d %s %s\n",
+				t0.Format(time.RFC3339),
+				lw.status,
+				r.Method,
+				r.URL.Path,
+			)
 		}
 	})
 }

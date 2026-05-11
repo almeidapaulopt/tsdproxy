@@ -48,6 +48,7 @@ func newPortProxy(
 	m *metrics.Metrics,
 	proxyName string,
 	portName string,
+	logBuffer *LogRingBuffer,
 ) *port {
 	//
 	log = log.With().Str("port", pconfig.String()).Logger()
@@ -117,9 +118,9 @@ func newPortProxy(
 	}
 
 	handler := whoisFunc(reverseProxy)
-	// add logger to proxy
+
 	if accessLog {
-		handler = core.LoggerMiddleware(log, handler)
+		handler = core.LoggerMiddleware(log, handler, core.WithAccessLogWriter(logBuffer))
 	}
 
 	// add metrics as outermost middleware

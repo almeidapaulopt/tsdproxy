@@ -6,16 +6,20 @@ package dashboard
 import (
 	"fmt"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/dom"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 	"github.com/almeidapaulopt/tsdproxy/web"
+
+	datastar "github.com/starfederation/datastar-go/datastar"
 
 	"github.com/rs/zerolog"
 )
@@ -44,6 +48,7 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 // AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
 	dash.HTTP.Get("/stream", dash.streamHandler())
+	dash.HTTP.Get("/stream/{name}/logs", dash.streamProxyLogsHandler())
 	dash.HTTP.Get("/", web.Static)
 }
 
@@ -228,4 +233,110 @@ func formatDuration(d time.Duration) string {
 		parts = append(parts, fmt.Sprintf("%dm", minutes))
 	}
 	return strings.Join(parts, " ")
+}
+
+func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if name == "" {
+			http.Error(w, "invalid proxy name", http.StatusBadRequest)
+			return
+		}
+
+		proxy, ok := dash.pm.GetProxy(name)
+		if !ok {
+			http.Error(w, "proxy not found", http.StatusNotFound)
+			return
+		}
+
+		if !proxy.Config.Dashboard.Visible {
+			http.Error(w, "proxy not found", http.StatusNotFound)
+			return
+		}
+
+		snapshot, ch := proxy.SubscribeLogs()
+		if ch == nil {
+			http.Error(w, "no log buffer", http.StatusNotFound)
+			return
+		}
+		defer proxy.UnsubscribeLogs(ch)
+
+		sse := datastar.NewSSE(w, r)
+		safeID := dom.SafeID(name)
+		selector := "#log-lines-" + safeID
+
+		dash.Log.Debug().Str("proxy", name).Msg("log stream client connected")
+
+		autoscroll := "document.getElementById('log-lines-" + safeID + "').scrollTop=document.getElementById('log-lines-" + safeID + "').scrollHeight"
+		trimScript := "(function(){var c=document.getElementById('log-lines-" + safeID + "');var ch=c.children;var m=" + fmt.Sprintf("%d", proxymanager.DefaultLogBufferSize) + ";while(ch.length>m){c.removeChild(ch[0])}})()"
+
+		// Clear the container so reconnects don't duplicate snapshot lines.
+		_ = sse.PatchElements("",
+			datastar.WithModeInner(),
+			datastar.WithSelector(selector),
+		)
+
+		if len(snapshot) > 0 {
+			err := sse.PatchElementTempl(
+				pages.LogLines(snapshot),
+				datastar.WithModeAppend(),
+				datastar.WithSelector(selector),
+			)
+			if err != nil {
+				return
+			}
+			_ = sse.ExecuteScript(autoscroll)
+		} else {
+			// Re-insert placeholder when reconnecting to an empty buffer.
+			_ = sse.PatchElements(
+				fmt.Sprintf(`<div id="log-placeholder-%s" class="%s">%s</div>`, safeID, pages.LogLineClasses()+pages.LogPlaceholderExtra(), pages.LogPlaceholderText()),
+				datastar.WithModeAppend(),
+				datastar.WithSelector(selector),
+			)
+		}
+
+		placeholderRemoved := len(snapshot) > 0
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case line, ok := <-ch:
+				if !ok {
+					return
+				}
+				if !placeholderRemoved {
+					_ = sse.RemoveElement("#log-placeholder-" + safeID)
+					placeholderRemoved = true
+				}
+
+				const maxBatchSize = 50
+
+				lines := []string{line}
+			drain:
+				for len(lines) < maxBatchSize {
+					select {
+					case l, ok := <-ch:
+						if !ok {
+							break drain
+						}
+						lines = append(lines, l)
+					default:
+						break drain
+					}
+				}
+
+				err := sse.PatchElementTempl(
+					pages.LogLines(lines),
+					datastar.WithModeAppend(),
+					datastar.WithSelector(selector),
+				)
+				if err != nil {
+					return
+				}
+				_ = sse.ExecuteScript(trimScript)
+				_ = sse.ExecuteScript(autoscroll)
+			}
+		}
+	}
 }

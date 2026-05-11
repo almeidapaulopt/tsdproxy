@@ -91,35 +91,35 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 				break LOOP
 			case message := <-client.channel:
 				switch message.Type {
-			case EventAppend:
-				err = sse.PatchElementTempl(
-					message.Comp,
-					datastar.WithModeAppend(),
-					datastar.WithSelector("#proxy-list"),
-				)
+				case EventAppend:
+					err = sse.PatchElementTempl(
+						message.Comp,
+						datastar.WithModeAppend(),
+						datastar.WithSelector("#proxy-list"),
+					)
 
-			case EventMerge:
-				err = sse.PatchElementTempl(
-					message.Comp,
-				)
+				case EventMerge:
+					err = sse.PatchElementTempl(
+						message.Comp,
+					)
 
-			case EventMergeMessage:
-				err = sse.PatchElements(message.Message)
+				case EventMergeMessage:
+					err = sse.PatchElements(message.Message)
 
-			case EventClearList:
-				err = sse.PatchElements("",
-					datastar.WithModeInner(),
-					datastar.WithSelector(message.Message),
-				)
+				case EventClearList:
+					err = sse.PatchElements("",
+						datastar.WithModeInner(),
+						datastar.WithSelector(message.Message),
+					)
 
-			case EventRemoveElement:
-				err = sse.RemoveElement(message.Message)
+				case EventRemoveElement:
+					err = sse.RemoveElement(message.Message)
 
-			case EventScript:
-				err = sse.ExecuteScript(message.Message)
+				case EventScript:
+					err = sse.ExecuteScript(message.Message)
 
-			case EventUpdateSignals:
-				err = sse.PatchSignals([]byte(message.Message))
+				case EventUpdateSignals:
+					err = sse.PatchSignals([]byte(message.Message))
 				}
 			}
 

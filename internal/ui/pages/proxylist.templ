@@ -2,11 +2,24 @@ package pages
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/url"
+	"strings"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/dom"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/components"
-	"strings"
 )
+
+const (
+	logLineClasses       = "log-line text-xs font-mono whitespace-pre-wrap break-all"
+	logPlaceholderExtra  = " opacity-40"
+	logPlaceholderText   = "waiting for first request…"
+)
+
+func LogLineClasses() string      { return logLineClasses }
+func LogPlaceholderExtra() string { return logPlaceholderExtra }
+func LogPlaceholderText() string  { return logPlaceholderText }
 
 type ProxyData struct {
 	Enabled               bool
@@ -42,6 +55,134 @@ type PortEntry struct {
 	PortConfig model.PortConfig
 	URL        string
 	TargetURL  string
+}
+
+templ copyButton(text string) {
+	<button class="btn btn-xs btn-ghost" data-copy={ text } data-on:click="navigator.clipboard.writeText(this.dataset.copy)">
+		<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-4"/>
+	</button>
+}
+
+templ infoPanel(item ProxyData) {
+	<!-- FQDN with copy -->
+	<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2 mb-4">
+		<span class="text-sm font-mono truncate flex-1">{ item.Hostname }</span>
+		@copyButton(item.Hostname)
+	</div>
+	<!-- Meta badges -->
+	<div class="flex flex-wrap gap-1.5 mb-4">
+		if item.TargetProvider != "" {
+			<span class="badge badge-outline badge-sm">{ item.TargetProvider }</span>
+		}
+		if item.TailscaleEphemeral {
+			<span class="badge badge-ghost badge-sm">ephemeral</span>
+		}
+		if item.TailscaleRunWebClient {
+			<span class="badge badge-ghost badge-sm">web client</span>
+		}
+		if item.ProxyAccessLog {
+			<span class="badge badge-ghost badge-sm">access log</span>
+		}
+	</div>
+	if item.TargetImage != "" {
+		<div class="mb-4">
+			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Image</p>
+			<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
+				<span class="text-sm font-mono truncate flex-1">{ item.TargetImage }</span>
+				@copyButton(item.TargetImage)
+			</div>
+		</div>
+	}
+	<!-- Tags -->
+	if item.TailscaleTags != "" {
+		<div class="mb-4">
+			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Tags</p>
+			<div class="flex flex-wrap gap-1">
+				for _, tag := range strings.Split(item.TailscaleTags, ",") {
+					<span class="badge badge-primary badge-sm">{ strings.TrimSpace(tag) }</span>
+				}
+			</div>
+		</div>
+	}
+	<!-- Uptime -->
+	if item.ProxyStatus == model.ProxyStatusRunning && item.Uptime != "" {
+		<div class="mb-4">
+			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Uptime</p>
+			<div class="flex items-center gap-2">
+				<div class="w-2 h-2 rounded-full bg-success"></div>
+				<span class="text-sm font-mono">{ item.Uptime }</span>
+			</div>
+		</div>
+	}
+	<!-- Status Timeline -->
+	if len(item.StatusHistory) > 0 {
+		<div class="mb-4">
+			<p class="text-xs font-semibold uppercase opacity-50 mb-2">Status Timeline</p>
+			<div class="flex flex-col gap-1">
+				for _, entry := range item.StatusHistory {
+					<div class="flex items-center gap-2 text-xs">
+						<div class={ "w-1.5 h-1.5 rounded-full shrink-0", statusDotClass(entry.Status) }></div>
+						<span class="opacity-70">{ entry.Status }</span>
+						<span class="opacity-40 tabular-nums ml-auto">{ entry.When }</span>
+					</div>
+				}
+			</div>
+		</div>
+	}
+	<!-- Ports -->
+	if len(item.Ports) > 0 {
+		<div class="mb-4">
+			<p class="text-xs font-semibold uppercase opacity-50 mb-2">Ports</p>
+			<div class="flex flex-col gap-2">
+				for _, port := range item.Ports {
+					<div class="bg-base-200 rounded-lg px-3 py-2">
+						<div class="flex items-center justify-between gap-2">
+							<a href={ templ.URL(port.URL) } target="_blank" rel="noopener noreferrer" class="link link-primary font-mono text-sm truncate">{ port.URL }</a>
+							if port.PortConfig.Tailscale.Funnel {
+								<span class="badge badge-warning badge-xs shrink-0">funnel</span>
+							}
+						</div>
+						<div class="flex items-center gap-2 mt-1">
+							<span class="text-xs opacity-40">→</span>
+							<span class="text-xs font-mono opacity-50 truncate">{ port.TargetURL }</span>
+							if port.PortConfig.IsRedirect {
+								<span class="badge badge-info badge-xs shrink-0">redirect</span>
+							}
+							if !port.PortConfig.TLSValidate {
+								<span class="badge badge-error badge-xs shrink-0">skip TLS</span>
+							}
+						</div>
+					</div>
+				}
+			</div>
+		</div>
+	}
+	<!-- Auth URL -->
+	if item.AuthURL != "" && item.ProxyStatus == model.ProxyStatusAuthenticating {
+		<div class="mb-2">
+			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Authentication</p>
+			<a href={ templ.URL(item.AuthURL) } target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-warning">Authenticate</a>
+		</div>
+	}
+}
+
+templ logsPanel(item ProxyData) {
+	<div
+		class="log-viewer bg-base-100 rounded-lg border border-base-content/10 overflow-hidden"
+	>
+		<div class="flex items-center gap-2 px-3 py-1.5 bg-base-200 border-b border-base-content/10">
+			<div class="w-2 h-2 rounded-full bg-success"></div>
+			<span class="text-xs opacity-70">Live access log</span>
+			<span class="text-xs opacity-40 ml-auto">newest last</span>
+		</div>
+		<div
+			id={ "log-lines-" + dom.SafeID(item.Name) }
+			class="max-h-48 overflow-y-auto px-3 py-2"
+		>
+			<div id={ "log-placeholder-" + dom.SafeID(item.Name) } class={ logLineClasses + logPlaceholderExtra }>{ logPlaceholderText }</div>
+		</div>
+		<div id={ "log-stream-" + dom.SafeID(item.Name) }></div>
+	</div>
 }
 
 templ Proxy(item ProxyData) {
@@ -85,7 +226,7 @@ templ Proxy(item ProxyData) {
 				</a>
 			</div>
 		</div>
-		<dialog id={ modalname(item.Name) } class="modal">
+		<dialog id={ modalname(item.Name) } class="modal" data-on:close={ onModalClose(item.Name) }>
 			<div class="modal-box max-w-lg">
 				<div class="drag-handle sm:hidden"></div>
 				<form method="dialog">
@@ -103,116 +244,20 @@ templ Proxy(item ProxyData) {
 					</div>
 					<div class={ "badge ml-auto", item.ProxyStatus.String() }>{ item.ProxyStatus.String() }</div>
 				</div>
-
-				<!-- FQDN with copy -->
-				<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2 mb-4">
-					<span class="text-sm font-mono truncate flex-1">{ item.Hostname }</span>
-					<button class="btn btn-xs btn-ghost" data-on:click="navigator.clipboard.writeText('{ item.Hostname }')">
-						<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-4"/>
-					</button>
-				</div>
-
-				<!-- Meta badges -->
-				<div class="flex flex-wrap gap-1.5 mb-4">
-					if item.TargetProvider != "" {
-						<span class="badge badge-outline badge-sm">{ item.TargetProvider }</span>
-					}
-					if item.TailscaleEphemeral {
-						<span class="badge badge-ghost badge-sm">ephemeral</span>
-					}
-					if item.TailscaleRunWebClient {
-						<span class="badge badge-ghost badge-sm">web client</span>
-					}
-					if item.ProxyAccessLog {
-						<span class="badge badge-ghost badge-sm">access log</span>
-					}
-				</div>
-
-				if item.TargetImage != "" {
-					<div class="mb-4">
-						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Image</p>
-						<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
-							<span class="text-sm font-mono truncate flex-1">{ item.TargetImage }</span>
-							<button class="btn btn-xs btn-ghost" data-on:click="navigator.clipboard.writeText('{ item.TargetImage }')">
-								<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-4"/>
-							</button>
+				if item.ProxyAccessLog {
+					<div class="tabs tabs-border mb-4">
+						<input id={ "log-info-tab-" + dom.SafeID(item.Name) } type="radio" name={ modalname(item.Name) + "_tabs" } class="tab" aria-label="Info" checked="checked" data-on:change={ abortLogStream(item.Name) }/>
+						<div class="tab-content">
+							@infoPanel(item)
+						</div>
+						<input id={ "log-logs-tab-" + dom.SafeID(item.Name) } type="radio" name={ modalname(item.Name) + "_tabs" } class="tab" aria-label="Logs" data-on:change={ logsTabClick(item.Name) }/>
+						<div class="tab-content">
+							@logsPanel(item)
 						</div>
 					</div>
-				}
-
-				<!-- Tags -->
-				if item.TailscaleTags != "" {
+				} else {
 					<div class="mb-4">
-						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Tags</p>
-						<div class="flex flex-wrap gap-1">
-							for _, tag := range strings.Split(item.TailscaleTags, ",") {
-								<span class="badge badge-primary badge-sm">{ strings.TrimSpace(tag) }</span>
-							}
-						</div>
-					</div>
-				}
-
-				<!-- Uptime -->
-				if item.ProxyStatus == model.ProxyStatusRunning && item.Uptime != "" {
-					<div class="mb-4">
-						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Uptime</p>
-						<div class="flex items-center gap-2">
-							<div class="w-2 h-2 rounded-full bg-success"></div>
-							<span class="text-sm font-mono">{ item.Uptime }</span>
-						</div>
-					</div>
-				}
-
-				<!-- Status Timeline -->
-				if len(item.StatusHistory) > 0 {
-					<div class="mb-4">
-						<p class="text-xs font-semibold uppercase opacity-50 mb-2">Status Timeline</p>
-						<div class="flex flex-col gap-1">
-							for _, entry := range item.StatusHistory {
-								<div class="flex items-center gap-2 text-xs">
-									<div class={ "w-1.5 h-1.5 rounded-full shrink-0", statusDotClass(entry.Status) }></div>
-									<span class="opacity-70">{ entry.Status }</span>
-									<span class="opacity-40 tabular-nums ml-auto">{ entry.When }</span>
-								</div>
-							}
-						</div>
-					</div>
-				}
-
-				<!-- Ports -->
-				if len(item.Ports) > 0 {
-					<div class="mb-4">
-						<p class="text-xs font-semibold uppercase opacity-50 mb-2">Ports</p>
-						<div class="flex flex-col gap-2">
-							for _, port := range item.Ports {
-								<div class="bg-base-200 rounded-lg px-3 py-2">
-									<div class="flex items-center justify-between gap-2">
-										<a href={ templ.URL(port.URL) } target="_blank" rel="noopener noreferrer" class="link link-primary font-mono text-sm truncate">{ port.URL }</a>
-										if port.PortConfig.Tailscale.Funnel {
-											<span class="badge badge-warning badge-xs shrink-0">funnel</span>
-										}
-									</div>
-									<div class="flex items-center gap-2 mt-1">
-										<span class="text-xs opacity-40">→</span>
-										<span class="text-xs font-mono opacity-50 truncate">{ port.TargetURL }</span>
-										if port.PortConfig.IsRedirect {
-											<span class="badge badge-info badge-xs shrink-0">redirect</span>
-										}
-										if !port.PortConfig.TLSValidate {
-											<span class="badge badge-error badge-xs shrink-0">skip TLS</span>
-										}
-									</div>
-								</div>
-							}
-						</div>
-					</div>
-				}
-
-				<!-- Auth URL -->
-				if item.AuthURL != "" && item.ProxyStatus == model.ProxyStatusAuthenticating {
-					<div class="mb-2">
-						<p class="text-xs font-semibold uppercase opacity-50 mb-1">Authentication</p>
-						<a href={ templ.URL(item.AuthURL) } target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-warning">Authenticate</a>
+						@infoPanel(item)
 					</div>
 				}
 			</div>
@@ -223,6 +268,18 @@ templ Proxy(item ProxyData) {
 	</div>
 }
 
+// LogLine renders a single access-log entry as an HTML row.
+// Exported because the dashboard package references it from SSE handlers.
+templ LogLine(line string) {
+	<div class={ logLineClasses }>{ line }</div>
+}
+
+templ LogLines(lines []string) {
+	for _, line := range lines {
+		@LogLine(line)
+	}
+}
+
 func healthValue(h string) string {
 	if h == "" {
 		return "unknown"
@@ -230,9 +287,44 @@ func healthValue(h string) string {
 	return h
 }
 
+func logsTabClick(name string) string {
+	safeID := dom.SafeID(name)
+	placeholder := fmt.Sprintf(
+		`<div id="log-placeholder-%s" class="%s">%s</div>`,
+		safeID, logLineClasses+logPlaceholderExtra, logPlaceholderText,
+	)
+	escapedURL := url.PathEscape(name)
+	return fmt.Sprintf(
+		"document.getElementById('log-lines-%s').innerHTML='%s';"+
+			"var s=document.getElementById('log-stream-%s');"+
+			"s.innerHTML='';"+
+			"var d=document.createElement('div');"+
+			"d.setAttribute('data-init',\"@get('/stream/%s/logs',{requestCancellation:'cleanup'})\");"+
+			"s.appendChild(d)",
+		safeID, placeholder, safeID, escapedURL,
+	)
+}
+
+func abortLogStream(name string) string {
+	safeID := dom.SafeID(name)
+	return fmt.Sprintf(
+		"document.getElementById('log-stream-%s').innerHTML=''",
+		safeID,
+	)
+}
+
+func onModalClose(name string) string {
+	safeID := dom.SafeID(name)
+	return fmt.Sprintf(
+		"document.getElementById('log-stream-%s').innerHTML='';"+
+			"var r=document.getElementById('log-info-tab-%s');"+
+			"if(r)r.checked=true",
+		safeID, safeID,
+	)
+}
+
 func modalname(name string) string {
-	replacer := strings.NewReplacer("-", "_", ".", "_", ":", "_", " ", "_")
-	return replacer.Replace(name) + "_modal"
+	return dom.SafeID(name) + "_modal"
 }
 
 func statusDotClass(status string) string {
