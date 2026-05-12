@@ -29,6 +29,7 @@ This is the only label you need. TSDProxy will use the container name as the Tai
 | `tsdproxy.authkey` | — | Per-container auth key |
 | `tsdproxy.authkeyfile` | — | Path to a file containing the auth key |
 | `tsdproxy.tags` | — | Comma-separated Tailscale tags (OAuth only) |
+| `tsdproxy.identity_headers` | `"true"` | Inject Tailscale identity headers (`Remote-User`, `X-Forwarded-User`, `X-TSDProxy-*`, etc.) into upstream requests. Set to `"false"` for backends that consume these headers in conflicting ways (e.g. SSO-aware tools like wetty that read `Remote-User` as a login username). Client-supplied headers are always stripped, regardless of this setting. |
 
 ## Dashboard Labels
 

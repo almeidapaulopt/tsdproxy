@@ -26,6 +26,8 @@ const (
 	LabelAuthKeyFile  = LabelPrefix + "authkeyfile"
 	LabelAutoDetect   = LabelPrefix + "autodetect"
 	LabelTags         = LabelPrefix + "tags"
+	// Identity / auth header injection (default: enabled)
+	LabelIdentityHeaders = LabelPrefix + "identity_headers"
 	// Legacy
 	LabelContainerPort = LabelPrefix + "container_port"
 	LabelScheme        = LabelPrefix + "scheme"
