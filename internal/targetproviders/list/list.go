@@ -49,6 +49,37 @@ type (
 		IsRedirect  bool                `default:"false" validate:"boolean" yaml:"isRedirect,omitempty"`
 		TLSValidate bool                `validate:"boolean" default:"true" yaml:"tlsValidate"`
 	}
+
+	ProxyConfigAPI struct {
+		Dashboard     DashboardAPI            `yaml:"dashboard"`
+		Ports         map[string]PortAPI      `yaml:"ports"`
+		ProxyProvider string                  `yaml:"proxyProvider,omitempty"`
+		Tailscale     TailscaleAPI            `yaml:"tailscale"`
+	}
+
+	DashboardAPI struct {
+		Label    string `yaml:"label,omitempty"`
+		Icon     string `yaml:"icon,omitempty"`
+		Visible  bool   `yaml:"visible,omitempty"`
+		Category string `yaml:"category,omitempty"`
+	}
+
+	TailscaleAPI struct {
+		Tags         string `yaml:"tags,omitempty"`
+		Ephemeral    bool   `yaml:"ephemeral,omitempty"`
+		RunWebClient bool   `yaml:"runWebClient,omitempty"`
+	}
+
+	PortAPI struct {
+		Targets     []string         `yaml:"targets"`
+		TLSValidate bool             `yaml:"tlsValidate"`
+		IsRedirect  bool             `yaml:"isRedirect,omitempty"`
+		Tailscale   TailscalePortAPI `yaml:"tailscale,omitempty"`
+	}
+
+	TailscalePortAPI struct {
+		Funnel bool `yaml:"funnel,omitempty"`
+	}
 )
 
 var _ targetproviders.TargetProvider = (*Client)(nil)

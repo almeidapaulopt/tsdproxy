@@ -52,16 +52,32 @@ type (
 		Lists     map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
 		Tailscale TailscaleProxyProviderConfig           `yaml:"tailscale"`
 
-		HTTP HTTPConfig `yaml:"http"`
-		Log  LogConfig  `yaml:"log"`
+		HTTP       HTTPConfig       `yaml:"http"`
+		Log        LogConfig        `yaml:"log"`
+		Telemetry  TelemetryConfig  `yaml:"telemetry"`
+		Webhooks   []WebhookConfig  `yaml:"webhooks"`
 
 		ProxyAccessLog bool `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
+	}
+
+	WebhookConfig struct {
+		URL     string            `yaml:"url"`
+		Headers map[string]string `yaml:"headers,omitempty"`
+		Type    string            `yaml:"type"`
+		Events  []string          `yaml:"events,omitempty"`
 	}
 
 	// LogConfig stores logging configuration.
 	LogConfig struct {
 		Level string `validate:"required,oneof=debug info warn error fatal panic trace" default:"info" yaml:"level"`
 		JSON  bool   `validate:"boolean" default:"false" yaml:"json"`
+	}
+
+	// TelemetryConfig stores OpenTelemetry configuration.
+	TelemetryConfig struct {
+		Enabled  bool   `default:"false" yaml:"enabled"`
+		Endpoint string `default:"localhost:4317" yaml:"endpoint"`
+		Insecure bool   `default:"false" yaml:"insecure"`
 	}
 
 	// HTTPConfig stores HTTP configuration.

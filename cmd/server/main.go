@@ -17,6 +17,8 @@ import (
 	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/dashboard"
@@ -24,13 +26,14 @@ import (
 )
 
 type WebApp struct {
-	Log          zerolog.Logger
-	HTTP         *core.HTTPServer
-	Health       *core.Health
-	Docker       *client.Client
-	ProxyManager *pm.ProxyManager
-	Dashboard    *dashboard.Dashboard
-	httpServer   *http.Server
+	Log           zerolog.Logger
+	HTTP          *core.HTTPServer
+	Health        *core.Health
+	Docker        *client.Client
+	ProxyManager  *pm.ProxyManager
+	Dashboard     *dashboard.Dashboard
+	httpServer    *http.Server
+	tracerProvider *sdktrace.TracerProvider
 }
 
 func InitializeApp() (*WebApp, error) {
@@ -46,6 +49,7 @@ func InitializeApp() (*WebApp, error) {
 
 	httpServer := core.NewHTTPServer(logger)
 	httpServer.Use(core.SessionMiddleware)
+	httpServer.Use(core.CSRFMiddleware)
 
 	health := core.NewHealthHandler(httpServer, logger)
 
@@ -57,12 +61,24 @@ func InitializeApp() (*WebApp, error) {
 	//
 	dash := dashboard.NewDashboard(httpServer, logger, proxymanager)
 
+	var tracerProvider *sdktrace.TracerProvider
+	if config.Config.Telemetry.Enabled {
+		tp, err := core.InitTracer(context.Background(), config.Config.Telemetry.Endpoint, config.Config.Telemetry.Insecure)
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to initialize tracer")
+		} else {
+			tracerProvider = tp
+			logger.Info().Str("endpoint", config.Config.Telemetry.Endpoint).Msg("OpenTelemetry tracer initialized")
+		}
+	}
+
 	webApp := &WebApp{
-		Log:          logger,
-		HTTP:         httpServer,
-		Health:       health,
-		ProxyManager: proxymanager,
-		Dashboard:    dash,
+		Log:           logger,
+		HTTP:          httpServer,
+		Health:        health,
+		ProxyManager:  proxymanager,
+		Dashboard:     dash,
+		tracerProvider: tracerProvider,
 	}
 	return webApp, nil
 }
@@ -96,6 +112,8 @@ func (app *WebApp) Start() {
 	// Add Routes
 	//
 	app.Dashboard.AddRoutes()
+	app.Dashboard.AddAPIRoutes()
+
 	app.HTTP.Get("/metrics", app.ProxyManager.MetricsHandler())
 	core.PprofAddRoutes(app.HTTP)
 
@@ -152,6 +170,12 @@ func (app *WebApp) Stop() {
 	// Shutdown things here
 	//
 	app.ProxyManager.StopAllProxies()
+
+	if app.tracerProvider != nil {
+		if err := app.tracerProvider.Shutdown(context.Background()); err != nil {
+			app.Log.Error().Err(err).Msg("error shutting down tracer provider")
+		}
+	}
 
 	app.Log.Info().Msg("Server was shutdown successfully")
 }

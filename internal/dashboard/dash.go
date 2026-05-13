@@ -50,6 +50,11 @@ func (dash *Dashboard) AddRoutes() {
 	dash.HTTP.Get("/stream", dash.streamHandler())
 	dash.HTTP.Get("/stream/{name}/logs", dash.streamProxyLogsHandler())
 	dash.HTTP.Get("/", web.Static)
+
+	dash.HTTP.Post("/api/proxy/{name}/restart", dash.restartHandler())
+	dash.HTTP.Post("/api/proxy/{name}/pause", dash.pauseHandler())
+	dash.HTTP.Post("/api/proxy/{name}/resume", dash.resumeHandler())
+	dash.HTTP.Post("/api/proxy/{name}/reauth", dash.reauthHandler())
 }
 
 // index is the HandlerFunc to index page of dashboard
@@ -233,6 +238,39 @@ func formatDuration(d time.Duration) string {
 		parts = append(parts, fmt.Sprintf("%dm", minutes))
 	}
 	return strings.Join(parts, " ")
+}
+
+func (dash *Dashboard) proxyActionHandler(action func(string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if name == "" {
+			dash.writeJSONError(w, "invalid proxy name", http.StatusBadRequest)
+			return
+		}
+
+		if err := action(name); err != nil {
+			dash.writeJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"})
+	}
+}
+
+func (dash *Dashboard) restartHandler() http.HandlerFunc {
+	return dash.proxyActionHandler(dash.pm.RestartProxy)
+}
+
+func (dash *Dashboard) pauseHandler() http.HandlerFunc {
+	return dash.proxyActionHandler(dash.pm.PauseProxy)
+}
+
+func (dash *Dashboard) resumeHandler() http.HandlerFunc {
+	return dash.proxyActionHandler(dash.pm.ResumeProxy)
+}
+
+func (dash *Dashboard) reauthHandler() http.HandlerFunc {
+	return dash.restartHandler()
 }
 
 func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
