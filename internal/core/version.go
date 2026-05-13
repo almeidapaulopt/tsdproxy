@@ -26,7 +26,7 @@ const (
 func GetVersion() string {
 	versionOnce.Do(func() {
 		tempVersion := strings.TrimSpace(version)
-		if getIsDirty() {
+		if GetIsDirty() {
 			tempVersion += "-dirty"
 		}
 		realVersion = &tempVersion
@@ -37,7 +37,7 @@ func GetVersion() string {
 	return *realVersion
 }
 
-func getIsDirty() bool {
+func GetIsDirty() bool {
 	if isDirty != nil {
 		return *isDirty
 	}
