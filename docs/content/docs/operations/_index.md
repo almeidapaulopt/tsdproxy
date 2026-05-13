@@ -13,4 +13,7 @@ Day-to-day operations: health monitoring, backup, and recovery.
   {{< card link="backup" title="Backup & Restore" icon="save"
     subtitle="What to back up and how to recover"
   >}}
+  {{< card link="api" title="API Reference" icon="code"
+    subtitle="REST API for automation and monitoring"
+  >}}
 {{< /cards >}}

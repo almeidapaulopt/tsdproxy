@@ -16,4 +16,7 @@ Security considerations for running TSDProxy in production.
   {{< card link="funnel" title="Funnel" icon="globe"
     subtitle="Exposing services to the public internet"
   >}}
+  {{< card link="admin-allowlist" title="Admin Allowlist" icon="user-circle"
+    subtitle="Restrict dashboard admin actions to specific users"
+  >}}
 {{< /cards >}}
