@@ -4,6 +4,7 @@
 package consts
 
 const (
+	HeaderID            = "x-tsdproxy-id"
 	HeaderUsername      = "x-tsdproxy-username"
 	HeaderDisplayName   = "x-tsdproxy-displayname"
 	HeaderProfilePicURL = "x-tsdproxy-profilepicurl"

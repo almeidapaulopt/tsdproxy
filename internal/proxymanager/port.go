@@ -96,6 +96,7 @@ func newPortProxy(
 			// Always remove trusted identity headers to prevent spoofing.
 			// Unauthenticated requests (e.g. Funnel) must not pass
 			// attacker-controlled values through to the upstream.
+			r.Out.Header.Del(consts.HeaderID)
 			r.Out.Header.Del(consts.HeaderUsername)
 			r.Out.Header.Del(consts.HeaderDisplayName)
 			r.Out.Header.Del(consts.HeaderProfilePicURL)
@@ -107,6 +108,7 @@ func newPortProxy(
 			r.Out.Header.Del(consts.HeaderXForwardedPreferredUsername)
 
 			if user, ok := model.WhoisFromContext(r.In.Context()); ok {
+				r.Out.Header.Set(consts.HeaderID, user.ID)
 				r.Out.Header.Set(consts.HeaderUsername, user.Username)
 				r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
 				r.Out.Header.Set(consts.HeaderProfilePicURL, user.ProfilePicURL)

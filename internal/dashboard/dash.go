@@ -47,14 +47,21 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 
 // AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
+	whoisFunc := func(r *http.Request) model.Whois {
+		who, _ := model.WhoisFromContext(r.Context())
+		return who
+	}
+
+	adminMW := core.AdminMiddleware(whoisFunc)
+
 	dash.HTTP.Get("/stream", dash.streamHandler())
 	dash.HTTP.Get("/stream/{name}/logs", dash.streamProxyLogsHandler())
 	dash.HTTP.Get("/", web.Static)
 
-	dash.HTTP.Post("/api/proxy/{name}/restart", dash.restartHandler())
-	dash.HTTP.Post("/api/proxy/{name}/pause", dash.pauseHandler())
-	dash.HTTP.Post("/api/proxy/{name}/resume", dash.resumeHandler())
-	dash.HTTP.Post("/api/proxy/{name}/reauth", dash.reauthHandler())
+	dash.HTTP.Post("/api/proxy/{name}/restart", adminMW(dash.restartHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/pause", adminMW(dash.pauseHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/resume", adminMW(dash.resumeHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/reauth", adminMW(dash.reauthHandler()))
 }
 
 // index is the HandlerFunc to index page of dashboard
@@ -271,6 +278,10 @@ func (dash *Dashboard) resumeHandler() http.HandlerFunc {
 
 func (dash *Dashboard) reauthHandler() http.HandlerFunc {
 	return dash.restartHandler()
+}
+
+func (dash *Dashboard) writeJSONError(w http.ResponseWriter, message string, code int) {
+	dash.HTTP.JSONResponseCode(w, nil, map[string]any{"message": message, "code": code}, code)
 }
 
 func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {

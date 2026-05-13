@@ -196,6 +196,14 @@ func (p *Proxy) Whois(r *http.Request) model.Whois {
 		return model.Whois{}
 	}
 
+	// Reject tagged nodes — their UserProfile is the pseudo-user
+	// "tagged-devices", not a real user identity. Without this check,
+	// any tagged container in the tailnet could spoof as a user and
+	// call admin endpoints or access allowlist-gated proxies.
+	if who.Node != nil && who.Node.IsTagged() {
+		return model.Whois{}
+	}
+
 	return model.Whois{
 		DisplayName:   who.UserProfile.DisplayName,
 		Username:      who.UserProfile.LoginName,

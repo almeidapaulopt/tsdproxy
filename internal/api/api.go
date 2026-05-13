@@ -1,11 +1,13 @@
 // SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
-package dashboard
+package api
 
 import (
 	"fmt"
+	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -13,7 +15,40 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/core/webhook"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
+
+	"github.com/rs/zerolog"
 )
+
+type API struct {
+	HTTP *core.HTTPServer
+	PM   *proxymanager.ProxyManager
+	Log  zerolog.Logger
+}
+
+func New(http *core.HTTPServer, pm *proxymanager.ProxyManager, log zerolog.Logger) *API {
+	return &API{
+		HTTP: http,
+		PM:   pm,
+		Log:  log.With().Str("module", "api").Logger(),
+	}
+}
+
+func (a *API) AddRoutes() {
+	whoisFunc := func(r *http.Request) model.Whois {
+		who, _ := model.WhoisFromContext(r.Context())
+		return who
+	}
+
+	adminMW := core.AdminMiddleware(whoisFunc)
+
+	a.HTTP.Get("/api/v1/proxies", a.listProxiesHandler())
+	a.HTTP.Get("/api/v1/proxies/{name}", a.getProxyHandler())
+	a.HTTP.Get("/api/v1/proxies/{name}/ports", a.getProxyPortsHandler())
+	a.HTTP.Get("/api/version", a.versionHandler())
+	a.HTTP.Get("/api/health", a.aggregateHealthHandler())
+	a.HTTP.Get("/api/whoami", core.WhoAmIHandler(a.HTTP, whoisFunc))
+	a.HTTP.Post("/api/webhook/test", adminMW(a.testWebhookHandler()))
+}
 
 type (
 	apiProxiesResponse struct {
@@ -79,72 +114,61 @@ type (
 	}
 )
 
-// AddAPIRoutes registers the public REST JSON API endpoints.
-func (dash *Dashboard) AddAPIRoutes() {
-	dash.HTTP.Get("/api/v1/proxies", dash.listProxiesHandler())
-	dash.HTTP.Get("/api/v1/proxies/{name}", dash.getProxyHandler())
-	dash.HTTP.Get("/api/v1/proxies/{name}/ports", dash.getProxyPortsHandler())
-	dash.HTTP.Get("/api/version", dash.versionHandler())
-	dash.HTTP.Get("/api/health", dash.aggregateHealthHandler())
-
-	dash.HTTP.Post("/api/webhook/test", dash.testWebhookHandler())
-}
-
-func (dash *Dashboard) listProxiesHandler() http.HandlerFunc {
+func (a *API) listProxiesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proxies := dash.pm.GetProxies()
+		proxies := a.PM.GetProxies()
 		items := make([]apiProxy, 0, len(proxies))
 		for name, p := range proxies {
 			if !p.Config.Dashboard.Visible {
 				continue
 			}
-			items = append(items, dash.toAPIProxy(name, p))
+			items = append(items, a.toAPIProxy(name, p))
 		}
-		dash.HTTP.JSONResponse(w, r, apiProxiesResponse{Proxies: items})
+		a.HTTP.JSONResponse(w, r, apiProxiesResponse{Proxies: items})
 	}
 }
 
-func (dash *Dashboard) getProxyHandler() http.HandlerFunc {
+func (a *API) getProxyHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			dash.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
+			a.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
 			return
 		}
 
-		p, ok := dash.pm.GetProxy(name)
+		p, ok := a.PM.GetProxy(name)
 		if !ok || !p.Config.Dashboard.Visible {
-			dash.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
+			a.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
 			return
 		}
 
-		dash.HTTP.JSONResponse(w, r, dash.toAPIProxy(name, p))
+		a.HTTP.JSONResponse(w, r, a.toAPIProxy(name, p))
 	}
 }
 
-func (dash *Dashboard) getProxyPortsHandler() http.HandlerFunc {
+func (a *API) getProxyPortsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			dash.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
+			a.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
 			return
 		}
 
-		p, ok := dash.pm.GetProxy(name)
+		p, ok := a.PM.GetProxy(name)
 		if !ok || !p.Config.Dashboard.Visible {
-			dash.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
+			a.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
 			return
 		}
 
-		dash.HTTP.JSONResponse(w, r, struct {
+		a.HTTP.JSONResponse(w, r, struct {
 			Ports []apiPort `json:"ports"`
-		}{Ports: dash.toAPIPorts(p)})
+		}{Ports: a.toAPIPorts(p)})
 	}
 }
 
-func (dash *Dashboard) versionHandler() http.HandlerFunc {
+func (a *API) versionHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		dash.HTTP.JSONResponse(w, r, apiVersionResponse{
+		a.HTTP.JSONResponse(w, r, apiVersionResponse{
 			Version: core.GetVersion(),
 			Author:  core.AppAuthor,
 			IsDirty: core.GetIsDirty(),
@@ -152,9 +176,9 @@ func (dash *Dashboard) versionHandler() http.HandlerFunc {
 	}
 }
 
-func (dash *Dashboard) aggregateHealthHandler() http.HandlerFunc {
+func (a *API) aggregateHealthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		proxies := dash.pm.GetProxies()
+		proxies := a.PM.GetProxies()
 		result := apiHealthResponse{}
 
 		for _, p := range proxies {
@@ -174,11 +198,11 @@ func (dash *Dashboard) aggregateHealthHandler() http.HandlerFunc {
 			}
 		}
 
-		dash.HTTP.JSONResponse(w, r, result)
+		a.HTTP.JSONResponse(w, r, result)
 	}
 }
 
-func (dash *Dashboard) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
+func (a *API) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
 	status := p.GetStatus()
 
 	url := p.GetURL()
@@ -216,7 +240,7 @@ func (dash *Dashboard) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
 		URL:           url,
 		Category:      p.Config.Dashboard.Category,
 		Uptime:        formatDuration(p.GetUptime()),
-		Ports:         dash.toAPIPorts(p),
+		Ports:         a.toAPIPorts(p),
 		Tailscale: apiTailscale{
 			Tags:         p.Config.Tailscale.Tags,
 			Ephemeral:    p.Config.Tailscale.Ephemeral,
@@ -229,7 +253,7 @@ func (dash *Dashboard) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
 	}
 }
 
-func (dash *Dashboard) toAPIPorts(p *proxymanager.Proxy) []apiPort {
+func (a *API) toAPIPorts(p *proxymanager.Proxy) []apiPort {
 	ports := make([]apiPort, 0, len(p.Config.Ports))
 	for k, v := range p.Config.Ports {
 		ports = append(ports, apiPort{
@@ -245,17 +269,17 @@ func (dash *Dashboard) toAPIPorts(p *proxymanager.Proxy) []apiPort {
 	return ports
 }
 
-func (dash *Dashboard) testWebhookHandler() http.HandlerFunc {
+func (a *API) testWebhookHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if len(config.Config.Webhooks) == 0 {
-			dash.writeJSONError(w, "no webhooks configured", http.StatusBadRequest)
+			a.writeJSONError(w, "no webhooks configured", http.StatusBadRequest)
 			return
 		}
 
 		running := model.ProxyStatusRunning
 		stopped := model.ProxyStatusStopped
 
-		sender := webhook.NewSender(dash.Log, config.Config.Webhooks)
+		sender := webhook.NewSender(a.Log, config.Config.Webhooks)
 		defer sender.Close()
 
 		if err := sender.SendSync(webhook.WebhookEvent{
@@ -265,16 +289,37 @@ func (dash *Dashboard) testWebhookHandler() http.HandlerFunc {
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Message:   "Test webhook from TSDProxy",
 		}); err != nil {
-			dash.writeJSONError(w, "webhook test failed: "+err.Error(), http.StatusBadGateway)
+			a.writeJSONError(w, "webhook test failed: "+err.Error(), http.StatusBadGateway)
 			return
 		}
 
-		dash.HTTP.JSONResponse(w, r, map[string]string{
+		a.HTTP.JSONResponse(w, r, map[string]string{
 			"message": "test webhook sent",
 		})
 	}
 }
 
-func (dash *Dashboard) writeJSONError(w http.ResponseWriter, message string, code int) {
-	dash.HTTP.JSONResponseCode(w, nil, apiErrorResponse{Message: message, Code: code}, code)
+func (a *API) writeJSONError(w http.ResponseWriter, message string, code int) {
+	a.HTTP.JSONResponseCode(w, nil, apiErrorResponse{Message: message, Code: code}, code)
+}
+
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return ""
+	}
+	days := int(d.Hours() / 24)
+	hours := int(math.Mod(d.Hours(), 24))
+	minutes := int(math.Mod(d.Minutes(), 60))
+
+	var parts []string
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 || len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	return strings.Join(parts, " ")
 }

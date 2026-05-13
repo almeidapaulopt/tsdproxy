@@ -19,6 +19,7 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/api"
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/dashboard"
@@ -48,6 +49,7 @@ func InitializeApp() (*WebApp, error) {
 	logger := core.NewLog()
 
 	httpServer := core.NewHTTPServer(logger)
+	httpServer.Use(core.StripProxyIdentityHeaders)
 	httpServer.Use(core.SessionMiddleware)
 	httpServer.Use(core.CSRFMiddleware)
 
@@ -112,7 +114,7 @@ func (app *WebApp) Start() {
 	// Add Routes
 	//
 	app.Dashboard.AddRoutes()
-	app.Dashboard.AddAPIRoutes()
+	api.New(app.HTTP, app.ProxyManager, app.Log).AddRoutes()
 
 	app.HTTP.Get("/metrics", app.ProxyManager.MetricsHandler())
 	core.PprofAddRoutes(app.HTTP)

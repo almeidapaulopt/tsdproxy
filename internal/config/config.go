@@ -52,12 +52,25 @@ type (
 		Lists     map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
 		Tailscale TailscaleProxyProviderConfig           `yaml:"tailscale"`
 
-		HTTP       HTTPConfig       `yaml:"http"`
-		Log        LogConfig        `yaml:"log"`
-		Telemetry  TelemetryConfig  `yaml:"telemetry"`
-		Webhooks   []WebhookConfig  `yaml:"webhooks"`
+		HTTP      HTTPConfig      `yaml:"http"`
+		Log       LogConfig       `yaml:"log"`
+		Telemetry TelemetryConfig `yaml:"telemetry"`
+		Webhooks  []WebhookConfig `yaml:"webhooks"`
 
 		ProxyAccessLog bool `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
+
+		// Admins is a list of Tailscale UserProfile.IDs authorized to
+		// access admin endpoints (restart, pause, resume, reauth).
+		// Use /api/whoami to discover your UserProfile.ID.
+		// Example:
+		//   admins:
+		//     - "12345"  # alice@github
+		Admins []string `yaml:"admins,omitempty"`
+
+		// AdminAllowLocalhost permits localhost requests to bypass
+		// the admin allowlist. Use only for bootstrapping —
+		// any process on the host can then call admin endpoints.
+		AdminAllowLocalhost bool `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
 	}
 
 	WebhookConfig struct {
