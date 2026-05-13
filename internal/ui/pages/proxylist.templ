@@ -58,15 +58,15 @@ type PortEntry struct {
 }
 
 templ copyButton(text string) {
-	<button class="btn btn-xs btn-ghost" data-copy={ text } data-on:click="navigator.clipboard.writeText(this.dataset.copy)">
-		<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-4"/>
+	<button class="btn btn-xs btn-ghost" data-copy={ text } data-on:click="navigator.clipboard.writeText(this.dataset.copy)" title="Copy">
+		<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-3.5"/>
 	</button>
 }
 
 templ infoPanel(item ProxyData) {
-	<!-- FQDN with copy -->
-	<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2 mb-4">
-		<span class="text-sm font-mono truncate flex-1">{ item.Hostname }</span>
+	<!-- FQDN -->
+	<div class="flex items-center gap-2 bg-base-200/70 rounded-lg px-3 py-2 mb-4">
+		<span class="text-xs font-mono truncate flex-1 text-base-content/80">{ item.Hostname }</span>
 		@copyButton(item.Hostname)
 	</div>
 	<!-- Meta badges -->
@@ -84,11 +84,12 @@ templ infoPanel(item ProxyData) {
 			<span class="badge badge-ghost badge-sm">access log</span>
 		}
 	</div>
+	<!-- Image -->
 	if item.TargetImage != "" {
 		<div class="mb-4">
-			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Image</p>
-			<div class="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
-				<span class="text-sm font-mono truncate flex-1">{ item.TargetImage }</span>
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Image</p>
+			<div class="flex items-center gap-2 bg-base-200/70 rounded-lg px-3 py-2">
+				<span class="text-xs font-mono truncate flex-1 text-base-content/70">{ item.TargetImage }</span>
 				@copyButton(item.TargetImage)
 			</div>
 		</div>
@@ -96,10 +97,10 @@ templ infoPanel(item ProxyData) {
 	<!-- Tags -->
 	if item.TailscaleTags != "" {
 		<div class="mb-4">
-			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Tags</p>
-			<div class="flex flex-wrap gap-1">
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Tags</p>
+			<div class="flex flex-wrap gap-1.5">
 				for _, tag := range strings.Split(item.TailscaleTags, ",") {
-					<span class="badge badge-primary badge-sm">{ strings.TrimSpace(tag) }</span>
+					<span class="badge badge-primary badge-sm badge-soft">{ strings.TrimSpace(tag) }</span>
 				}
 			</div>
 		</div>
@@ -107,23 +108,23 @@ templ infoPanel(item ProxyData) {
 	<!-- Uptime -->
 	if item.ProxyStatus == model.ProxyStatusRunning && item.Uptime != "" {
 		<div class="mb-4">
-			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Uptime</p>
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Uptime</p>
 			<div class="flex items-center gap-2">
-				<div class="w-2 h-2 rounded-full bg-success"></div>
-				<span class="text-sm font-mono">{ item.Uptime }</span>
+				<span class="size-2 rounded-full bg-success shrink-0"></span>
+				<span class="text-sm font-mono text-base-content/80">{ item.Uptime }</span>
 			</div>
 		</div>
 	}
 	<!-- Status Timeline -->
 	if len(item.StatusHistory) > 0 {
 		<div class="mb-4">
-			<p class="text-xs font-semibold uppercase opacity-50 mb-2">Status Timeline</p>
-			<div class="flex flex-col gap-1">
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-2">Status Timeline</p>
+			<div class="flex flex-col gap-1.5">
 				for _, entry := range item.StatusHistory {
 					<div class="flex items-center gap-2 text-xs">
-						<div class={ "w-1.5 h-1.5 rounded-full shrink-0", statusDotClass(entry.Status) }></div>
-						<span class="opacity-70">{ entry.Status }</span>
-						<span class="opacity-40 tabular-nums ml-auto">{ entry.When }</span>
+						<div class={ "size-1.5 rounded-full shrink-0", statusDotClass(entry.Status) }></div>
+						<span class="text-base-content/70">{ entry.Status }</span>
+						<span class="text-base-content/40 tabular-nums ml-auto">{ entry.When }</span>
 					</div>
 				}
 			</div>
@@ -132,19 +133,20 @@ templ infoPanel(item ProxyData) {
 	<!-- Ports -->
 	if len(item.Ports) > 0 {
 		<div class="mb-4">
-			<p class="text-xs font-semibold uppercase opacity-50 mb-2">Ports</p>
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-2">Ports</p>
 			<div class="flex flex-col gap-2">
 				for _, port := range item.Ports {
-					<div class="bg-base-200 rounded-lg px-3 py-2">
-						<div class="flex items-center justify-between gap-2">
-							<a href={ templ.URL(port.URL) } target="_blank" rel="noopener noreferrer" class="link link-primary font-mono text-sm truncate">{ port.URL }</a>
+					<div class="bg-base-200/70 rounded-lg px-3 py-2.5">
+						<div class="flex items-center justify-between gap-2 mb-1">
+							<a href={ templ.URL(port.URL) } target="_blank" rel="noopener noreferrer"
+								class="link link-primary font-mono text-xs truncate">{ port.URL }</a>
 							if port.PortConfig.Tailscale.Funnel {
 								<span class="badge badge-warning badge-xs shrink-0">funnel</span>
 							}
 						</div>
-						<div class="flex items-center gap-2 mt-1">
-							<span class="text-xs opacity-40">→</span>
-							<span class="text-xs font-mono opacity-50 truncate">{ port.TargetURL }</span>
+						<div class="flex items-center gap-1.5">
+							<span class="text-xs text-base-content/30">→</span>
+							<span class="text-xs font-mono text-base-content/50 truncate flex-1">{ port.TargetURL }</span>
 							if port.PortConfig.IsRedirect {
 								<span class="badge badge-info badge-xs shrink-0">redirect</span>
 							}
@@ -160,28 +162,73 @@ templ infoPanel(item ProxyData) {
 	<!-- Auth URL -->
 	if item.AuthURL != "" && item.ProxyStatus == model.ProxyStatusAuthenticating {
 		<div class="mb-2">
-			<p class="text-xs font-semibold uppercase opacity-50 mb-1">Authentication</p>
-			<a href={ templ.URL(item.AuthURL) } target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-warning">Authenticate</a>
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Authentication</p>
+			<a href={ templ.URL(item.AuthURL) } target="_blank" rel="noopener noreferrer"
+				class="btn btn-sm btn-warning w-full">Authenticate</a>
 		</div>
 	}
 }
 
 templ logsPanel(item ProxyData) {
-	<div
-		class="log-viewer bg-base-100 rounded-lg border border-base-content/10 overflow-hidden"
-	>
-		<div class="flex items-center gap-2 px-3 py-1.5 bg-base-200 border-b border-base-content/10">
-			<div class="w-2 h-2 rounded-full bg-success"></div>
-			<span class="text-xs opacity-70">Live access log</span>
-			<span class="text-xs opacity-40 ml-auto">newest last</span>
+	<div class="log-viewer bg-base-200/50 rounded-lg border border-base-content/8 overflow-hidden">
+		<div class="flex items-center gap-2 px-3 py-2 bg-base-200/80 border-b border-base-content/8">
+			<span class="size-2 rounded-full bg-success shrink-0"></span>
+			<span class="text-xs text-base-content/60">Live access log</span>
+			<span class="text-xs text-base-content/35 ml-auto">newest last</span>
 		</div>
 		<div
 			id={ "log-lines-" + dom.SafeID(item.Name) }
-			class="max-h-48 overflow-y-auto px-3 py-2"
+			class="max-h-52 overflow-y-auto px-3 py-2.5 font-mono"
 		>
 			<div id={ "log-placeholder-" + dom.SafeID(item.Name) } class={ logLineClasses + logPlaceholderExtra }>{ logPlaceholderText }</div>
 		</div>
 		<div id={ "log-stream-" + dom.SafeID(item.Name) }></div>
+	</div>
+}
+
+templ actionsPanel(item ProxyData) {
+	<div class="flex flex-col gap-3">
+		<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1">Proxy Controls</p>
+		<!-- Restart — available for all non-transitional states -->
+		if item.ProxyStatus == model.ProxyStatusRunning || item.ProxyStatus == model.ProxyStatusPaused || item.ProxyStatus == model.ProxyStatusError || item.ProxyStatus == model.ProxyStatusStopped {
+			<button
+				class="btn btn-sm btn-outline w-full"
+				data-on:click={ fetchAction(item.Name, "restart") }
+			>
+				Restart
+			</button>
+		}
+		<!-- Pause — only when Running -->
+		if item.ProxyStatus == model.ProxyStatusRunning {
+			<button
+				class="btn btn-sm btn-outline w-full"
+				data-on:click={ fetchAction(item.Name, "pause") }
+			>
+				Pause
+			</button>
+		}
+		<!-- Resume — only when Paused -->
+		if item.ProxyStatus == model.ProxyStatusPaused {
+			<button
+				class="btn btn-sm btn-primary w-full"
+				data-on:click={ fetchAction(item.Name, "resume") }
+			>
+				Resume
+			</button>
+		}
+		<!-- Re-authenticate — only when Authenticating -->
+		if item.ProxyStatus == model.ProxyStatusAuthenticating {
+			<button
+				class="btn btn-sm btn-warning w-full"
+				data-on:click={ fetchAction(item.Name, "reauth") }
+			>
+				Re-authenticate
+			</button>
+		}
+		<!-- No actions available for transitional states -->
+		if item.ProxyStatus == model.ProxyStatusInitializing || item.ProxyStatus == model.ProxyStatusStarting || item.ProxyStatus == model.ProxyStatusStopping {
+			<p class="text-xs text-base-content/40 italic">No actions available while proxy is { strings.ToLower(item.ProxyStatus.String()) }…</p>
+		}
 	</div>
 }
 
@@ -197,20 +244,44 @@ templ Proxy(item ProxyData) {
 		data-signals={ signalsForItem(item) }
 		data-show={ "($" + modalname(item.Name) + "_searchtext||'').search(($search||'').toLowerCase())>-1 && ($filterStatus==='all' || '" + item.ProxyStatus.String() + "'===$filterStatus) && ($filterHealth==='all' || '" + healthValue(item.HealthStatus) + "'===$filterHealth)" }
 	>
-		<figure>
-			<img src={ components.IconURL(item.Icon) } alt={ item.Icon }/>
-		</figure>
+		<!-- Left icon column -->
+		<div class="proxy-icon-col">
+			<button
+				class="pin-btn"
+				data-class:pinned={ "($pinned||'').split(',').includes(" + dom.JSString(item.Name) + ")" }
+				data-on:click={ "togglePin(" + dom.JSString(item.Name) + ")" }
+				aria-label="pin proxy"
+			>
+				<img src={ components.IconURL("mdi/star") } alt="pin"/>
+			</button>
+			<figure>
+				<img src={ components.IconURL(item.Icon) } alt={ item.Icon }/>
+			</figure>
+		</div>
+
+		<!-- Card content -->
 		<div class="card-body">
+			<button
+				class="info-btn"
+				data-on:click={ "document.getElementById('" + modalname(item.Name) + "').showModal()" }
+				aria-label="proxy details"
+			>
+				<img src={ components.IconURL("mdi/information-variant") } alt="details"/>
+			</button>
 			<h2 class="card-title">
 				<span data-text={ "$" + modalname(item.Name) + "_label" }></span>
-				<button data-on:click={ modalname(item.Name) + ".showModal()" } aria-label="proxy details">
-					<img src={ components.IconURL("mdi/information-variant") } alt="details"/>
-				</button>
 			</h2>
-			<div class={ "status" , item.ProxyStatus.String() }>{ item.ProxyStatus.String() }</div>
-			if item.ProxyStatus == model.ProxyStatusRunning && item.HealthStatus != "" {
-				<div class={ "health-dot" , item.HealthStatus } title={ "health: " + item.HealthStatus + " " + item.HealthLatency }></div>
-			}
+
+			<div class="proxy-status-row">
+				<span class={ "badge badge-xs font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
+				if item.ProxyStatus == model.ProxyStatusRunning && item.HealthStatus != "" {
+					<div
+						class={ "health-dot", item.HealthStatus }
+						title={ "health: " + item.HealthStatus + " " + item.HealthLatency }
+					></div>
+				}
+			</div>
+
 			<div class="openbtn">
 				<a
 					href={ templ.URL(item.URL) }
@@ -226,38 +297,89 @@ templ Proxy(item ProxyData) {
 				</a>
 			</div>
 		</div>
+
+		<!-- Detail modal -->
 		<dialog id={ modalname(item.Name) } class="modal" data-on:close={ onModalClose(item.Name) }>
 			<div class="modal-box max-w-lg">
 				<div class="drag-handle sm:hidden"></div>
 				<form method="dialog">
 					<button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
 				</form>
-				<div class="flex items-center gap-3 mb-4">
-					<figure class="size-12">
-						<img src={ components.IconURL(item.Icon) } alt={ item.Icon }/>
-					</figure>
-					<div>
-						<h3 class="text-lg font-bold">{ item.Label }</h3>
+
+				<!-- Modal header -->
+				<div class="flex items-center gap-3 mb-5">
+					<div class="size-14 rounded-xl bg-base-200/80 flex items-center justify-center shrink-0 border border-base-content/8">
+						<img src={ components.IconURL(item.Icon) } alt={ item.Icon } class="size-9 object-contain"/>
+					</div>
+					<div class="min-w-0 flex-1">
+						<h3 class="text-lg font-bold leading-tight text-base-content">{ item.Label }</h3>
 						if item.Name != item.Label {
-							<p class="text-sm opacity-60">{ item.Name }</p>
+							<p class="text-sm text-base-content/50 mt-0.5 truncate">{ item.Name }</p>
 						}
 					</div>
-					<div class={ "badge ml-auto", item.ProxyStatus.String() }>{ item.ProxyStatus.String() }</div>
+					<span class={ "badge badge-sm shrink-0 ml-auto font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
 				</div>
+
 				if item.ProxyAccessLog {
 					<div class="tabs tabs-border mb-4">
-						<input id={ "log-info-tab-" + dom.SafeID(item.Name) } type="radio" name={ modalname(item.Name) + "_tabs" } class="tab" aria-label="Info" checked="checked" data-on:change={ abortLogStream(item.Name) }/>
-						<div class="tab-content">
+						<input
+							id={ "log-info-tab-" + dom.SafeID(item.Name) }
+							type="radio"
+							name={ modalname(item.Name) + "_tabs" }
+							class="tab"
+							aria-label="Info"
+							checked="checked"
+							data-on:change={ abortLogStream(item.Name) }
+						/>
+						<div class="tab-content pt-4">
 							@infoPanel(item)
 						</div>
-						<input id={ "log-logs-tab-" + dom.SafeID(item.Name) } type="radio" name={ modalname(item.Name) + "_tabs" } class="tab" aria-label="Logs" data-on:change={ logsTabClick(item.Name) }/>
-						<div class="tab-content">
+						<input
+							id={ "log-actions-tab-" + dom.SafeID(item.Name) }
+							type="radio"
+							name={ modalname(item.Name) + "_tabs" }
+							class="tab"
+							aria-label="Actions"
+							data-on:change={ abortLogStream(item.Name) }
+						/>
+						<div class="tab-content pt-4">
+							@actionsPanel(item)
+						</div>
+						<input
+							id={ "log-logs-tab-" + dom.SafeID(item.Name) }
+							type="radio"
+							name={ modalname(item.Name) + "_tabs" }
+							class="tab"
+							aria-label="Logs"
+							data-on:change={ logsTabClick(item.Name) }
+						/>
+						<div class="tab-content pt-4">
 							@logsPanel(item)
 						</div>
 					</div>
 				} else {
-					<div class="mb-4">
-						@infoPanel(item)
+					<div class="tabs tabs-border mb-4">
+						<input
+							id={ "log-info-tab-" + dom.SafeID(item.Name) }
+							type="radio"
+							name={ modalname(item.Name) + "_tabs" }
+							class="tab"
+							aria-label="Info"
+							checked="checked"
+						/>
+						<div class="tab-content pt-4">
+							@infoPanel(item)
+						</div>
+						<input
+							id={ "log-actions-tab-" + dom.SafeID(item.Name) }
+							type="radio"
+							name={ modalname(item.Name) + "_tabs" }
+							class="tab"
+							aria-label="Actions"
+						/>
+						<div class="tab-content pt-4">
+							@actionsPanel(item)
+						</div>
 					</div>
 				}
 			</div>
@@ -288,21 +410,7 @@ func healthValue(h string) string {
 }
 
 func logsTabClick(name string) string {
-	safeID := dom.SafeID(name)
-	placeholder := fmt.Sprintf(
-		`<div id="log-placeholder-%s" class="%s">%s</div>`,
-		safeID, logLineClasses+logPlaceholderExtra, logPlaceholderText,
-	)
-	escapedURL := url.PathEscape(name)
-	return fmt.Sprintf(
-		"document.getElementById('log-lines-%s').innerHTML='%s';"+
-			"var s=document.getElementById('log-stream-%s');"+
-			"s.innerHTML='';"+
-			"var d=document.createElement('div');"+
-			"d.setAttribute('data-init',\"@get('/stream/%s/logs',{requestCancellation:'cleanup'})\");"+
-			"s.appendChild(d)",
-		safeID, placeholder, safeID, escapedURL,
-	)
+	return fmt.Sprintf("startLogStream('%s','%s')", dom.SafeID(name), url.PathEscape(name))
 }
 
 func abortLogStream(name string) string {
@@ -323,28 +431,54 @@ func onModalClose(name string) string {
 	)
 }
 
+func fetchAction(name string, action string) string {
+	encodedName := url.PathEscape(name)
+	return fmt.Sprintf(
+		"fetch('/api/proxy/%s/%s',{method:'POST'}).then(r=>{if(!r.ok)return r.json().then(e=>{throw new Error(e.message||'Failed')})}).catch(e=>alert(e.message))",
+		encodedName, action,
+	)
+}
+
 func modalname(name string) string {
 	return dom.SafeID(name) + "_modal"
 }
 
+type statusStyle struct {
+	DotClass   string
+	BadgeColor string
+}
+
+var statusStyles = map[string]statusStyle{
+	"Running":                      {"bg-success", "badge-success"},
+	"Authenticating":               {"bg-info animate-pulse", "badge-info"},
+	"Initializing":                 {"bg-info animate-pulse", "badge-info"},
+	"Starting":                     {"bg-info animate-pulse", "badge-info"},
+	"Error":                        {"bg-error", "badge-error"},
+	"Stopped":                      {"bg-error", "badge-error"},
+	"Stopping":                     {"bg-warning", "badge-warning"},
+	"Paused":                       {"bg-warning", "badge-warning"},
+}
+
+var statusStyleDefault = statusStyle{"bg-base-content/30", "badge-ghost"}
+
 func statusDotClass(status string) string {
-	switch status {
-	case "Running":
-		return "bg-success"
-	case "Authenticating", "Initializing", "Starting":
-		return "bg-info animate-pulse"
-	case "Error", "Stopped":
-		return "bg-error"
-	case "Stopping":
-		return "bg-warning"
-	default:
-		return "bg-base-content/30"
+	s, ok := statusStyles[status]
+	if !ok {
+		return statusStyleDefault.DotClass
 	}
+	return s.DotClass
+}
+
+func statusBadgeColor(status string) string {
+	s, ok := statusStyles[status]
+	if !ok {
+		return statusStyleDefault.BadgeColor
+	}
+	return s.BadgeColor
 }
 
 func signalsForItem(item ProxyData) string {
 	modal := modalname(item.Name)
-	// Build a single searchable text from all relevant fields
 	searchParts := []string{item.Label, item.Name, item.Hostname, item.TargetProvider, item.TailscaleTags, item.TargetImage, item.Category}
 	searchText := strings.ToLower(strings.Join(searchParts, " "))
 
@@ -358,3 +492,5 @@ func signalsForItem(item ProxyData) string {
 	}
 	return string(b)
 }
+
+

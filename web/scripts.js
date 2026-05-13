@@ -1,4 +1,4 @@
-import "./node_modules/datastar/bundles/datastar.js";
+import { signal } from "./node_modules/datastar/bundles/datastar.js";
 
 const healthOrder = { healthy: 0, unknown: 1, down: 2 };
 
@@ -11,7 +11,12 @@ window.sortList = function(sortKey) {
   if (!list) return;
 
   const key = sortKey || "name";
+  const pinned = getPinnedSet();
   const items = [...list.querySelectorAll(".proxy")].sort((a, b) => {
+    const aPinned = pinned.has(a.id);
+    const bPinned = pinned.has(b.id);
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
     switch (key) {
       case "status":
         return (a.dataset.status || "").localeCompare(b.dataset.status || "");
@@ -39,6 +44,24 @@ function capitalize(s) {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+function getPinnedSet() {
+  const raw = localStorage.getItem("pinned") || "";
+  return new Set(raw.split(",").filter(Boolean));
+}
+
+window.togglePin = function(name) {
+  const pinned = getPinnedSet();
+  if (pinned.has(name)) {
+    pinned.delete(name);
+  } else {
+    pinned.add(name);
+  }
+  const arr = [...pinned];
+  localStorage.setItem("pinned", arr.join(","));
+  signal("pinned", arr.join(","));
+  window.sortList();
+};
 
 function applyGrouping() {
   const list = document.getElementById("proxy-list");
@@ -174,9 +197,13 @@ window.handleKeyboard = function(evt) {
   if (evt.key === "i") {
     const focused = document.querySelector(".proxy.focused");
     if (focused) {
-      const modalBtn = focused.querySelector(".card-title button");
+      const modalBtn = focused.querySelector(".info-btn");
       if (modalBtn) modalBtn.click();
     }
+    return;
+  }
+
+  if (evt.key === "t") {
     return;
   }
 };
@@ -232,3 +259,17 @@ window.requestNotifications = function() {
     Notification.requestPermission();
   }
 }
+
+window.startLogStream = function(safeID, encodedName) {
+  const linesEl = document.getElementById('log-lines-' + safeID);
+  if (linesEl) {
+    linesEl.innerHTML = '<div id="log-placeholder-' + safeID + '" class="log-line text-xs font-mono whitespace-pre-wrap break-all opacity-40">waiting for first request\u2026</div>';
+  }
+  const streamEl = document.getElementById('log-stream-' + safeID);
+  if (streamEl) {
+    streamEl.innerHTML = '';
+    const d = document.createElement('div');
+    d.setAttribute('data-init', "@get('/stream/" + encodedName + "/logs',{requestCancellation:'cleanup'})");
+    streamEl.appendChild(d);
+  }
+};
