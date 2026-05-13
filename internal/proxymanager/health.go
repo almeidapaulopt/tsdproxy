@@ -108,6 +108,8 @@ func (hc *healthChecker) check() {
 	switch hc.scheme {
 	case "http", "https":
 		result = hc.checkHTTP(ctx)
+	case "udp":
+		result = hc.checkUDP(ctx)
 	default:
 		result = hc.checkTCP(ctx)
 	}
@@ -175,6 +177,64 @@ func (hc *healthChecker) checkTCP(ctx context.Context) HealthResult {
 	conn.Close()
 
 	result.Status = HealthHealthy
+	return result
+}
+
+func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
+	var result HealthResult
+	result.CheckedAt = time.Now()
+
+	addr, err := net.ResolveUDPAddr("udp", hc.target)
+	if err != nil {
+		result.Status = HealthDown
+		result.Error = fmt.Sprintf("error resolving address: %v", err)
+		return result
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		result.Status = HealthDown
+		result.Error = err.Error()
+		return result
+	}
+	defer conn.Close()
+
+	start := time.Now()
+	// Send a probe to trigger ICMP port-unreachable if nothing is listening.
+	if _, err := conn.Write([]byte{0}); err != nil {
+		result.Latency = time.Since(start)
+		result.Status = HealthDown
+		result.Error = err.Error()
+		return result
+	}
+
+	// Wait for either a response or an ICMP error.
+	if err := conn.SetReadDeadline(time.Now().Add(healthCheckTimeout)); err != nil {
+		result.Latency = time.Since(start)
+		result.Status = HealthDown
+		result.Error = err.Error()
+		return result
+	}
+
+	buf := make([]byte, 1)
+	_, readErr := conn.Read(buf)
+	result.Latency = time.Since(start)
+
+	if readErr == nil {
+		// Backend sent a response.
+		result.Status = HealthHealthy
+		return result
+	}
+
+	// Timeout means no ICMP error arrived — likely reachable.
+	if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+		result.Status = HealthHealthy
+		return result
+	}
+
+	// Any other error (e.g. ICMP port unreachable) means down.
+	result.Status = HealthDown
+	result.Error = readErr.Error()
 	return result
 }
 

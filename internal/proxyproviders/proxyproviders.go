@@ -22,6 +22,7 @@ type (
 		Start(context.Context) error
 		Close() error
 		GetListener(port string) (net.Listener, error)
+		GetPacketConn(port string) (net.PacketConn, error)
 		GetURL() string
 		GetAuthURL() string
 		WatchEvents() chan model.ProxyEvent

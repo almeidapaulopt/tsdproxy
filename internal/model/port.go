@@ -187,6 +187,8 @@ func parseTargetSegment(segment string, config *PortConfig) error {
 	targetProtocol := "http"
 	if config.ProxyProtocol == "tcp" {
 		targetProtocol = "tcp"
+	} else if config.ProxyProtocol == "udp" {
+		targetProtocol = "udp"
 	}
 
 	if len(targetParts) == 2 { //nolint:mnd

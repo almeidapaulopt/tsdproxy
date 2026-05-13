@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"sync"
 	"time"
 
@@ -40,7 +41,9 @@ type (
 		cancel        context.CancelFunc
 		ports         map[string]portHandler
 		mtx           sync.RWMutex
+		opMu          sync.Mutex
 		status        model.ProxyStatus
+		paused        bool
 		metrics       *metrics.Metrics
 		health        *healthChecker
 		statusHistory []StatusTransition
@@ -100,9 +103,7 @@ func NewProxy(log zerolog.Logger,
 	return p, nil
 }
 
-func (proxy *Proxy) Start() {
-	go proxy.start()
-
+func (proxy *Proxy) Start() error {
 	proxy.startHealthChecker()
 
 	go func() {
@@ -110,10 +111,15 @@ func (proxy *Proxy) Start() {
 			proxy.setStatus(event.Status)
 		}
 	}()
+
+	return proxy.start()
 }
 
 // Close method is a method that initiate proxy close procedure.
 func (proxy *Proxy) Close() {
+	proxy.opMu.Lock()
+	defer proxy.opMu.Unlock()
+
 	proxy.setStatus(model.ProxyStatusStopping)
 
 	proxy.stopHealthChecker()
@@ -130,6 +136,110 @@ func (proxy *Proxy) Close() {
 	proxy.close()
 
 	proxy.setStatus(model.ProxyStatusStopped)
+}
+
+// Pause stops all port listeners and health checks while keeping the
+// provider proxy (tsnet.Server) alive. The proxy status is set to Paused.
+func (proxy *Proxy) Pause() error {
+	proxy.opMu.Lock()
+	defer proxy.opMu.Unlock()
+
+	proxy.mtx.Lock()
+	if proxy.paused {
+		proxy.mtx.Unlock()
+		return fmt.Errorf("proxy %s is already paused", proxy.Config.Hostname)
+	}
+	if proxy.status != model.ProxyStatusRunning {
+		proxy.mtx.Unlock()
+		return fmt.Errorf("cannot pause proxy %s: current status is %s, expected Running",
+			proxy.Config.Hostname, proxy.status.String())
+	}
+	proxy.paused = true
+	proxy.mtx.Unlock()
+
+	proxy.stopHealthChecker()
+	proxy.closePorts()
+	proxy.setStatus(model.ProxyStatusPaused)
+
+	proxy.log.Info().Msg("proxy paused")
+	return nil
+}
+
+// Resume re-initializes port handlers and restarts listeners after a Pause.
+func (proxy *Proxy) Resume() error {
+	proxy.opMu.Lock()
+	defer proxy.opMu.Unlock()
+
+	proxy.mtx.Lock()
+	if !proxy.paused {
+		proxy.mtx.Unlock()
+		return fmt.Errorf("proxy %s is not paused", proxy.Config.Hostname)
+	}
+	proxy.paused = false
+	proxy.mtx.Unlock()
+
+	// Re-init ports from config
+	proxy.initPorts()
+
+	// Start each port with a new listener from the provider
+	proxy.mtx.RLock()
+	portsConfig := proxy.Config.Ports
+	proxy.mtx.RUnlock()
+
+	var listenerErrors int
+	for k, pc := range portsConfig {
+		if pc.ProxyProtocol == "udp" {
+			packetConn, err := proxy.providerProxy.GetPacketConn(k)
+			if err != nil {
+				proxy.log.Error().Err(err).Str("port", k).Msg("error getting UDP packet conn for resume")
+				listenerErrors++
+				continue
+			}
+			proxy.startPacketPort(k, packetConn)
+		} else {
+			l, err := proxy.providerProxy.GetListener(k)
+			if err != nil {
+				proxy.log.Error().Err(err).Str("port", k).Msg("error getting listener for resume")
+				listenerErrors++
+				continue
+			}
+			proxy.startPort(k, l)
+		}
+	}
+
+	if listenerErrors > 0 && listenerErrors == len(portsConfig) {
+		proxy.setStatus(model.ProxyStatusError)
+		proxy.log.Error().Msg("proxy resume failed: all listeners errored")
+		return fmt.Errorf("proxy %s resume failed: all %d listeners errored", proxy.Config.Hostname, listenerErrors)
+	}
+
+	proxy.startHealthChecker()
+	proxy.setStatus(model.ProxyStatusRunning)
+
+	if listenerErrors > 0 {
+		proxy.log.Warn().Int("failed", listenerErrors).Int("total", len(portsConfig)).Msg("proxy resumed with some listener errors")
+	} else {
+		proxy.log.Info().Msg("proxy resumed")
+	}
+	return nil
+}
+
+// closePorts closes all port handlers without closing the providerProxy.
+func (proxy *Proxy) closePorts() {
+	var errs error
+
+	proxy.mtx.Lock()
+	for k, p := range proxy.ports {
+		errs = errors.Join(errs, p.close())
+		delete(proxy.ports, k)
+	}
+	proxy.mtx.Unlock()
+
+	if errs != nil && !errors.Is(errs, context.Canceled) && !errors.Is(errs, net.ErrClosed) {
+		proxy.log.Error().Err(errs).Msg("error closing port handlers")
+	}
+
+	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("port handlers closed")
 }
 
 func (proxy *Proxy) GetStatus() model.ProxyStatus {
@@ -189,7 +299,14 @@ func (proxy *Proxy) UnsubscribeLogs(ch chan string) {
 }
 
 func (proxy *Proxy) startHealthChecker() {
-	for _, pc := range proxy.Config.Ports {
+	keys := make([]string, 0, len(proxy.Config.Ports))
+	for k := range proxy.Config.Ports {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		pc := proxy.Config.Ports[k]
 		if pc.IsRedirect {
 			continue
 		}
@@ -237,6 +354,8 @@ func (proxy *Proxy) initPorts() {
 			ph = newPortRedirect(proxy.ctx, v, log)
 		} else if v.ProxyProtocol == "http" || v.ProxyProtocol == "https" {
 			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware, proxy.metrics, proxy.Config.Hostname, k, proxy.logBuffer)
+		} else if v.ProxyProtocol == "udp" {
+			ph = newPortUDP(proxy.ctx, v, log)
 		} else {
 			ph = newPortTCP(proxy.ctx, v, log)
 		}
@@ -250,7 +369,7 @@ func (proxy *Proxy) initPorts() {
 }
 
 // Start method is a method that starts the proxy.
-func (proxy *Proxy) start() {
+func (proxy *Proxy) start() error {
 	proxy.log.Info().Msg("starting proxy")
 
 	proxy.mtx.RLock()
@@ -259,38 +378,45 @@ func (proxy *Proxy) start() {
 	proxy.mtx.RUnlock()
 
 	if portsCount == 0 {
-		proxy.log.Warn().Msg("No ports configured")
-
-		// Release context and provider resources (e.g. tsnet node) without
-		// transitioning to Stopped, so the dashboard keeps showing the Error
-		// state for this misconfigured proxy.
-		proxy.cancel()
-		proxy.close()
-		proxy.setStatus(model.ProxyStatusError)
-
-		return
+		return fmt.Errorf("no ports configured")
 	}
 
 	if err := proxy.providerProxy.Start(proxy.ctx); err != nil {
-		proxy.log.Error().Err(err).Msg("Error starting with proxy provider")
-		proxy.Close()
-		return
+		return fmt.Errorf("error starting with proxy provider: %w", err)
 	}
 
-	var l net.Listener
-	var err error
-
-	for k := range portsConfig {
+	var listenerErrors int
+	for k, pc := range portsConfig {
 		proxy.log.Debug().Str("port", k).Msg("Starting proxy port")
 
-		l, err = proxy.providerProxy.GetListener(k)
-		if err != nil {
-			proxy.log.Error().Err(err).Str("port", k).Msg("Error adding listener")
-			continue
+		if pc.ProxyProtocol == "udp" {
+			packetConn, err := proxy.providerProxy.GetPacketConn(k)
+			if err != nil {
+				proxy.log.Error().Err(err).Str("port", k).Msg("Error getting UDP packet conn")
+				listenerErrors++
+				continue
+			}
+			proxy.startPacketPort(k, packetConn)
+		} else {
+			l, err := proxy.providerProxy.GetListener(k)
+			if err != nil {
+				proxy.log.Error().Err(err).Str("port", k).Msg("Error adding listener")
+				listenerErrors++
+				continue
+			}
+			proxy.startPort(k, l)
 		}
-
-		proxy.startPort(k, l)
 	}
+
+	if listenerErrors > 0 && listenerErrors == len(portsConfig) {
+		return fmt.Errorf("all %d listeners failed", listenerErrors)
+	}
+
+	if listenerErrors > 0 {
+		proxy.log.Warn().Int("failed", listenerErrors).Int("total", len(portsConfig)).Msg("proxy started with some listener errors")
+	}
+
+	return nil
 }
 
 func (proxy *Proxy) startPort(name string, l net.Listener) {
@@ -306,6 +432,30 @@ func (proxy *Proxy) startPort(name string, l net.Listener) {
 			}
 		}()
 	}
+}
+
+func (proxy *Proxy) startPacketPort(name string, pc net.PacketConn) {
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+
+	p, ok := proxy.ports[name]
+	if !ok {
+		pc.Close()
+		return
+	}
+
+	udp, ok := p.(*udpPort)
+	if !ok {
+		pc.Close()
+		return
+	}
+
+	go func() {
+		if err := udp.startWithPacketConn(pc); err != nil {
+			proxy.log.Error().Err(err).Msg("error starting UDP port")
+			proxy.setStatus(model.ProxyStatusError)
+		}
+	}()
 }
 
 // close method is a method that closes all listeners ans httpServer.
@@ -335,6 +485,14 @@ func (proxy *Proxy) setStatus(status model.ProxyStatus) {
 		return
 	}
 
+	// When paused, block status updates from provider events.
+	// Only internal transitions (Pause → Paused, Resume → Running) are allowed.
+	if proxy.paused && status != model.ProxyStatusPaused {
+		proxy.mtx.Unlock()
+		return
+	}
+
+	oldStatus := proxy.status
 	proxy.status = status
 
 	proxy.statusHistory = append(proxy.statusHistory, StatusTransition{
@@ -349,8 +507,9 @@ func (proxy *Proxy) setStatus(status model.ProxyStatus) {
 
 	if proxy.onUpdate != nil {
 		proxy.onUpdate(model.ProxyEvent{
-			ID:     proxy.Config.Hostname,
-			Status: status,
+			ID:        proxy.Config.Hostname,
+			Status:    status,
+			OldStatus: oldStatus,
 		})
 	}
 }

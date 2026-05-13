@@ -6,6 +6,7 @@ package proxymanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/webhook"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders/tailscale"
@@ -39,6 +41,8 @@ type (
 
 		statusSubscribers map[chan model.ProxyEvent]struct{}
 
+		webhookSender *webhook.Sender
+
 		mtx      sync.RWMutex
 		targetMu sync.Map // map[string]*sync.Mutex — per-target-ID lock for serializing events
 		hostMu   sync.Map // map[string]*sync.Mutex — per-hostname lock for serializing proxy replacement
@@ -61,6 +65,7 @@ func NewProxyManager(logger zerolog.Logger) *ProxyManager {
 		statusSubscribers: make(map[chan model.ProxyEvent]struct{}),
 		log:               logger.With().Str("module", "proxymanager").Logger(),
 		metrics:           metrics.New(),
+		webhookSender:     webhook.NewSender(logger, config.Config.Webhooks),
 	}
 
 	return pm
@@ -104,6 +109,10 @@ func (pm *ProxyManager) StopAllProxies() {
 		}(id)
 	}
 	wg.Wait()
+
+	if pm.webhookSender != nil {
+		pm.webhookSender.Close()
+	}
 }
 
 // WatchEvents method watches for events from all target providers.
@@ -197,6 +206,51 @@ func (pm *ProxyManager) GetProxy(name string) (*Proxy, bool) {
 	return proxy, ok
 }
 
+// RestartProxy stops and re-creates a proxy using its current config.
+func (pm *ProxyManager) RestartProxy(name string) error {
+	pm.mtx.RLock()
+	proxy, ok := pm.Proxies[name]
+	pm.mtx.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("proxy %s not found", name)
+	}
+
+	cfg := proxy.Config
+
+	if err := pm.newAndStartProxy(cfg.Hostname, cfg); err != nil {
+		return fmt.Errorf("restart failed for proxy %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// PauseProxy pauses a running proxy by name.
+func (pm *ProxyManager) PauseProxy(name string) error {
+	pm.mtx.RLock()
+	proxy, ok := pm.Proxies[name]
+	pm.mtx.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("proxy %s not found", name)
+	}
+
+	return proxy.Pause()
+}
+
+// ResumeProxy resumes a paused proxy by name.
+func (pm *ProxyManager) ResumeProxy(name string) error {
+	pm.mtx.RLock()
+	proxy, ok := pm.Proxies[name]
+	pm.mtx.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("proxy %s not found", name)
+	}
+
+	return proxy.Resume()
+}
+
 // MetricsHandler returns an http.Handler that serves Prometheus metrics.
 func (pm *ProxyManager) MetricsHandler() http.Handler {
 	return pm.metrics.Handler()
@@ -204,6 +258,10 @@ func (pm *ProxyManager) MetricsHandler() http.Handler {
 
 // broadcastStatusEvents broadcasts proxy status event to all SubscribeStatusEvents
 func (pm *ProxyManager) broadcastStatusEvents(event model.ProxyEvent) {
+	if pm.webhookSender != nil {
+		pm.webhookSender.Send(webhook.NewEvent(event.ID, event.OldStatus, event.Status))
+	}
+
 	pm.mtx.RLock()
 	for ch := range pm.statusSubscribers {
 		select {
@@ -314,7 +372,9 @@ func (pm *ProxyManager) eventStart(event targetproviders.TargetEvent) {
 		return
 	}
 
-	pm.newAndStartProxy(pcfg.Hostname, pcfg)
+	if err := pm.newAndStartProxy(pcfg.Hostname, pcfg); err != nil {
+		pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error starting proxy")
+	}
 }
 
 // eventStop method stops a Proxy from a event trigger
@@ -345,46 +405,53 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 }
 
 // newAndStartProxy method creates a new proxy and starts it.
-func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config) {
+// The replacement is fully started before the old proxy is closed,
+// so a start failure never destroys a working proxy.
+func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config) error {
 	pm.log.Debug().Str("proxy", name).Msg("Creating proxy")
 
 	// Serialize per-hostname so that concurrent starts for the same hostname
-	// (from different target IDs) cannot race. The lock covers close-old →
-	// create → install → start, guaranteeing exactly one live proxy per
-	// hostname and preventing an evicted proxy from starting.
+	// (from different target IDs) cannot race. The lock covers
+	// create → start → close-old → install, guaranteeing exactly one live
+	// proxy per hostname and preventing an evicted proxy from starting.
 	hmu := pm.getHostLock(proxyConfig.Hostname)
 	hmu.Lock()
 	defer hmu.Unlock()
 
-	pm.closeAndRemoveProxy(proxyConfig.Hostname)
-
 	proxyProvider, err := pm.getProxyProvider(proxyConfig)
 	if err != nil {
-		pm.log.Error().Err(err).Msg("Error to get ProxyProvider")
-		return
+		return fmt.Errorf("error getting ProxyProvider: %w", err)
 	}
 
 	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics)
 	if err != nil {
-		pm.log.Error().Err(err).Msg("Error creating proxy")
-		return
+		return fmt.Errorf("error creating proxy: %w", err)
 	}
 
 	p.onUpdate = func(event model.ProxyEvent) {
 		pm.broadcastStatusEvents(event)
 	}
 
-	pm.mtx.Lock()
-	pm.Proxies[proxyConfig.Hostname] = p
-	pm.mtx.Unlock()
-
-	// broadcasts ProxyStatusInitializing
 	pm.broadcastStatusEvents(model.ProxyEvent{
 		ID:     p.Config.Hostname,
 		Status: model.ProxyStatusInitializing,
 	})
 
-	p.Start()
+	// Start the replacement before touching the old proxy.
+	// On failure, the old proxy remains untouched in the map.
+	if err := p.Start(); err != nil {
+		p.Close()
+		return fmt.Errorf("proxy start failed: %w", err)
+	}
+
+	// Replacement is running — close old and install new.
+	pm.closeAndRemoveProxy(proxyConfig.Hostname)
+
+	pm.mtx.Lock()
+	pm.Proxies[proxyConfig.Hostname] = p
+	pm.mtx.Unlock()
+
+	return nil
 }
 
 // getProxyProvider method returns a ProxyProvider.

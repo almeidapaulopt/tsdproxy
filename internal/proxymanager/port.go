@@ -12,14 +12,19 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
 	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"github.com/rs/zerolog"
 )
 
@@ -126,6 +131,10 @@ func newPortProxy(
 	// add metrics as outermost middleware
 	if m != nil {
 		handler = m.Middleware(proxyName, portName)(handler)
+	}
+
+	if config.Config.Telemetry.Enabled {
+		handler = otelhttp.NewHandler(handler, "proxy", otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents))
 	}
 
 	// main http Server
@@ -282,6 +291,222 @@ func (p *tcpPort) close() error {
 	var errs error
 	if p.listener != nil {
 		errs = errors.Join(errs, p.listener.Close())
+	}
+	p.mtx.Unlock()
+
+	p.cancel()
+
+	return errs
+}
+
+// udpPort forwards UDP packets from the Tailscale PacketConn to the target backend.
+type udpPort struct {
+	log     zerolog.Logger
+	ctx     context.Context
+	cancel  context.CancelFunc
+	pconfig model.PortConfig
+	conn    net.PacketConn
+	mtx     sync.Mutex
+}
+
+func newPortUDP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *udpPort {
+	ctxPort, cancel := context.WithCancel(ctx)
+
+	return &udpPort{
+		log:     log.With().Str("port", pconfig.String()).Logger(),
+		ctx:     ctxPort,
+		cancel:  cancel,
+		pconfig: pconfig,
+	}
+}
+
+func (p *udpPort) startWithListener(_ net.Listener) error {
+	return fmt.Errorf("UDP ports must use startWithPacketConn, not startWithListener")
+}
+
+func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
+	p.mtx.Lock()
+	p.conn = pc
+	p.mtx.Unlock()
+
+	go func() {
+		<-p.ctx.Done()
+		pc.Close()
+	}()
+
+	target := p.pconfig.GetFirstTarget()
+	if target.Host == "" {
+		return fmt.Errorf("no target configured for UDP port")
+	}
+
+	p.relayPackets(pc, target.Host)
+	return nil
+}
+
+const (
+	udpBufSize        = 64 * 1024
+	udpIdleTimeout    = 2 * time.Minute
+	udpMaxClients     = 1024
+	udpPerSourceRate  = 500
+	udpPerSourceBurst = 1000
+)
+
+// clientEntry tracks a per-client backend UDP connection and its last activity.
+type clientEntry struct {
+	conn     *net.UDPConn
+	lastSeen time.Time
+	limiter  *rate.Limiter
+}
+
+func (p *udpPort) relayPackets(pc net.PacketConn, targetHost string) {
+	buf := make([]byte, udpBufSize)
+
+	clientMap := make(map[string]*clientEntry)
+	var mapMtx sync.Mutex
+
+	defer func() {
+		mapMtx.Lock()
+		for _, entry := range clientMap {
+			if entry.conn != nil {
+				entry.conn.Close()
+			}
+		}
+		mapMtx.Unlock()
+	}()
+
+	getBackendConn := func(clientAddr net.Addr) (*net.UDPConn, error) {
+		mapMtx.Lock()
+		defer mapMtx.Unlock()
+
+		key := clientAddr.String()
+		if entry, ok := clientMap[key]; ok {
+			entry.lastSeen = time.Now()
+			if !entry.limiter.Allow() {
+				p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
+				return nil, nil
+			}
+			return entry.conn, nil
+		}
+
+		entry := &clientEntry{
+			lastSeen: time.Now(),
+			limiter:  rate.NewLimiter(udpPerSourceRate, udpPerSourceBurst),
+		}
+		clientMap[key] = entry
+
+		if !entry.limiter.Allow() {
+			p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
+			return nil, nil
+		}
+
+		if len(clientMap) >= udpMaxClients {
+			var oldestKey string
+			var oldestTime time.Time
+			for k, v := range clientMap {
+				if oldestKey == "" || v.lastSeen.Before(oldestTime) {
+					oldestKey = k
+					oldestTime = v.lastSeen
+				}
+			}
+			if oldest, ok := clientMap[oldestKey]; ok {
+				if oldest.conn != nil {
+					oldest.conn.Close()
+				}
+				delete(clientMap, oldestKey)
+			}
+		}
+
+		backendAddr, err := net.ResolveUDPAddr("udp", targetHost)
+		if err != nil {
+			delete(clientMap, key)
+			return nil, fmt.Errorf("error resolving backend UDP address: %w", err)
+		}
+
+		conn, err := net.DialUDP("udp", nil, backendAddr)
+		if err != nil {
+			delete(clientMap, key)
+			return nil, err
+		}
+
+		entry.conn = conn
+
+		go p.relayBackendToClient(entry, pc, clientAddr, &mapMtx, clientMap)
+
+		return conn, nil
+	}
+
+	for {
+		n, clientAddr, err := pc.ReadFrom(buf)
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) || p.ctx.Err() != nil {
+				return
+			}
+			p.log.Error().Err(err).Msg("error reading UDP packet")
+			return
+		}
+
+		backend, err := getBackendConn(clientAddr)
+		if err != nil {
+			p.log.Error().Err(err).Str("client", clientAddr.String()).Msg("error dialing backend")
+			continue
+		}
+
+		if backend == nil {
+			continue
+		}
+
+		if _, err := backend.Write(buf[:n]); err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				continue
+			}
+			p.log.Error().Err(err).Msg("error writing to backend")
+		}
+	}
+}
+
+func (p *udpPort) relayBackendToClient(entry *clientEntry, pc net.PacketConn, clientAddr net.Addr, mapMtx *sync.Mutex, clientMap map[string]*clientEntry) {
+	backend := entry.conn
+	defer func() {
+		backend.Close()
+		mapMtx.Lock()
+		// Delete only if this entry hasn't been replaced (e.g. by eviction + re-creation).
+		if current, ok := clientMap[clientAddr.String()]; ok && current == entry {
+			delete(clientMap, clientAddr.String())
+		}
+		mapMtx.Unlock()
+	}()
+
+	buf := make([]byte, udpBufSize)
+	for {
+		if err := backend.SetReadDeadline(time.Now().Add(udpIdleTimeout)); err != nil {
+			return
+		}
+
+		n, err := backend.Read(buf)
+		if err != nil {
+			// Idle timeout — client mapping expires gracefully.
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				return
+			}
+			// Conn closed (shutdown or eviction).
+			if errors.Is(err, net.ErrClosed) || p.ctx.Err() != nil {
+				return
+			}
+			p.log.Error().Err(err).Msg("error reading from backend")
+			return
+		}
+
+		if _, err := pc.WriteTo(buf[:n], clientAddr); err != nil {
+			return
+		}
+	}
+}
+
+func (p *udpPort) close() error {
+	p.mtx.Lock()
+	var errs error
+	if p.conn != nil {
+		errs = errors.Join(errs, p.conn.Close())
 	}
 	p.mtx.Unlock()
 

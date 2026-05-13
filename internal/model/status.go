@@ -7,10 +7,11 @@ type (
 	ProxyStatus int
 
 	ProxyEvent struct {
-		ID      string
-		Port    string
-		AuthURL string
-		Status  ProxyStatus
+		ID        string
+		Port      string
+		AuthURL   string
+		Status    ProxyStatus
+		OldStatus ProxyStatus
 	}
 )
 
@@ -22,6 +23,7 @@ const (
 	ProxyStatusStopping
 	ProxyStatusStopped
 	ProxyStatusError
+	ProxyStatusPaused
 )
 
 var proxyStatusStrings = []string{
@@ -32,6 +34,7 @@ var proxyStatusStrings = []string{
 	"Stopping",
 	"Stopped",
 	"Error",
+	"Paused",
 }
 
 func (s *ProxyStatus) String() string {

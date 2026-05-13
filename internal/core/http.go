@@ -100,7 +100,9 @@ func (a *HTTPServer) ErrorResponse(w http.ResponseWriter, _ *http.Request, span 
 		Message: returnError,
 	}
 
-	span.SetStatus(codes.Error, returnError)
+	if span != nil {
+		span.SetStatus(codes.Error, returnError)
+	}
 
 	body, err := json.Marshal(data)
 	if err != nil {

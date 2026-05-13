@@ -4,9 +4,20 @@
 package dom
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
+
+// JSString returns s as a safely-escaped JavaScript string literal
+// (including surrounding double-quotes), suitable for embedding in
+// inline event handlers.  It uses json.Marshal so all characters
+// that could break out of a JS string (quotes, backslashes, control
+// chars) are properly escaped.
+func JSString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
+}
 
 func SafeID(s string) string {
 	var b strings.Builder

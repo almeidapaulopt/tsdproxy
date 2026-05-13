@@ -145,7 +145,7 @@ func (p *Proxy) GetListener(port string) (net.Listener, error) {
 	}
 
 	network := portCfg.ProxyProtocol
-	if portCfg.ProxyProtocol == "http" || portCfg.ProxyProtocol == "https" {
+	if portCfg.ProxyProtocol == "http" || portCfg.ProxyProtocol == "https" || portCfg.ProxyProtocol == "udp" {
 		network = "tcp"
 	}
 	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
@@ -157,6 +157,16 @@ func (p *Proxy) GetListener(port string) (net.Listener, error) {
 		return p.tsServer.ListenTLS(network, addr)
 	}
 	return p.tsServer.Listen(network, addr)
+}
+
+func (p *Proxy) GetPacketConn(port string) (net.PacketConn, error) {
+	portCfg, ok := p.config.Ports[port]
+	if !ok {
+		return nil, ErrProxyPortNotFound
+	}
+
+	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
+	return p.tsServer.ListenPacket("udp", addr)
 }
 
 func (p *Proxy) WatchEvents() chan model.ProxyEvent {
