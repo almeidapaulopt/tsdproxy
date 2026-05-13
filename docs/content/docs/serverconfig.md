@@ -57,6 +57,9 @@ log:
   level: info # Logging level (debug, info, warn, error, fatal, panic, trace)
   json: false # Enable JSON logging (true/false)
 proxyAccessLog: true # Enable container access logs (true/false)
+admins: [] # Tailscale UserProfile.IDs authorized for admin actions (optional)
+            # Example: admins: ["12345" # alice@github, "67890" # bob@example.com]
+adminAllowLocalhost: false # Permit localhost to bypass admin allowlist (for bootstrapping)
 ```
 
 ### Configuration Sections
@@ -193,6 +196,33 @@ Enables JSON-formatted logging when set to `true`. Defaults to `false`.
 Enables access logging for proxied requests. Defaults to `true`. Can be
 overridden per-container with the `tsdproxy.containeraccesslog` label or
 per-list with `defaultProxyAccessLog`.
+
+#### Admin Allowlist
+
+Controls access to sensitive dashboard actions (restart, pause, resume, reauth).
+
+```yaml {filename="/config/tsdproxy.yaml"}
+admins:
+  - "12345"  # alice@github
+  - "67890"  # bob@example.com
+adminAllowLocalhost: false
+```
+
+##### admins
+
+A list of Tailscale `UserProfile.ID` values authorized to use admin endpoints.
+When empty (default), all dashboard actions are unprotected. Use
+`/api/whoami` through a Tailscale connection to discover your ID.
+
+##### adminAllowLocalhost
+
+When `true`, requests originating from `localhost` bypass the admin allowlist.
+Defaults to `false`. Intended only for bootstrapping — enable temporarily,
+then disable once your ID is in the list.
+
+> [!WARNING]
+> With `adminAllowLocalhost: true`, any process on the host can call admin
+> endpoints without authentication.
 
 {{% /steps %}}
 
