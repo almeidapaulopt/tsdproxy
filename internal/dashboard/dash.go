@@ -19,8 +19,6 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 	"github.com/almeidapaulopt/tsdproxy/web"
 
-	datastar "github.com/starfederation/datastar-go/datastar"
-
 	"github.com/rs/zerolog"
 )
 
@@ -310,38 +308,36 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 		}
 		defer proxy.UnsubscribeLogs(ch)
 
-		sse := datastar.NewSSE(w, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		if _, ok := w.(http.Flusher); !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
 		safeID := dom.SafeID(name)
 		selector := "#log-lines-" + safeID
+		scrollSelector := selector
+		trimSelector := selector
+		maxLines := fmt.Sprintf("%d", proxymanager.DefaultLogBufferSize)
 
 		dash.Log.Debug().Str("proxy", name).Msg("log stream client connected")
 
-		autoscroll := "document.getElementById('log-lines-" + safeID + "').scrollTop=document.getElementById('log-lines-" + safeID + "').scrollHeight"
-		trimScript := "(function(){var c=document.getElementById('log-lines-" + safeID + "');var ch=c.children;var m=" + fmt.Sprintf("%d", proxymanager.DefaultLogBufferSize) + ";while(ch.length>m){c.removeChild(ch[0])}})()"
-
-		// Clear the container so reconnects don't duplicate snapshot lines.
-		_ = sse.PatchElements("",
-			datastar.WithModeInner(),
-			datastar.WithSelector(selector),
-		)
+		if err := SSEClearList(w, selector); err != nil {
+			return
+		}
 
 		if len(snapshot) > 0 {
-			err := sse.PatchElementTempl(
-				pages.LogLines(snapshot),
-				datastar.WithModeAppend(),
-				datastar.WithSelector(selector),
-			)
-			if err != nil {
+			if err := SSEAppendHTML(w, pages.LogLines(snapshot)); err != nil {
 				return
 			}
-			_ = sse.ExecuteScript(autoscroll)
+			if err := WriteSSE(w, "scroll-logs", scrollSelector); err != nil {
+				return
+			}
 		} else {
-			// Re-insert placeholder when reconnecting to an empty buffer.
-			_ = sse.PatchElements(
-				fmt.Sprintf(`<div id="log-placeholder-%s" class="%s">%s</div>`, safeID, pages.LogLineClasses()+pages.LogPlaceholderExtra(), pages.LogPlaceholderText()),
-				datastar.WithModeAppend(),
-				datastar.WithSelector(selector),
-			)
+			if err := SSEAppendHTML(w, fmt.Sprintf(`<div id="log-placeholder-%s" class="%s">%s</div>`, safeID, pages.LogLineClasses()+pages.LogPlaceholderExtra(), pages.LogPlaceholderText())); err != nil {
+				return
+			}
 		}
 
 		placeholderRemoved := len(snapshot) > 0
@@ -355,7 +351,9 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 					return
 				}
 				if !placeholderRemoved {
-					_ = sse.RemoveElement("#log-placeholder-" + safeID)
+					if err := SSERemoveElement(w, "#log-placeholder-"+safeID); err != nil {
+						return
+					}
 					placeholderRemoved = true
 				}
 
@@ -375,16 +373,15 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 					}
 				}
 
-				err := sse.PatchElementTempl(
-					pages.LogLines(lines),
-					datastar.WithModeAppend(),
-					datastar.WithSelector(selector),
-				)
-				if err != nil {
+				if err := SSEAppendHTML(w, pages.LogLines(lines)); err != nil {
 					return
 				}
-				_ = sse.ExecuteScript(trimScript)
-				_ = sse.ExecuteScript(autoscroll)
+				if err := WriteSSE(w, "trim-logs", trimSelector+"\n"+maxLines); err != nil {
+					return
+				}
+				if err := WriteSSE(w, "scroll-logs", scrollSelector); err != nil {
+					return
+				}
 			}
 		}
 	}

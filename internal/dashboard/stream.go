@@ -13,7 +13,6 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/google/uuid"
-	datastar "github.com/starfederation/datastar-go/datastar"
 )
 
 const (
@@ -24,7 +23,10 @@ const (
 	EventMergeMessage
 	EventClearList
 	EventRemoveElement
-	EventScript
+	EventSortList
+	EventNotify
+	EventScrollLogs
+	EventTrimLogs
 	EventUpdateSignals
 )
 
@@ -60,7 +62,13 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 		sessionID := r.Header.Get("X-Session-ID")
 		connID := sessionID + "_" + uuid.New().String()
 
-		sse := datastar.NewSSE(w, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		if _, ok := w.(http.Flusher); !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
 
 		// Create a new client
 		client := &sseClient{
@@ -83,7 +91,6 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 
 		var err error
 
-		// Send messages to the client
 	LOOP:
 		for {
 			select {
@@ -92,34 +99,34 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 			case message := <-client.channel:
 				switch message.Type {
 				case EventAppend:
-					err = sse.PatchElementTempl(
-						message.Comp,
-						datastar.WithModeAppend(),
-						datastar.WithSelector("#proxy-list"),
-					)
+					err = SSEAppendHTML(w, message.Comp)
 
 				case EventMerge:
-					err = sse.PatchElementTempl(
-						message.Comp,
-					)
+					err = SSEMergeHTML(w, message.Comp)
 
 				case EventMergeMessage:
-					err = sse.PatchElements(message.Message)
+					err = SSEMergeHTML(w, message.Message)
 
 				case EventClearList:
-					err = sse.PatchElements("",
-						datastar.WithModeInner(),
-						datastar.WithSelector(message.Message),
-					)
+					err = SSEClearList(w, message.Message)
 
 				case EventRemoveElement:
-					err = sse.RemoveElement(message.Message)
+					err = SSERemoveElement(w, message.Message)
 
-				case EventScript:
-					err = sse.ExecuteScript(message.Message)
+				case EventSortList:
+					err = WriteSSE(w, "sort-list", "")
+
+				case EventNotify:
+					err = WriteSSE(w, "notify", message.Message)
+
+				case EventScrollLogs:
+					err = WriteSSE(w, "scroll-logs", message.Message)
+
+				case EventTrimLogs:
+					err = WriteSSE(w, "trim-logs", message.Message)
 
 				case EventUpdateSignals:
-					err = sse.PatchSignals([]byte(message.Message))
+					err = SSEUpdateState(w, message.Message)
 				}
 			}
 
@@ -173,8 +180,8 @@ func (dash *Dashboard) streamProxyUpdates() {
 
 			case model.ProxyStatusStopped:
 				sseClient.send(SSEMessage{
-					Type:    EventScript,
-					Message: fmt.Sprintf("showProxyNotification('%s', 'Stopped')", event.ID),
+					Type:    EventNotify,
+					Message: fmt.Sprintf("%s\x00Stopped", event.ID),
 				})
 				sseClient.send(SSEMessage{
 					Type:    EventRemoveElement,
@@ -185,8 +192,8 @@ func (dash *Dashboard) streamProxyUpdates() {
 				dash.renderProxy(sseClient, event.ID, EventMerge)
 				if event.Status == model.ProxyStatusError {
 					sseClient.send(SSEMessage{
-						Type:    EventScript,
-						Message: fmt.Sprintf("showProxyNotification('%s', 'Error')", event.ID),
+						Type:    EventNotify,
+						Message: fmt.Sprintf("%s\x00Error", event.ID),
 					})
 				}
 			}
@@ -197,7 +204,6 @@ func (dash *Dashboard) streamProxyUpdates() {
 
 func (dash *Dashboard) streamSortList(client *sseClient) {
 	client.send(SSEMessage{
-		Type:    EventScript,
-		Message: "sortList()",
+		Type: EventSortList,
 	})
 }
