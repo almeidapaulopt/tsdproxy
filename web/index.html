@@ -237,7 +237,7 @@
     <aside class="flex items-center gap-3">
       <img src="/icons/tsdproxy.svg" alt="TSDProxy Logo" class="h-7 w-7 opacity-80" />
       <p class="text-sm text-base-content/60">
-        TSDProxy by <strong class="text-base-content/80">Paulo Almeida</strong>
+        TSDProxy <span id="app-version" class="text-base-content/40"></span> by <strong class="text-base-content/80">Paulo Almeida</strong>
         &amp; <a href="https://github.com/almeidapaulopt/tsdproxy/graphs/contributors"
           target="_blank" rel="noopener noreferrer"
           class="link link-hover text-base-content/60">contributors</a>
@@ -356,6 +356,17 @@ onStateChange('user_username', (name) => {
 window.addEventListener('keydown', (evt) => {
   if (typeof window.handleKeyboard === 'function') window.handleKeyboard(evt);
 });
+
+// Fetch and display version
+fetch('/api/version')
+  .then(r => r.ok ? r.json() : null)
+  .then(data => {
+    if (data && data.version) {
+      const el = document.getElementById('app-version');
+      if (el) el.textContent = 'v' + data.version;
+    }
+  })
+  .catch(() => {});
 </script>
 
 </body>
