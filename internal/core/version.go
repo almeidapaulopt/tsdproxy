@@ -29,11 +29,11 @@ func GetVersion() string {
 		if GetIsDirty() {
 			tempVersion += "-dirty"
 		}
+		if tempVersion == "" {
+			tempVersion = "dev"
+		}
 		realVersion = &tempVersion
 	})
-	if realVersion == nil {
-		return "dev"
-	}
 	return *realVersion
 }
 
