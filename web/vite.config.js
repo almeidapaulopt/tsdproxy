@@ -16,7 +16,8 @@ export default defineConfig({
   plugins: [
     compression({
       algorithms: ['gzip', 'brotliCompress'],
-      include: /\.(js|css|html|svg|ico|json|txt|woff2?|ttf)$/,
+      include: /\.(js|css|html|ico|json|txt|woff2?|ttf)$/,
+      exclude: /icons\//,
     }),
 
     tailwindcss(),

@@ -1,7 +1,6 @@
 package pages
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -58,8 +57,8 @@ type PortEntry struct {
 }
 
 templ copyButton(text string) {
-	<button class="btn btn-xs btn-ghost" data-copy={ text } data-on:click="navigator.clipboard.writeText(this.dataset.copy)" title="Copy">
-		<img src={ components.IconURL("mdi/content-copy") } alt="copy" class="size-3.5"/>
+	<button class="btn btn-xs btn-ghost" data-copy={ text } onclick="navigator.clipboard.writeText(this.dataset.copy)" title="Copy">
+		@components.InlineIcon("mdi/content-copy", "size-3.5")
 	</button>
 }
 
@@ -193,7 +192,7 @@ templ actionsPanel(item ProxyData) {
 		if item.ProxyStatus == model.ProxyStatusRunning || item.ProxyStatus == model.ProxyStatusPaused || item.ProxyStatus == model.ProxyStatusError || item.ProxyStatus == model.ProxyStatusStopped {
 			<button
 				class="btn btn-sm btn-outline w-full"
-				data-on:click={ fetchAction(item.Name, "restart") }
+				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "restart")) }
 			>
 				Restart
 			</button>
@@ -202,7 +201,7 @@ templ actionsPanel(item ProxyData) {
 		if item.ProxyStatus == model.ProxyStatusRunning {
 			<button
 				class="btn btn-sm btn-outline w-full"
-				data-on:click={ fetchAction(item.Name, "pause") }
+				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "pause")) }
 			>
 				Pause
 			</button>
@@ -211,7 +210,7 @@ templ actionsPanel(item ProxyData) {
 		if item.ProxyStatus == model.ProxyStatusPaused {
 			<button
 				class="btn btn-sm btn-primary w-full"
-				data-on:click={ fetchAction(item.Name, "resume") }
+				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "resume")) }
 			>
 				Resume
 			</button>
@@ -220,7 +219,7 @@ templ actionsPanel(item ProxyData) {
 		if item.ProxyStatus == model.ProxyStatusAuthenticating {
 			<button
 				class="btn btn-sm btn-warning w-full"
-				data-on:click={ fetchAction(item.Name, "reauth") }
+				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "reauth")) }
 			>
 				Re-authenticate
 			</button>
@@ -241,21 +240,17 @@ templ Proxy(item ProxyData) {
 		data-health={ healthValue(item.HealthStatus) }
 		data-provider={ item.TargetProvider }
 		data-label={ item.Label }
-		data-signals={ signalsForItem(item) }
-		data-show={ "($" + modalname(item.Name) + "_searchtext||'').search(($search||'').toLowerCase())>-1 && ($filterStatus==='all' || '" + item.ProxyStatus.String() + "'===$filterStatus) && ($filterHealth==='all' || '" + healthValue(item.HealthStatus) + "'===$filterHealth)" }
 	>
 		<!-- Left icon column -->
 		<div class="proxy-icon-col">
 			<button
 				class="pin-btn"
-				data-class:pinned={ "($pinned||'').split(',').includes(" + dom.JSString(item.Name) + ")" }
-				data-on:click={ "togglePin(" + dom.JSString(item.Name) + ")" }
 				aria-label="pin proxy"
 			>
-				<img src={ components.IconURL("mdi/star") } alt="pin"/>
+				@components.InlineIcon("mdi/star", "size-3.5")
 			</button>
 			<figure>
-				<img src={ components.IconURL(item.Icon) } alt={ item.Icon }/>
+				@components.InlineIcon(item.Icon, "size-10 object-contain")
 			</figure>
 		</div>
 
@@ -263,13 +258,13 @@ templ Proxy(item ProxyData) {
 		<div class="card-body">
 			<button
 				class="info-btn"
-				data-on:click={ "document.getElementById('" + modalname(item.Name) + "').showModal()" }
+				onclick={ templ.JSUnsafeFuncCall("document.getElementById('" + modalname(item.Name) + "').showModal()") }
 				aria-label="proxy details"
 			>
-				<img src={ components.IconURL("mdi/information-variant") } alt="details"/>
+				@components.InlineIcon("mdi/information-variant", "size-3.5")
 			</button>
 			<h2 class="card-title">
-				<span data-text={ "$" + modalname(item.Name) + "_label" }></span>
+				<span>{ item.Label }</span>
 			</h2>
 
 			<div class="proxy-status-row">
@@ -299,7 +294,7 @@ templ Proxy(item ProxyData) {
 		</div>
 
 		<!-- Detail modal -->
-		<dialog id={ modalname(item.Name) } class="modal" data-on:close={ onModalClose(item.Name) }>
+		<dialog id={ modalname(item.Name) } class="modal">
 			<div class="modal-box max-w-lg">
 				<div class="drag-handle sm:hidden"></div>
 				<form method="dialog">
@@ -309,7 +304,7 @@ templ Proxy(item ProxyData) {
 				<!-- Modal header -->
 				<div class="flex items-center gap-3 mb-5">
 					<div class="size-14 rounded-xl bg-base-200/80 flex items-center justify-center shrink-0 border border-base-content/8">
-						<img src={ components.IconURL(item.Icon) } alt={ item.Icon } class="size-9 object-contain"/>
+						@components.InlineIcon(item.Icon, "size-9 object-contain")
 					</div>
 					<div class="min-w-0 flex-1">
 						<h3 class="text-lg font-bold leading-tight text-base-content">{ item.Label }</h3>
@@ -329,7 +324,6 @@ templ Proxy(item ProxyData) {
 							class="tab"
 							aria-label="Info"
 							checked="checked"
-							data-on:change={ abortLogStream(item.Name) }
 						/>
 						<div class="tab-content pt-4">
 							@infoPanel(item)
@@ -340,7 +334,6 @@ templ Proxy(item ProxyData) {
 							name={ modalname(item.Name) + "_tabs" }
 							class="tab"
 							aria-label="Actions"
-							data-on:change={ abortLogStream(item.Name) }
 						/>
 						<div class="tab-content pt-4">
 							@actionsPanel(item)
@@ -351,7 +344,6 @@ templ Proxy(item ProxyData) {
 							name={ modalname(item.Name) + "_tabs" }
 							class="tab"
 							aria-label="Logs"
-							data-on:change={ logsTabClick(item.Name) }
 						/>
 						<div class="tab-content pt-4">
 							@logsPanel(item)
@@ -409,28 +401,6 @@ func healthValue(h string) string {
 	return h
 }
 
-func logsTabClick(name string) string {
-	return fmt.Sprintf("startLogStream('%s','%s')", dom.SafeID(name), url.PathEscape(name))
-}
-
-func abortLogStream(name string) string {
-	safeID := dom.SafeID(name)
-	return fmt.Sprintf(
-		"document.getElementById('log-stream-%s').innerHTML=''",
-		safeID,
-	)
-}
-
-func onModalClose(name string) string {
-	safeID := dom.SafeID(name)
-	return fmt.Sprintf(
-		"document.getElementById('log-stream-%s').innerHTML='';"+
-			"var r=document.getElementById('log-info-tab-%s');"+
-			"if(r)r.checked=true",
-		safeID, safeID,
-	)
-}
-
 func fetchAction(name string, action string) string {
 	encodedName := url.PathEscape(name)
 	return fmt.Sprintf(
@@ -475,22 +445,6 @@ func statusBadgeColor(status string) string {
 		return statusStyleDefault.BadgeColor
 	}
 	return s.BadgeColor
-}
-
-func signalsForItem(item ProxyData) string {
-	modal := modalname(item.Name)
-	searchParts := []string{item.Label, item.Name, item.Hostname, item.TargetProvider, item.TailscaleTags, item.TargetImage, item.Category}
-	searchText := strings.ToLower(strings.Join(searchParts, " "))
-
-	signals := map[string]string{
-		modal + "_label":      item.Label,
-		modal + "_searchtext": searchText,
-	}
-	b, err := json.Marshal(signals)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
 }
 
 

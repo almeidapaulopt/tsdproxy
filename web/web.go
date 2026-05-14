@@ -65,3 +65,20 @@ func GuessIcon(name string) string {
 	}
 	return DefaultIcon
 }
+
+func IconSVG(name string) string {
+	if name == "" {
+		name = DefaultIcon
+	}
+
+	path := "dist/icons/" + name + ".svg"
+	raw, err := dist.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+
+	svg := string(raw)
+	svg = strings.Replace(svg, "<svg ", `<svg fill="currentColor" `, 1)
+
+	return svg
+}
