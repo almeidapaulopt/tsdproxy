@@ -97,7 +97,7 @@ Data flow: TargetProvider watches containers → emits TargetEvent → ProxyMana
 - **Unit tests**: `internal/*/` — co-located `*_test.go` files, run with `go test ./...`
 - **E2E tests**: `e2e/` — full integration tests using real tsdproxy binary + Tailscale + Docker. Build tag `//go:build e2e`, run with `go test -tags=e2e ./e2e/`. Env vars: `TS_AUTHKEY` or `TS_AUTHKEY_FILE` (auth key), `TS_CLIENT_ID` + `TS_CLIENT_SECRET` (OAuth), `TS_TAGS` (default: `tag:tsdproxy-e2e`).
 - **Frontend build**: `web/` uses Bun + Vite; output goes to `web/dist/` which is `//go:embed`-ed into the binary via `statigz` + brotli
-- **UI framework**: `templ` for server-rendered components; `datastar` for client-side SSE DOM merging
+- **UI framework**: `templ` for server-rendered components; Vanilla JS + EventSource for SSE real-time updates
 - **Authentication**: Uses Tailscale user ID as auth — since access requires a Tailscale connection, the Tailscale identity (user ID) is used to authenticate and identify users. No separate auth system.
 
 ## ANTI-PATTERNS (THIS PROJECT)

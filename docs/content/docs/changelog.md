@@ -6,6 +6,13 @@ weight: 500
 
 {{% steps %}}
 
+### Unreleased
+
+#### Changes
+
+- Replaced Datastar with Vanilla JS + EventSource for SSE real-time updates
+- Removed Datastar Go and JavaScript dependencies
+
 ### 2.0.0
 
 #### Breaking changes
