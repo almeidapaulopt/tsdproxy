@@ -4,6 +4,7 @@
 package model
 
 import (
+	"fmt"
 	"net/url"
 	"testing"
 )
@@ -291,4 +292,319 @@ func urlMustParse(s string) *url.URL {
 		panic(err)
 	}
 	return u
+}
+
+func TestIsPortRange(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"56000-56100", true},
+		{"1-10", true},
+		{"443", false},
+		{"abc-def", false},
+		{"56000", false},
+		{"", false},
+		{"56000-", false},
+		{"-56100", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := isPortRange(tt.input); got != tt.want {
+				t.Errorf("isPortRange(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParsePortRange(t *testing.T) {
+	t.Run("valid range", func(t *testing.T) {
+		start, end, err := parsePortRange("56000-56100")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if start != 56000 || end != 56100 {
+			t.Errorf("got start=%d end=%d, want start=56000 end=56100", start, end)
+		}
+	})
+
+	t.Run("single port range", func(t *testing.T) {
+		start, end, err := parsePortRange("8080-8080")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if start != 8080 || end != 8080 {
+			t.Errorf("got start=%d end=%d, want start=8080 end=8080", start, end)
+		}
+	})
+
+	t.Run("inverted range", func(t *testing.T) {
+		_, _, err := parsePortRange("100-50")
+		if err == nil {
+			t.Error("expected error for inverted range")
+		}
+	})
+
+	t.Run("out of range", func(t *testing.T) {
+		_, _, err := parsePortRange("1-70000")
+		if err == nil {
+			t.Error("expected error for port > 65535")
+		}
+	})
+
+	t.Run("zero port", func(t *testing.T) {
+		_, _, err := parsePortRange("0-10")
+		if err == nil {
+			t.Error("expected error for port 0")
+		}
+	})
+
+	t.Run("invalid format", func(t *testing.T) {
+		_, _, err := parsePortRange("abc")
+		if err == nil {
+			t.Error("expected error for non-numeric")
+		}
+	})
+}
+
+func TestIsPortRangeLabel(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{"range both sides", "56000-56100/udp:56000-56100/udp", true},
+		{"range proxy only", "56000-56100/udp:8080/udp", true},
+		{"range target only", "443/https:8080-8090/http", true},
+		{"no range", "443/https:80/http", false},
+		{"single port", "443:80", false},
+		{"redirect", "443/https->https://example.com", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsPortRangeLabel(tt.input); got != tt.want {
+				t.Errorf("IsPortRangeLabel(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExpandPortRangeLabel_BothRanges(t *testing.T) {
+	result, err := ExpandPortRangeLabel("56000-56002/udp:56000-56002/udp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 expanded ports, got %d", len(result))
+	}
+
+	expected := []struct {
+		proxyPort  int
+		targetHost string
+	}{
+		{56000, "0.0.0.0:56000"},
+		{56001, "0.0.0.0:56001"},
+		{56002, "0.0.0.0:56002"},
+	}
+
+	for i, exp := range expected {
+		key := "range_0"
+		if i == 1 {
+			key = "range_1"
+		} else if i == 2 {
+			key = "range_2"
+		}
+		cfg, ok := result[key]
+		if !ok {
+			t.Fatalf("missing key %q", key)
+		}
+		if cfg.ProxyPort != exp.proxyPort {
+			t.Errorf("port %d: ProxyPort = %d, want %d", i, cfg.ProxyPort, exp.proxyPort)
+		}
+		if cfg.ProxyProtocol != "udp" {
+			t.Errorf("port %d: ProxyProtocol = %q, want \"udp\"", i, cfg.ProxyProtocol)
+		}
+		target := cfg.GetFirstTarget()
+		if target.Scheme != "udp" {
+			t.Errorf("port %d: target scheme = %q, want \"udp\"", i, target.Scheme)
+		}
+		if target.Host != exp.targetHost {
+			t.Errorf("port %d: target host = %q, want %q", i, target.Host, exp.targetHost)
+		}
+	}
+}
+
+func TestExpandPortRangeLabel_ProxyRangeSingleTarget(t *testing.T) {
+	result, err := ExpandPortRangeLabel("56000-56002/udp:8080/udp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 expanded ports, got %d", len(result))
+	}
+
+	for i, key := range []string{"range_0", "range_1", "range_2"} {
+		cfg := result[key]
+		target := cfg.GetFirstTarget()
+		if target.Host != "0.0.0.0:8080" {
+			t.Errorf("port %d: target host = %q, want \"0.0.0.0:8080\"", i, target.Host)
+		}
+	}
+}
+
+func TestExpandPortRangeLabel_SingleProxyRangeTarget(t *testing.T) {
+	result, err := ExpandPortRangeLabel("8080/udp:56000-56002/udp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 expanded ports, got %d", len(result))
+	}
+
+	for i, key := range []string{"range_0", "range_1", "range_2"} {
+		cfg := result[key]
+		if cfg.ProxyPort != 8080 {
+			t.Errorf("port %d: ProxyPort = %d, want 8080", i, cfg.ProxyPort)
+		}
+	}
+}
+
+func TestExpandPortRangeLabel_MismatchedRanges(t *testing.T) {
+	_, err := ExpandPortRangeLabel("56000-56002/udp:60000-60005/udp")
+	if err == nil {
+		t.Error("expected error for mismatched range lengths")
+	}
+}
+
+func TestExpandPortRangeLabel_RedirectRejected(t *testing.T) {
+	_, err := ExpandPortRangeLabel("56000-56002/udp->https://example.com")
+	if err == nil {
+		t.Error("expected error for redirect with range")
+	}
+}
+
+func TestExpandPortRangeLabel_InvalidProxyRange(t *testing.T) {
+	_, err := ExpandPortRangeLabel("abc-def/udp:8080/udp")
+	if err == nil {
+		t.Error("expected error for invalid proxy range")
+	}
+}
+
+func TestExpandPortRangeLabel_InvalidTargetRange(t *testing.T) {
+	_, err := ExpandPortRangeLabel("8080/udp:abc-def/udp")
+	if err == nil {
+		t.Error("expected error for invalid target range")
+	}
+}
+
+func TestExpandPortRangeLabel_TCPRange(t *testing.T) {
+	result, err := ExpandPortRangeLabel("5000-5002/tcp:4000-4002/tcp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 expanded ports, got %d", len(result))
+	}
+
+	cfg := result["range_0"]
+	if cfg.ProxyProtocol != "tcp" {
+		t.Errorf("ProxyProtocol = %q, want \"tcp\"", cfg.ProxyProtocol)
+	}
+	target := cfg.GetFirstTarget()
+	if target.Scheme != "tcp" {
+		t.Errorf("target scheme = %q, want \"tcp\"", target.Scheme)
+	}
+	if cfg.ProxyPort != 5000 {
+		t.Errorf("ProxyPort = %d, want 5000", cfg.ProxyPort)
+	}
+	if target.Host != "0.0.0.0:4000" {
+		t.Errorf("target host = %q, want \"0.0.0.0:4000\"", target.Host)
+	}
+}
+
+func TestExpandPortRangeLabel_DefaultProtocol(t *testing.T) {
+	result, err := ExpandPortRangeLabel("56000-56001:56000-56001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cfg := result["range_0"]
+	if cfg.ProxyProtocol != "https" {
+		t.Errorf("ProxyProtocol = %q, want \"https\" (default)", cfg.ProxyProtocol)
+	}
+	target := cfg.GetFirstTarget()
+	if target.Scheme != "http" {
+		t.Errorf("target scheme = %q, want \"http\" (default)", target.Scheme)
+	}
+}
+
+func TestIsPortRangeShortLabel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"56000-56100/udp", true},
+		{"56000-56100", true},
+		{"443/https", false},
+		{"443", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			if got := IsPortRangeShortLabel(tt.input); got != tt.want {
+				t.Errorf("IsPortRangeShortLabel(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExpandPortRangeShortLabel(t *testing.T) {
+	result, err := ExpandPortRangeShortLabel("56000-56002/udp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 expanded ports, got %d", len(result))
+	}
+
+	expected := []int{56000, 56001, 56002}
+	for i, port := range expected {
+		key := fmt.Sprintf("range_%d", i)
+		cfg, ok := result[key]
+		if !ok {
+			t.Fatalf("missing key %q", key)
+		}
+		if cfg.ProxyPort != port {
+			t.Errorf("entry %d: ProxyPort = %d, want %d", i, cfg.ProxyPort, port)
+		}
+		if cfg.ProxyProtocol != "udp" {
+			t.Errorf("entry %d: ProxyProtocol = %q, want \"udp\"", i, cfg.ProxyProtocol)
+		}
+	}
+}
+
+func TestExpandPortRangeShortLabel_NotRange(t *testing.T) {
+	result, err := ExpandPortRangeShortLabel("443/https")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(result))
+	}
+
+	cfg := result["range_0"]
+	if cfg.ProxyPort != 443 {
+		t.Errorf("ProxyPort = %d, want 443", cfg.ProxyPort)
+	}
+	if cfg.ProxyProtocol != "https" {
+		t.Errorf("ProxyProtocol = %q, want \"https\"", cfg.ProxyProtocol)
+	}
 }

@@ -290,6 +290,39 @@ func (c *Client) addTarget(cfg proxyConfig, name string) {
 func (c *Client) getPorts(l map[string]port) model.PortConfigList {
 	ports := make(model.PortConfigList)
 	for k, v := range l {
+		if model.IsPortRangeShortLabel(k) {
+			expanded, err := model.ExpandPortRangeShortLabel(k)
+			if err != nil {
+				c.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
+				continue
+			}
+
+			for rangeKey, portCfg := range expanded {
+				portCfg.IsRedirect = v.IsRedirect
+
+				for _, target := range v.Targets {
+					targetURL, err := url.Parse(target)
+					if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
+						c.log.Error().Err(err).Str("port", k).Str("targetUrl", target).Msg("Invalid target URL")
+						continue
+					}
+					portCfg.AddTarget(targetURL)
+				}
+
+				if len(portCfg.GetTargets()) == 0 {
+					c.log.Error().Str("port", k).Msg("no targets found for range port")
+					continue
+				}
+
+				portCfg.TLSValidate = v.TLSValidate
+				portCfg.Tailscale = v.Tailscale
+
+				expandedKey := k + "." + rangeKey
+				ports[expandedKey] = portCfg
+			}
+			continue
+		}
+
 		port, err := model.NewPortShortLabel(k)
 		if err != nil {
 			c.log.Error().Err(err).Str("port", k).Msg("error creating port config")
@@ -301,7 +334,6 @@ func (c *Client) getPorts(l map[string]port) model.PortConfigList {
 			targetURL, err := url.Parse(target)
 			if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
 				c.log.Error().Err(err).Str("port", k).Str("targetUrl", target).Msg("Invalid target URL")
-				// don't add this port and continue with other targets
 				continue
 			}
 

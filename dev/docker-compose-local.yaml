@@ -67,6 +67,18 @@ services:
       - tsdproxy.dash.label=Standalone App
       - tsdproxy.dash.icon=mdi/application
 
+  udprange:
+    image: nginx:alpine
+    ports:
+      - 85:80
+      - 56000-56002:56000-56002/udp
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=udprange
+      - tsdproxy.dash.label=UDP Range Test
+      - tsdproxy.port.1=443/https:80/http
+      - tsdproxy.port.2=56000-56002/udp:56000-56002/udp
+
 volumes:
   tsdata:
   tmp:

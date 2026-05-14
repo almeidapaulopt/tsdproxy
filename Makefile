@@ -92,7 +92,7 @@ build/all:
 ## run: run the  application
 .PHONY: run
 run: build/all
-	./tmp/${BINARY_NAME}
+	./tmp/${BINARY_NAME} -config dev/tsdproxy-local.yaml
 
 
 ## dev: start dev server

@@ -221,6 +221,45 @@ func (c *container) getPorts() model.PortConfigList {
 
 		parts := strings.Split(v, ",")
 
+		configStr := parts[0]
+
+		if model.IsPortRangeLabel(configStr) {
+			expanded, err := model.ExpandPortRangeLabel(configStr)
+			if err != nil {
+				c.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
+				continue
+			}
+
+			for rangeKey, port := range expanded {
+				for _, opt := range parts[1:] {
+					opt = strings.TrimSpace(opt)
+					switch opt {
+					case PortOptionNoTLSValidate:
+						port.TLSValidate = false
+					case PortOptionTailscaleFunnel:
+						port.Tailscale.Funnel = true
+					case PortOptionNoAutoDetect:
+						port.NoAutoDetect = true
+					default:
+						c.log.Warn().Str("option", opt).Str("port", k).
+							Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect)")
+					}
+				}
+
+				if !port.IsRedirect {
+					port, err = c.generateTargetFromFirstTarget(port)
+					if err != nil {
+						c.log.Error().Err(err).Str("port", k).Msg("error generating target for range port")
+						continue
+					}
+				}
+
+				expandedKey := k + "." + rangeKey
+				ports[expandedKey] = port
+			}
+			continue
+		}
+
 		port, err := model.NewPortLongLabel(parts[0])
 		if err != nil {
 			c.log.Error().Err(err).Str("port", k).Msg("error creating port config")

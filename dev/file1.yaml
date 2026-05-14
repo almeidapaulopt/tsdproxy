@@ -3,6 +3,13 @@ dash-dev:
     "443/https":
       targets:
         - "http://localhost:8080"
+udprange-list:
+  ports:
+    "56000-56002/udp":
+      tailscale:
+        funnel: true
+      targets:
+        - "udp://172.31.0.1:56000"
 # nas12:
 #   ports:
 #     "443/https":
