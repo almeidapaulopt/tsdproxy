@@ -53,6 +53,19 @@ services:
     labels:
       - tsdproxy.enable=true
 
+  c4:
+    image: nginx
+    ports:
+      - 84:80
+      - 56000-56002:56000-56002/udp
+    networks:
+      c4:
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=udprange
+      - tsdproxy.port.1=443/https:80/http
+      - tsdproxy.port.2=56000-56002/udp:56000-56002/udp
+
 volumes:
   tsdata:
   tmp:
@@ -69,3 +82,5 @@ networks:
     name: c2
   c3:
     name: c3
+  c4:
+    name: c4

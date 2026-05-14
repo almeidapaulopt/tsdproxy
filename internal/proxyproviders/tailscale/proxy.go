@@ -6,8 +6,10 @@ package tailscale
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -165,8 +167,43 @@ func (p *Proxy) GetPacketConn(port string) (net.PacketConn, error) {
 		return nil, ErrProxyPortNotFound
 	}
 
-	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
+	ip4, err := p.waitForIP(p.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("cannot bind UDP port %d: %w", portCfg.ProxyPort, err)
+	}
+
+	addr := ip4.String() + ":" + strconv.Itoa(portCfg.ProxyPort)
 	return p.tsServer.ListenPacket("udp", addr)
+}
+
+func (p *Proxy) waitForIP(ctx context.Context) (netip.Addr, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	const (
+		interval = 500 * time.Millisecond
+		timeout  = 30 * time.Second
+	)
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		ip4, _ := p.tsServer.TailscaleIPs()
+		if ip4.IsValid() {
+			return ip4, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return netip.Addr{}, errors.New("timed out waiting for tailscale IP")
+		case <-ticker.C:
+		}
+	}
 }
 
 func (p *Proxy) WatchEvents() chan model.ProxyEvent {

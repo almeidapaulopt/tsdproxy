@@ -41,8 +41,10 @@ var (
 )
 
 const (
-	minPort = 1
-	maxPort = 65535
+	minPort     = 1
+	maxPort     = 65535
+	rangeSep    = "-"
+	maxRangeLen = 1000
 )
 
 // validatePortRange checks that a port number is within the valid range.
@@ -162,6 +164,17 @@ func parseProxySegment(segment string, config *PortConfig) error {
 	return nil
 }
 
+func defaultTargetProtocol(proxyProtocol string) string {
+	switch proxyProtocol {
+	case "tcp":
+		return "tcp"
+	case "udp":
+		return "udp"
+	default:
+		return "http"
+	}
+}
+
 func parseTargetSegment(segment string, config *PortConfig) error {
 	targetParts := strings.Split(segment, protocolSeparator)
 	if len(targetParts) > 2 { //nolint:mnd
@@ -176,20 +189,7 @@ func parseTargetSegment(segment string, config *PortConfig) error {
 		return fmt.Errorf("invalid target port: %w", err)
 	}
 
-	// Default target protocol to match the proxy protocol for non-HTTP schemes.
-	// This ensures that a TCP proxy (e.g. "8222/tcp:22") gets a "tcp" target
-	// rather than "http", which would cause the target URL to be routed
-	// incorrectly through Docker's HTTP-aware port mapping.
-	//
-	// NOTE: This reads config.ProxyProtocol, which is set by parseProxySegment.
-	// parseProxySegment MUST run before this function. The coupling is safe
-	// because NewPortLongLabel calls them in that order.
-	targetProtocol := "http"
-	if config.ProxyProtocol == "tcp" {
-		targetProtocol = "tcp"
-	} else if config.ProxyProtocol == "udp" {
-		targetProtocol = "udp"
-	}
+	targetProtocol := defaultTargetProtocol(config.ProxyProtocol)
 
 	if len(targetParts) == 2 { //nolint:mnd
 		targetProtocol = targetParts[1]
@@ -239,4 +239,242 @@ func (p *PortConfig) ReplaceTarget(origin, target *url.URL) {
 			p.targets[k] = target
 		}
 	}
+}
+
+// isPortRange checks whether a port string contains a range expression (e.g., "56000-56100").
+func isPortRange(s string) bool {
+	parts := strings.SplitN(s, rangeSep, 2)
+	if len(parts) != 2 {
+		return false
+	}
+	_, err1 := strconv.Atoi(parts[0])
+	_, err2 := strconv.Atoi(parts[1])
+	return err1 == nil && err2 == nil
+}
+
+// parsePortRange parses a port range string like "56000-56100" and returns the start and end ports.
+func parsePortRange(s string) (start, end int, err error) {
+	parts := strings.SplitN(s, rangeSep, 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid port range %q: expected format start-end", s)
+	}
+
+	start, err = strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid port range start %q: %w", parts[0], err)
+	}
+
+	end, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid port range end %q: %w", parts[1], err)
+	}
+
+	if err := validatePortRange(start); err != nil {
+		return 0, 0, fmt.Errorf("invalid port range start: %w", err)
+	}
+	if err := validatePortRange(end); err != nil {
+		return 0, 0, fmt.Errorf("invalid port range end: %w", err)
+	}
+
+	if start > end {
+		return 0, 0, fmt.Errorf("invalid port range %q: start %d is greater than end %d", s, start, end)
+	}
+
+	count := end - start + 1
+	if count > maxRangeLen {
+		return 0, 0, fmt.Errorf("port range %q too large: %d ports (max %d)", s, count, maxRangeLen)
+	}
+
+	return start, end, nil
+}
+
+// IsPortRangeLabel checks whether a port configuration string uses range syntax
+// in either the proxy or target segment (or both).
+func IsPortRangeLabel(s string) bool {
+	separator := detectSeparator(s)
+	parts := strings.Split(s, separator)
+	if len(parts) != 2 { //nolint:mnd
+		return false
+	}
+
+	proxyPort := strings.SplitN(parts[0], protocolSeparator, 2)[0]
+	if isPortRange(proxyPort) {
+		return true
+	}
+
+	if separator != redirectSeparator {
+		targetPort := strings.SplitN(parts[1], protocolSeparator, 2)[0]
+		return isPortRange(targetPort)
+	}
+
+	return false
+}
+
+// ExpandPortRangeLabel parses a port range configuration string and returns
+// one PortConfig per port in the range. The configuration string format is:
+//
+//	"<proxy range>/<protocol>:<target range>/<protocol>"
+//
+// Both proxy and target ranges must have the same number of ports, or one of
+// them can be a single port (which is reused for every port in the other range).
+// The options string (comma-separated after the config) is applied to all expanded ports.
+//
+// Examples:
+//   - "56000-56100/udp:56000-56100/udp" → 101 individual UDP PortConfigs
+//   - "56000-56100/udp:8080/udp"         → 101 UDP PortConfigs, all targeting port 8080
+//
+// Returns a map key prefix → PortConfig for each expanded port.
+func ExpandPortRangeLabel(s string) (map[string]PortConfig, error) {
+	separator := detectSeparator(s)
+	if separator == redirectSeparator {
+		return nil, fmt.Errorf("port ranges are not supported with redirect syntax")
+	}
+
+	parts := strings.Split(s, separator)
+	if len(parts) != 2 { //nolint:mnd
+		return nil, ErrInvalidProxyConfig
+	}
+
+	proxyParts := strings.SplitN(parts[0], protocolSeparator, 2)
+	proxyProtocol := "https"
+	if len(proxyParts) == 2 { //nolint:mnd
+		proxyProtocol = proxyParts[1]
+	}
+
+	targetParts := strings.SplitN(parts[1], protocolSeparator, 2)
+	targetProtocol := defaultTargetProtocol(proxyProtocol)
+	if len(targetParts) == 2 { //nolint:mnd
+		targetProtocol = targetParts[1]
+	}
+
+	var proxyPorts, targetPorts []int
+
+	if isPortRange(proxyParts[0]) {
+		start, end, err := parsePortRange(proxyParts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy port range: %w", err)
+		}
+		for p := start; p <= end; p++ {
+			proxyPorts = append(proxyPorts, p)
+		}
+	} else {
+		port, err := strconv.Atoi(proxyParts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy port: %w", err)
+		}
+		if err := validatePortRange(port); err != nil {
+			return nil, fmt.Errorf("invalid proxy port: %w", err)
+		}
+		proxyPorts = []int{port}
+	}
+
+	if isPortRange(targetParts[0]) {
+		start, end, err := parsePortRange(targetParts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid target port range: %w", err)
+		}
+		for p := start; p <= end; p++ {
+			targetPorts = append(targetPorts, p)
+		}
+	} else {
+		port, err := strconv.Atoi(targetParts[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid target port: %w", err)
+		}
+		if err := validatePortRange(port); err != nil {
+			return nil, fmt.Errorf("invalid target port: %w", err)
+		}
+		targetPorts = []int{port}
+	}
+
+	if len(proxyPorts) > 1 && len(targetPorts) > 1 && len(proxyPorts) != len(targetPorts) {
+		return nil, fmt.Errorf("proxy range (%d ports) and target range (%d ports) must have the same length",
+			len(proxyPorts), len(targetPorts))
+	}
+
+	count := len(proxyPorts)
+	if len(targetPorts) > count {
+		count = len(targetPorts)
+	}
+
+	result := make(map[string]PortConfig, count)
+
+	for i := range count {
+		proxyPort := proxyPorts[0]
+		if len(proxyPorts) > 1 {
+			proxyPort = proxyPorts[i]
+		}
+
+		targetPort := targetPorts[0]
+		if len(targetPorts) > 1 {
+			targetPort = targetPorts[i]
+		}
+
+		name := fmt.Sprintf("%d/%s:%d/%s", proxyPort, proxyProtocol, targetPort, targetProtocol)
+
+		targetURL, err := url.Parse(targetProtocol + "://0.0.0.0:" + strconv.Itoa(targetPort))
+		if err != nil {
+			return nil, fmt.Errorf("error parsing target URL: %w", err)
+		}
+
+		cfg := PortConfig{
+			name:          name,
+			ProxyProtocol: proxyProtocol,
+			ProxyPort:     proxyPort,
+			IsRedirect:    false,
+			TLSValidate:   true,
+			targets:       []*url.URL{targetURL},
+		}
+
+		key := fmt.Sprintf("range_%d", i)
+		result[key] = cfg
+	}
+
+	return result, nil
+}
+
+// ExpandPortRangeShortLabel parses a short label that may contain a port range
+// (e.g., "56000-56100/udp") and returns one PortConfig per port.
+func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
+	proxyParts := strings.SplitN(s, protocolSeparator, 2)
+	proxyProtocol := "https"
+	if len(proxyParts) == 2 { //nolint:mnd
+		proxyProtocol = proxyParts[1]
+	}
+
+	if !isPortRange(proxyParts[0]) {
+		cfg, err := NewPortShortLabel(s)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]PortConfig{"range_0": cfg}, nil
+	}
+
+	start, end, err := parsePortRange(proxyParts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid port range: %w", err)
+	}
+
+	result := make(map[string]PortConfig, end-start+1)
+
+	for idx, p := 0, start; p <= end; idx, p = idx+1, p+1 {
+		name := fmt.Sprintf("%d/%s", p, proxyProtocol)
+		cfg := PortConfig{
+			name:          name,
+			ProxyProtocol: proxyProtocol,
+			ProxyPort:     p,
+			IsRedirect:    false,
+			TLSValidate:   true,
+		}
+		key := fmt.Sprintf("range_%d", idx)
+		result[key] = cfg
+	}
+
+	return result, nil
+}
+
+// IsPortRangeShortLabel checks whether a short label uses range syntax.
+func IsPortRangeShortLabel(s string) bool {
+	portPart := strings.SplitN(s, protocolSeparator, 2)[0]
+	return isPortRange(portPart)
 }
