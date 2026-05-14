@@ -66,6 +66,17 @@ tsdproxy.port.<index>: "<proxy port>/<protocol>-><redirect URL>"
 - **target port** is the container port to proxy to.
 - **redirect URL** is a full URL like `https://example.com`.
 
+**Port range** (forward multiple consecutive ports):
+
+```
+tsdproxy.port.<index>: "<start>-<end>/<protocol>:<start>-<end>/<protocol>[, <options>]"
+```
+
+- Both sides can be ranges. If both are ranges, they must have the same number of ports.
+- One side can be a single port (reused for each port in the range).
+- Maximum 1000 ports per range.
+- Not supported with redirect syntax (`->`).
+
 ### Port Options
 
 Append these after a comma to any proxy port config:
@@ -125,6 +136,18 @@ tsdproxy.port.1: "443/https:80/http, tailscale_funnel"
 
 ```yaml
 tsdproxy.port.1: "443/https:8080/http, no_autodetect"
+```
+
+**Port range** (WebRTC UDP):
+
+```yaml
+tsdproxy.port.1: "56000-56002/udp:56000-56002/udp"
+```
+
+**Port range** (all to one target port):
+
+```yaml
+tsdproxy.port.1: "50000-50099/tcp:8080/tcp"
 ```
 
 ## Complete Example

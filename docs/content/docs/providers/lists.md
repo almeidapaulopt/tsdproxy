@@ -70,6 +70,14 @@ host-ssh:
     22/tcp:
       targets:
         - tcp://192.168.1.10:22
+neko:
+  ports:
+    443/https:
+      targets:
+        - http://192.168.1.10:8080
+    56000-56002/udp:
+      targets:
+        - udp://192.168.1.10:56000
 ```
 
 This configuration will create two groups of proxies:
@@ -108,7 +116,7 @@ proxyname: # Name of the proxy
                                    # (will override the default provider tags)
 
   ports:
-    port/protocol: #example 443/https, 80/http
+    port/protocol: #example 443/https, 80/http, 22/tcp, 56000-56002/udp
     targets: # list of targets (in this version only the first will be used)
       - http://sub.domain.com:8111 # change to your target
     tailscale: # (optional)
