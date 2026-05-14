@@ -157,6 +157,50 @@ proxyname:
         - tcp://<hostname>:<port>
 ```
 
+## UDP proxying
+
+TSDProxy also supports proxying UDP traffic. Use the `udp` protocol to forward
+UDP ports. This is useful for applications like WebRTC, game servers, or VoIP
+that rely on UDP.
+
+### Single UDP port
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "myapp"
+  tsdproxy.port.1: "5000/udp:5000/udp"
+```
+
+### UDP port range
+
+For applications that need many consecutive UDP ports, use range syntax:
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "neko"
+  # Forward 3 UDP ports
+  tsdproxy.port.1: "56000-56002/udp:56000-56002/udp"
+```
+
+See [Port ranges](../providers/docker#port-ranges) for full range syntax details.
+
+### Lists configuration
+
+```yaml {filename="/config/servers.yaml"}
+myapp:
+  ports:
+    5000/udp:
+      targets:
+        - udp://192.168.1.10:5000
+neko:
+  ports:
+    56000-56002/udp:
+      targets:
+        - udp://192.168.1.10:56000
+```
+
 ## Notes
 
 - **No TLS termination**: TCP proxying forwards raw bytes. The target service

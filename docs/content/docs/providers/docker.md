@@ -142,6 +142,36 @@ labels:
 | `tailscale_funnel` | Activate Tailscale Funnel on the port |
 | `no_autodetect` | Disable auto-detection of the target URL for this port |
 
+## Port ranges
+
+You can forward a range of ports using `start-end` syntax. This is useful for
+applications like WebRTC or game servers that need many consecutive UDP/TCP ports.
+
+```yaml
+tsdproxy.port.<index>: "<start>-<end>/<protocol>:<start>-<end>/<protocol>[, <options>]"
+```
+
+- Both the proxy side and the target side can be a range.
+- If both sides are ranges, they must have the **same number of ports**.
+- One side can be a single port while the other is a range (the single port is
+  reused for every port in the range).
+- Maximum 1000 ports per range.
+- Port ranges do **not** support redirect syntax (`->`).
+
+### Examples
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "neko"
+
+  # Forward 3 UDP ports (56000-56002) — both sides match
+  tsdproxy.port.1: "56000-56002/udp:56000-56002/udp"
+
+  # Forward 100 TCP ports, all targeting the same port 8080
+  tsdproxy.port.2: "50000-50099/tcp:8080/tcp"
+```
+
 ## Tailscale Labels
 
 {{% details title="tsdproxy.ephemeral" %}}
