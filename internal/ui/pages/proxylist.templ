@@ -57,7 +57,7 @@ type PortEntry struct {
 }
 
 templ copyButton(text string) {
-	<button class="btn btn-xs btn-ghost" data-copy={ text } onclick="navigator.clipboard.writeText(this.dataset.copy)" title="Copy">
+	<button class="btn btn-xs btn-ghost" data-copy={ text } title="Copy">
 		@components.InlineIcon("mdi/content-copy", "size-3.5")
 	</button>
 }
@@ -258,7 +258,6 @@ templ Proxy(item ProxyData) {
 		<div class="card-body">
 			<button
 				class="info-btn"
-				onclick={ templ.JSUnsafeFuncCall("document.getElementById('" + modalname(item.Name) + "').showModal()") }
 				aria-label="proxy details"
 			>
 				@components.InlineIcon("mdi/information-variant", "size-3.5")
