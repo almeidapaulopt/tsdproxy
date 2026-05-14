@@ -19,9 +19,16 @@
    BASE
 ───────────────────────────────────────────────────────── */
 @layer base {
-  html,
+  html {
+    @apply min-h-screen;
+  }
+
   body {
-    @apply h-full;
+    @apply min-h-screen flex flex-col;
+  }
+
+  body > main {
+    flex: 1 1 0%;
   }
 }
 
