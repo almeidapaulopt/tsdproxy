@@ -187,7 +187,7 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	pcfg.Tailscale = *tailscale
 	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, model.DefaultProxyProvider)
 	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, model.DefaultProxyAccessLog)
-	pcfg.NoIdentityHeaders = !c.getLabelBool(LabelIdentityHeaders, true)
+	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.Dashboard.Visible = c.getLabelBool(LabelDashboardVisible, model.DefaultDashboardVisible)
 	pcfg.Dashboard.Label = c.getLabelString(LabelDashboardLabel, pcfg.Hostname)
 

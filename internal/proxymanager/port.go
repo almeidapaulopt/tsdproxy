@@ -54,7 +54,7 @@ func newPortProxy(
 	proxyName string,
 	portName string,
 	logBuffer *LogRingBuffer,
-	noIdentityHeaders bool,
+	identityHeaders bool,
 ) *port {
 	//
 	log = log.With().Str("port", pconfig.String()).Logger()
@@ -108,11 +108,11 @@ func newPortProxy(
 			r.Out.Header.Del(consts.HeaderXAuthRequestEmail)
 			r.Out.Header.Del(consts.HeaderXForwardedPreferredUsername)
 
-			// Inject authenticated user headers unless this proxy opted out.
+			// Inject authenticated user headers when enabled (default).
 			// Some upstream services (e.g. wetty) consume Remote-User as the
 			// SSH login username, which conflicts with their own auth flag —
 			// the opt-out lets those services run without spurious overrides.
-			if !noIdentityHeaders {
+			if identityHeaders {
 				if user, ok := model.WhoisFromContext(r.In.Context()); ok {
 					r.Out.Header.Set(consts.HeaderID, user.ID)
 					r.Out.Header.Set(consts.HeaderUsername, user.Username)

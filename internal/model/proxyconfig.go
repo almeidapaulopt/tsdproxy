@@ -22,7 +22,7 @@ type (
 		Dashboard         Dashboard `validate:"dive"`
 		Tailscale         Tailscale `validate:"dive"`
 		ProxyAccessLog    bool      `default:"true" validate:"boolean"`
-		NoIdentityHeaders bool      `default:"false" validate:"boolean"`
+		IdentityHeaders   bool      `default:"true" validate:"boolean"`
 	}
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider

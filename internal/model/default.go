@@ -7,6 +7,7 @@ const (
 	// Default values to proxyconfig
 	//
 	DefaultProxyAccessLog = true
+	DefaultIdentityHeaders = true
 	DefaultProxyProvider  = ""
 	DefaultTLSValidate    = true
 

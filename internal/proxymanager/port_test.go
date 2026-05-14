@@ -230,8 +230,8 @@ func TestTCPPortEmptyTarget(t *testing.T) {
 // headers, points a newPortProxy at it, and returns the headers seen by the
 // upstream after a single request.
 //
-// noIdentityHeaders mirrors the new per-proxy opt-out flag.
-func runPortProxyHeaderTest(t *testing.T, noIdentityHeaders bool) http.Header {
+// identityHeaders controls whether identity header injection is enabled.
+func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
 	t.Helper()
 
 	var captured http.Header
@@ -276,7 +276,7 @@ func runPortProxyHeaderTest(t *testing.T, noIdentityHeaders bool) http.Header {
 		"test-proxy",
 		"test-port",
 		nil, // logBuffer
-		noIdentityHeaders,
+		identityHeaders,
 	)
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
@@ -301,7 +301,7 @@ func runPortProxyHeaderTest(t *testing.T, noIdentityHeaders bool) http.Header {
 }
 
 func TestPortProxyInjectsIdentityHeadersByDefault(t *testing.T) {
-	hdr := runPortProxyHeaderTest(t, false)
+	hdr := runPortProxyHeaderTest(t, true)
 
 	if got := hdr.Get(consts.HeaderRemoteUser); got != "alice" {
 		t.Errorf("Remote-User: want alice, got %q", got)
@@ -318,7 +318,7 @@ func TestPortProxyInjectsIdentityHeadersByDefault(t *testing.T) {
 }
 
 func TestPortProxyOmitsIdentityHeadersWhenDisabled(t *testing.T) {
-	hdr := runPortProxyHeaderTest(t, true)
+	hdr := runPortProxyHeaderTest(t, false)
 
 	// All identity headers must be absent — even though Whois succeeded.
 	for _, name := range []string{
@@ -339,7 +339,7 @@ func TestPortProxyOmitsIdentityHeadersWhenDisabled(t *testing.T) {
 }
 
 func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
-	// Regression: even with NoIdentityHeaders=false, a client-supplied
+	// Regression: even with IdentityHeaders=false, a client-supplied
 	// identity header must never reach the upstream (anti-spoofing).
 	var captured http.Header
 	var capturedMu sync.Mutex
@@ -373,7 +373,7 @@ func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
 		"test-proxy",
 		"test-port",
 		nil,
-		true, // opted out — strip block must still run
+		false, // opted out — strip block must still run
 	)
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")

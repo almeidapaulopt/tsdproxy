@@ -37,10 +37,11 @@ type (
 	configProxyList map[string]proxyConfig
 
 	proxyConfig struct {
-		Dashboard     model.Dashboard `validate:"dive" yaml:"dashboard"`
-		Ports         map[string]port `yaml:"ports"`
-		ProxyProvider string          `yaml:"proxyProvider"`
-		Tailscale     model.Tailscale `yaml:"tailscale"`
+		Dashboard      model.Dashboard `validate:"dive" yaml:"dashboard"`
+		Ports          map[string]port `yaml:"ports"`
+		ProxyProvider  string          `yaml:"proxyProvider"`
+		Tailscale      model.Tailscale `yaml:"tailscale"`
+		IdentityHeaders bool           `default:"true" validate:"boolean" yaml:"identityHeaders"`
 	}
 
 	port struct {
@@ -207,6 +208,7 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*model.Config, erro
 	}
 
 	proxyAccessLog := model.DefaultProxyAccessLog
+	identityHeaders := model.DefaultIdentityHeaders
 
 	pcfg, err := model.NewConfig()
 	if err != nil {
@@ -219,6 +221,7 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*model.Config, erro
 	pcfg.Tailscale = p.Tailscale
 	pcfg.ProxyProvider = proxyProvider
 	pcfg.ProxyAccessLog = proxyAccessLog
+	pcfg.IdentityHeaders = identityHeaders
 	pcfg.Ports = c.getPorts(p.Ports)
 	pcfg.Dashboard = p.Dashboard
 
