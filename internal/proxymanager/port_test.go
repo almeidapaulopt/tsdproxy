@@ -7,14 +7,24 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/rs/zerolog"
 )
+
+func TestMain(m *testing.M) {
+	config.SetTestConfig(os.TempDir(), "tskey-test")
+	os.Exit(m.Run())
+}
 
 func newTestTCPConfig(t *testing.T, targetAddr string) model.PortConfig {
 	t.Helper()
@@ -214,6 +224,185 @@ func TestTCPPortEmptyTarget(t *testing.T) {
 
 	tp.close()
 	ln.Close()
+}
+
+// runPortProxyHeaderTest spins up an echo backend that captures incoming
+// headers, points a newPortProxy at it, and returns the headers seen by the
+// upstream after a single request.
+//
+// identityHeaders controls whether identity header injection is enabled.
+func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
+	t.Helper()
+
+	var captured http.Header
+	var capturedMu sync.Mutex
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedMu.Lock()
+		captured = r.Header.Clone()
+		capturedMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatalf("parse backend URL: %v", err)
+	}
+
+	pconfig := model.PortConfig{
+		ProxyProtocol: "http",
+		TLSValidate:   false,
+	}
+	pconfig.AddTarget(backendURL)
+
+	whoisFunc := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := model.WhoisNewContext(r.Context(), model.Whois{
+				Username:      "alice",
+				DisplayName:   "Alice",
+				ProfilePicURL: "https://example.com/alice.png",
+			})
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+
+	p := newPortProxy(
+		context.Background(),
+		pconfig,
+		zerolog.Nop(),
+		false, // accessLog
+		whoisFunc,
+		nil, // metrics
+		"test-proxy",
+		"test-port",
+		nil, // logBuffer
+		identityHeaders,
+	)
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("frontend listen: %v", err)
+	}
+	go p.startWithListener(frontLn)
+	defer p.close()
+
+	resp, err := http.Get("http://" + frontLn.Addr().String() + "/")
+	if err != nil {
+		t.Fatalf("client GET: %v", err)
+	}
+	resp.Body.Close()
+
+	capturedMu.Lock()
+	defer capturedMu.Unlock()
+	if captured == nil {
+		t.Fatal("backend never received request")
+	}
+	return captured
+}
+
+func TestPortProxyInjectsIdentityHeadersByDefault(t *testing.T) {
+	hdr := runPortProxyHeaderTest(t, true)
+
+	if got := hdr.Get(consts.HeaderRemoteUser); got != "alice" {
+		t.Errorf("Remote-User: want alice, got %q", got)
+	}
+	if got := hdr.Get(consts.HeaderXForwardedUser); got != "alice" {
+		t.Errorf("X-Forwarded-User: want alice, got %q", got)
+	}
+	if got := hdr.Get(consts.HeaderUsername); got != "alice" {
+		t.Errorf("X-TSDProxy-Username: want alice, got %q", got)
+	}
+	if got := hdr.Get(consts.HeaderDisplayName); got != "Alice" {
+		t.Errorf("X-TSDProxy-Displayname: want Alice, got %q", got)
+	}
+}
+
+func TestPortProxyOmitsIdentityHeadersWhenDisabled(t *testing.T) {
+	hdr := runPortProxyHeaderTest(t, false)
+
+	// All identity headers must be absent — even though Whois succeeded.
+	for _, name := range []string{
+		consts.HeaderRemoteUser,
+		consts.HeaderXForwardedUser,
+		consts.HeaderXAuthRequestUser,
+		consts.HeaderXForwardedEmail,
+		consts.HeaderXAuthRequestEmail,
+		consts.HeaderXForwardedPreferredUsername,
+		consts.HeaderUsername,
+		consts.HeaderDisplayName,
+		consts.HeaderProfilePicURL,
+	} {
+		if got := hdr.Get(name); got != "" {
+			t.Errorf("%s: want empty, got %q", name, got)
+		}
+	}
+}
+
+func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
+	// Regression: even with IdentityHeaders=false, a client-supplied
+	// identity header must never reach the upstream (anti-spoofing).
+	var captured http.Header
+	var capturedMu sync.Mutex
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedMu.Lock()
+		captured = r.Header.Clone()
+		capturedMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatalf("parse backend URL: %v", err)
+	}
+
+	pconfig := model.PortConfig{ProxyProtocol: "http"}
+	pconfig.AddTarget(backendURL)
+
+	// whoisFunc that does NOT inject a user — so the only source of
+	// identity headers would be the client.
+	whoisFunc := func(next http.Handler) http.Handler { return next }
+
+	p := newPortProxy(
+		context.Background(),
+		pconfig,
+		zerolog.Nop(),
+		false,
+		whoisFunc,
+		nil,
+		"test-proxy",
+		"test-port",
+		nil,
+		false, // opted out — strip block must still run
+	)
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("frontend listen: %v", err)
+	}
+	go p.startWithListener(frontLn)
+	defer p.close()
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+frontLn.Addr().String()+"/", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set(consts.HeaderRemoteUser, "spoofed")
+	req.Header.Set(consts.HeaderXForwardedUser, "spoofed")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("client GET: %v", err)
+	}
+	resp.Body.Close()
+
+	capturedMu.Lock()
+	defer capturedMu.Unlock()
+	if got := captured.Get(consts.HeaderRemoteUser); got != "" {
+		t.Errorf("Remote-User leaked: %q (must be stripped)", got)
+	}
+	if got := captured.Get(consts.HeaderXForwardedUser); got != "" {
+		t.Errorf("X-Forwarded-User leaked: %q (must be stripped)", got)
+	}
 }
 
 func TestTCPPortCancelledContext(t *testing.T) {

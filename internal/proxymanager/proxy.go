@@ -353,7 +353,7 @@ func (proxy *Proxy) initPorts() {
 		if v.IsRedirect {
 			ph = newPortRedirect(proxy.ctx, v, log)
 		} else if v.ProxyProtocol == "http" || v.ProxyProtocol == "https" {
-			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware, proxy.metrics, proxy.Config.Hostname, k, proxy.logBuffer)
+			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware, proxy.metrics, proxy.Config.Hostname, k, proxy.logBuffer, proxy.Config.IdentityHeaders)
 		} else if v.ProxyProtocol == "udp" {
 			ph = newPortUDP(proxy.ctx, v, log)
 		} else {

@@ -54,6 +54,7 @@ func newPortProxy(
 	proxyName string,
 	portName string,
 	logBuffer *LogRingBuffer,
+	identityHeaders bool,
 ) *port {
 	//
 	log = log.With().Str("port", pconfig.String()).Logger()
@@ -107,17 +108,23 @@ func newPortProxy(
 			r.Out.Header.Del(consts.HeaderXAuthRequestEmail)
 			r.Out.Header.Del(consts.HeaderXForwardedPreferredUsername)
 
-			if user, ok := model.WhoisFromContext(r.In.Context()); ok {
-				r.Out.Header.Set(consts.HeaderID, user.ID)
-				r.Out.Header.Set(consts.HeaderUsername, user.Username)
-				r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
-				r.Out.Header.Set(consts.HeaderProfilePicURL, user.ProfilePicURL)
-				r.Out.Header.Set(consts.HeaderRemoteUser, user.Username)
-				r.Out.Header.Set(consts.HeaderXForwardedUser, user.Username)
-				r.Out.Header.Set(consts.HeaderXAuthRequestUser, user.Username)
-				r.Out.Header.Set(consts.HeaderXForwardedEmail, user.Username)
-				r.Out.Header.Set(consts.HeaderXAuthRequestEmail, user.Username)
-				r.Out.Header.Set(consts.HeaderXForwardedPreferredUsername, user.DisplayName)
+			// Inject authenticated user headers when enabled (default).
+			// Some upstream services (e.g. wetty) consume Remote-User as the
+			// SSH login username, which conflicts with their own auth flag —
+			// the opt-out lets those services run without spurious overrides.
+			if identityHeaders {
+				if user, ok := model.WhoisFromContext(r.In.Context()); ok {
+					r.Out.Header.Set(consts.HeaderID, user.ID)
+					r.Out.Header.Set(consts.HeaderUsername, user.Username)
+					r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
+					r.Out.Header.Set(consts.HeaderProfilePicURL, user.ProfilePicURL)
+					r.Out.Header.Set(consts.HeaderRemoteUser, user.Username)
+					r.Out.Header.Set(consts.HeaderXForwardedUser, user.Username)
+					r.Out.Header.Set(consts.HeaderXAuthRequestUser, user.Username)
+					r.Out.Header.Set(consts.HeaderXForwardedEmail, user.Username)
+					r.Out.Header.Set(consts.HeaderXAuthRequestEmail, user.Username)
+					r.Out.Header.Set(consts.HeaderXForwardedPreferredUsername, user.DisplayName)
+				}
 			}
 
 			r.SetXForwarded()
