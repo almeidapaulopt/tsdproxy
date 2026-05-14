@@ -1,4 +1,4 @@
-import { signal } from "./node_modules/datastar/bundles/datastar.js";
+import { state, setState } from "./state.js";
 
 const healthOrder = { healthy: 0, unknown: 1, down: 2 };
 
@@ -38,6 +38,7 @@ window.sortList = function(sortKey) {
   if (currentGrouped) {
     applyGrouping();
   }
+  if (typeof window.filterCards === 'function') window.filterCards();
 };
 
 function capitalize(s) {
@@ -59,8 +60,32 @@ window.togglePin = function(name) {
   }
   const arr = [...pinned];
   localStorage.setItem("pinned", arr.join(","));
-  signal("pinned", arr.join(","));
+  setState("pinned", arr.join(","));
   window.sortList();
+  window.filterCards();
+};
+
+window.filterCards = function() {
+  const list = document.getElementById('proxy-list');
+  if (!list) return;
+  const q = (state.search || '').toLowerCase();
+  const status = state.filterStatus;
+  const health = state.filterHealth;
+  const pinnedSet = new Set((state.pinned || '').split(',').filter(Boolean));
+
+  for (const card of list.querySelectorAll('.proxy')) {
+    let show = true;
+    if (q) {
+      const label = (card.dataset.label || card.id || '').toLowerCase();
+      if (label.indexOf(q) === -1) show = false;
+    }
+    if (show && status !== 'all' && card.dataset.status !== status) show = false;
+    if (show && health !== 'all' && card.dataset.health !== health) show = false;
+    card.style.display = show ? '' : 'none';
+
+    const pinBtn = card.querySelector('.pin-btn');
+    if (pinBtn) pinBtn.classList.toggle('pinned', pinnedSet.has(card.id));
+  }
 };
 
 function applyGrouping() {
@@ -257,19 +282,5 @@ window.showProxyNotification = function(name, status) {
 window.requestNotifications = function() {
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
-  }
-}
-
-window.startLogStream = function(safeID, encodedName) {
-  const linesEl = document.getElementById('log-lines-' + safeID);
-  if (linesEl) {
-    linesEl.innerHTML = '<div id="log-placeholder-' + safeID + '" class="log-line text-xs font-mono whitespace-pre-wrap break-all opacity-40">waiting for first request\u2026</div>';
-  }
-  const streamEl = document.getElementById('log-stream-' + safeID);
-  if (streamEl) {
-    streamEl.innerHTML = '';
-    const d = document.createElement('div');
-    d.setAttribute('data-init', "@get('/stream/" + encodedName + "/logs',{requestCancellation:'cleanup'})");
-    streamEl.appendChild(d);
   }
 };
