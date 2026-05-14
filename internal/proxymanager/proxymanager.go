@@ -432,24 +432,28 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		pm.broadcastStatusEvents(event)
 	}
 
-	pm.broadcastStatusEvents(model.ProxyEvent{
-		ID:     p.Config.Hostname,
-		Status: model.ProxyStatusInitializing,
-	})
-
-	// Start the replacement before touching the old proxy.
-	// On failure, the old proxy remains untouched in the map.
-	if err := p.Start(); err != nil {
-		p.Close()
-		return fmt.Errorf("proxy start failed: %w", err)
-	}
-
-	// Replacement is running — close old and install new.
 	pm.closeAndRemoveProxy(proxyConfig.Hostname)
 
 	pm.mtx.Lock()
 	pm.Proxies[proxyConfig.Hostname] = p
 	pm.mtx.Unlock()
+
+	pm.broadcastStatusEvents(model.ProxyEvent{
+		ID:     p.Config.Hostname,
+		Status: model.ProxyStatusInitializing,
+	})
+
+	if err := p.Start(); err != nil {
+		pm.broadcastStatusEvents(model.ProxyEvent{
+			ID:     p.Config.Hostname,
+			Status: model.ProxyStatusStopped,
+		})
+		pm.mtx.Lock()
+		delete(pm.Proxies, proxyConfig.Hostname)
+		pm.mtx.Unlock()
+		p.Close()
+		return fmt.Errorf("proxy start failed: %w", err)
+	}
 
 	return nil
 }
