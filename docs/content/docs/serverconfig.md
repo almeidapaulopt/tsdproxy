@@ -197,6 +197,58 @@ Enables access logging for proxied requests. Defaults to `true`. Can be
 overridden per-container with the `tsdproxy.containeraccesslog` label or
 per-list with `defaultProxyAccessLog`.
 
+#### webhooks Section
+
+Configures webhook notifications for proxy status changes. See [Notifications]({{< ref "/docs/notifications" >}}) for detailed recipes.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+webhooks:
+  - url: "https://ntfy.sh/my-topic"     # Target URL (required)
+    type: ntfy                           # ntfy | discord | slack | generic (default)
+    events:                              # Optional — send all events if omitted
+      - Running
+      - Stopped
+      - Error
+    headers:                             # Optional custom HTTP headers
+      Authorization: "Bearer token123"
+```
+
+Multiple webhooks can be configured simultaneously:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+webhooks:
+  - url: "https://ntfy.sh/alerts"
+    type: ntfy
+    events: [Running, Error, Stopped]
+
+  - url: "https://discord.com/api/webhooks/123/abc"
+    type: discord
+    events: [Error]
+```
+
+##### url
+
+The HTTP endpoint to send notifications to. Required.
+
+##### type
+
+The message format. Supported values:
+
+| Type | Format | Content-Type |
+|------|--------|-------------|
+| `ntfy` | Plain text body | `text/plain` |
+| `discord` | Discord embed JSON | `application/json` |
+| `slack` | Slack Block Kit JSON | `application/json` |
+| `generic` (default) | JSON payload | `application/json` |
+
+##### events
+
+Optional list of status names that trigger a notification. Names are case-insensitive. Available events: `Initializing`, `Starting`, `Authenticating`, `Running`, `Stopping`, `Stopped`, `Error`, `Paused`. If omitted, all status changes are sent.
+
+##### headers
+
+Optional map of HTTP headers added to every request. Custom headers override defaults (including `Content-Type`).
+
 #### Admin Allowlist
 
 Controls access to sensitive dashboard actions (restart, pause, resume, reauth).
