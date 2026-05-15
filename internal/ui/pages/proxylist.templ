@@ -402,10 +402,8 @@ func healthValue(h string) string {
 
 func fetchAction(name string, action string) string {
 	encodedName := url.PathEscape(name)
-	return fmt.Sprintf(
-		"fetch('/api/proxy/%s/%s',{method:'POST'}).then(r=>{if(!r.ok)return r.json().then(e=>{throw new Error(e.message||'Failed')})}).catch(e=>alert(e.message))",
-		encodedName, action,
-	)
+	safeID := dom.SafeID(name)
+	return fmt.Sprintf("proxyAction('%s','%s','%s')", safeID, encodedName, action)
 }
 
 func modalname(name string) string {
