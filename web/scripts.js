@@ -269,6 +269,38 @@ function moveFocus(cards, direction) {
   card.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
+window.showToast = function(message, type) {
+  var container = document.getElementById('toast-container');
+  if (!container) return;
+  var toast = document.createElement('div');
+  toast.className = 'alert shadow-lg rounded-box px-4 py-3 text-sm flex items-center gap-2 border-0 ' + (type === 'success' ? 'bg-success text-success-content' : 'bg-error text-error-content');
+  var icon = type === 'success'
+    ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+    : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>';
+  toast.innerHTML = icon;
+  var span = document.createElement('span');
+  span.textContent = message;
+  toast.appendChild(span);
+  container.appendChild(toast);
+  setTimeout(function() {
+    toast.style.transition = 'opacity 0.3s ease';
+    toast.style.opacity = '0';
+    setTimeout(function() { toast.remove(); }, 300);
+  }, 4000);
+};
+
+window.proxyAction = function(modalID, encodedName, action) {
+  document.getElementById(modalID).close();
+  fetch('/api/proxy/' + encodedName + '/' + action, {method: 'POST'})
+    .then(function(r) {
+      if (!r.ok) {
+        return r.json().then(function(e) { throw new Error(e.message || 'Failed'); }, function() { throw new Error('Failed'); });
+      }
+      showToast(action + ' succeeded', 'success');
+    })
+    .catch(function(e) { showToast(e.message, 'error'); });
+};
+
 window.showProxyNotification = function(name, status) {
   if (Notification.permission !== 'granted') return;
   const el = document.getElementById(name);
