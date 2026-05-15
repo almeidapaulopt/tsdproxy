@@ -23,6 +23,7 @@ type (
 		Tailscale         Tailscale `validate:"dive"`
 		ProxyAccessLog    bool      `default:"true" validate:"boolean"`
 		IdentityHeaders   bool      `default:"true" validate:"boolean"`
+		AutoDetectAddrs []string // internal IP:port pairs for health-triggered re-detection
 	}
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider

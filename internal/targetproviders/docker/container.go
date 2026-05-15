@@ -206,6 +206,8 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 		}
 	}
 
+	pcfg.AutoDetectAddrs = c.buildAutoDetectAddrs()
+
 	return pcfg, nil
 }
 
@@ -468,6 +470,26 @@ func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort
 	}
 	u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + port)
 	return u, err == nil
+}
+
+// buildAutoDetectAddrs returns IP:port pairs for health-triggered re-detection probing.
+func (c *container) buildAutoDetectAddrs() []string {
+	if len(c.ipAddress) == 0 {
+		return nil
+	}
+
+	internalPorts := make(map[string]struct{})
+	for internal := range c.ports {
+		internalPorts[internal] = struct{}{}
+	}
+
+	var addrs []string
+	for _, ip := range c.ipAddress {
+		for port := range internalPorts {
+			addrs = append(addrs, ip.String()+":"+port)
+		}
+	}
+	return addrs
 }
 
 // getPublishedPort method returns the container port

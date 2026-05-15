@@ -490,3 +490,41 @@ func TestGetTargetURL_HostNetworkNoHostnameFails(t *testing.T) {
 		t.Error("expected error when host-network container has no hostname")
 	}
 }
+
+func TestBuildAutoDetectAddrs(t *testing.T) {
+	c := newTestContainer("host.docker.internal",
+		[]netip.Addr{netip.MustParseAddr("172.17.0.5"), netip.MustParseAddr("10.0.1.5")},
+		map[string]string{"3000": "32768", "8080": "8080"},
+	)
+
+	addrs := c.buildAutoDetectAddrs()
+	if len(addrs) != 4 {
+		t.Fatalf("expected 4 addrs (2 IPs x 2 ports), got %d: %v", len(addrs), addrs)
+	}
+
+	expected := map[string]bool{
+		"172.17.0.5:3000": false,
+		"172.17.0.5:8080": false,
+		"10.0.1.5:3000":   false,
+		"10.0.1.5:8080":   false,
+	}
+	for _, addr := range addrs {
+		if _, ok := expected[addr]; !ok {
+			t.Errorf("unexpected addr: %s", addr)
+		}
+		expected[addr] = true
+	}
+	for addr, found := range expected {
+		if !found {
+			t.Errorf("missing expected addr: %s", addr)
+		}
+	}
+}
+
+func TestBuildAutoDetectAddrs_NoIPs(t *testing.T) {
+	c := newTestContainer("host.docker.internal", nil, map[string]string{"3000": "32768"})
+	addrs := c.buildAutoDetectAddrs()
+	if addrs != nil {
+		t.Errorf("expected nil addrs when no container IPs, got %v", addrs)
+	}
+}
