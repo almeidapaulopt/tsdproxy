@@ -355,7 +355,7 @@ func (c *container) getTargetURL(iPort *url.URL, noAutoDetect bool) (*url.URL, e
 	}
 
 	// Try resolvers in priority order.
-	if u, ok := c.resolveSelfHost(internalPort); ok {
+	if u, ok := c.resolveSelfHost(iPort.Scheme, internalPort); ok {
 		return u, nil
 	}
 
@@ -363,15 +363,13 @@ func (c *container) getTargetURL(iPort *url.URL, noAutoDetect bool) (*url.URL, e
 		return u, nil
 	}
 
-	if u, ok := c.resolveHostNetwork(iPort, internalPort); ok {
-		return u, nil
-	}
-
-	if u, ok := c.resolveNonHTTPDirect(iPort, internalPort); ok {
-		return u, nil
-	}
-
+	// Prefer published ports (same path as HTTP, works across networks).
 	if u, ok := c.resolvePublished(iPort, publishedPort, internalPort); ok {
+		return u, nil
+	}
+
+	// Fallback: direct container IP for non-HTTP protocols (shared networks only).
+	if u, ok := c.resolveDirectIP(iPort, internalPort); ok {
 		return u, nil
 	}
 
@@ -379,7 +377,7 @@ func (c *container) getTargetURL(iPort *url.URL, noAutoDetect bool) (*url.URL, e
 }
 
 // resolveSelfHost returns a localhost target when the container IS the tsdproxy process.
-func (c *container) resolveSelfHost(internalPort string) (*url.URL, bool) {
+func (c *container) resolveSelfHost(scheme, internalPort string) (*url.URL, bool) {
 	osname, err := os.Hostname()
 	if err != nil {
 		return nil, false
@@ -387,7 +385,7 @@ func (c *container) resolveSelfHost(internalPort string) (*url.URL, bool) {
 	if osname == "" || c.hostname != osname {
 		return nil, false
 	}
-	u, err := url.Parse("http://127.0.0.1:" + internalPort)
+	u, err := url.Parse(scheme + "://127.0.0.1:" + internalPort)
 	return u, err == nil
 }
 
@@ -406,39 +404,18 @@ func (c *container) resolveAutoDetect(scheme, internalPort, publishedPort string
 	return nil, false
 }
 
-// resolveHostNetwork resolves the target URL for host-networked containers.
-//
-// Host-network containers do not have their own Docker network IP; the
-// container's services are reachable via the host. We use defaultTargetHostname
-// (operator-configured, e.g. "host.docker.internal" or the host's LAN IP)
-// because that is the address the proxy can actually dial.
-//
-// Gating on defaultTargetHostname (rather than defaultBridgeAddress) means
-// host-network containers remain routable even when the Docker default-bridge
-// network cannot be discovered (e.g. removed, renamed, or restricted by
-// Docker socket permissions).
-func (c *container) resolveHostNetwork(iPort *url.URL, internalPort string) (*url.URL, bool) {
-	if !c.networkMode.IsHost() || c.defaultTargetHostname == "" {
-		return nil, false
-	}
-	u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
-	return u, err == nil
-}
-
-// resolveNonHTTPDirect connects directly to the container IP for non-HTTP
+// resolveDirectIP connects directly to the container IP for non-HTTP
 // protocols (e.g. TCP passthrough). This bypasses Docker's host-side port
 // mapping, which may not reliably forward raw TCP streams.
 //
-// This resolver is intentionally ordered after resolveHostNetwork so that
-// host-networked containers are handled by the host-network path first.
-// Host-network containers typically have no Docker network IPs, so this
-// branch would return false anyway, but the explicit check prevents
-// accidental misrouting if a host-net container somehow has IPs populated.
+// This resolver is a fallback after resolvePublished: it only activates when
+// published-port resolution fails (no published port, no defaultTargetHostname),
+// meaning the proxy and container likely share a Docker network.
 //
 // Security note: this requires the proxy to share a Docker network with the
 // target container. It also bypasses any published-port ACLs that the user
 // may have configured as a soft firewall.
-func (c *container) resolveNonHTTPDirect(iPort *url.URL, internalPort string) (*url.URL, bool) {
+func (c *container) resolveDirectIP(iPort *url.URL, internalPort string) (*url.URL, bool) {
 	if iPort.Scheme == "http" || iPort.Scheme == "https" {
 		return nil, false
 	}
@@ -463,15 +440,18 @@ func (c *container) resolveNonHTTPDirect(iPort *url.URL, internalPort string) (*
 // resolvePublished resolves the target URL using the published port or
 // falls back to the default hostname with the internal port.
 func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort string) (*url.URL, bool) {
-	if publishedPort != "" {
-		u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + publishedPort)
-		return u, err == nil
+	if c.defaultTargetHostname == "" {
+		return nil, false
 	}
-	if internalPort != "" && c.defaultTargetHostname != "" {
-		u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + internalPort)
-		return u, err == nil
+	port := publishedPort
+	if port == "" {
+		port = internalPort
 	}
-	return nil, false
+	if port == "" {
+		return nil, false
+	}
+	u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + port)
+	return u, err == nil
 }
 
 // getPublishedPort method returns the container port
