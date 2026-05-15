@@ -1,6 +1,6 @@
 module github.com/almeidapaulopt/tsdproxy
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/a-h/templ v0.3.1020
@@ -24,7 +24,7 @@ require (
 	golang.org/x/sync v0.20.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
-	tailscale.com v1.98.1
+	tailscale.com v1.98.2
 	tailscale.com/client/tailscale/v2 v2.9.0
 )
 
