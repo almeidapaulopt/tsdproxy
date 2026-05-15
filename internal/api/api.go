@@ -34,19 +34,14 @@ func New(http *core.HTTPServer, pm *proxymanager.ProxyManager, log zerolog.Logge
 }
 
 func (a *API) AddRoutes() {
-	whoisFunc := func(r *http.Request) model.Whois {
-		who, _ := model.WhoisFromContext(r.Context())
-		return who
-	}
-
-	adminMW := core.AdminMiddleware(whoisFunc)
+	adminMW := core.AdminMiddleware()
 
 	a.HTTP.Get("/api/v1/proxies", a.listProxiesHandler())
 	a.HTTP.Get("/api/v1/proxies/{name}", a.getProxyHandler())
 	a.HTTP.Get("/api/v1/proxies/{name}/ports", a.getProxyPortsHandler())
 	a.HTTP.Get("/api/version", a.versionHandler())
 	a.HTTP.Get("/api/health", a.aggregateHealthHandler())
-	a.HTTP.Get("/api/whoami", core.WhoAmIHandler(a.HTTP, whoisFunc))
+	a.HTTP.Get("/api/whoami", core.WhoAmIHandler(a.HTTP))
 	a.HTTP.Post("/api/webhook/test", adminMW(a.testWebhookHandler()))
 }
 

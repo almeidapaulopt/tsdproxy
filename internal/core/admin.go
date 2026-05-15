@@ -4,9 +4,12 @@
 package core
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"slices"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
@@ -14,16 +17,14 @@ import (
 )
 
 // AdminMiddleware enforces the admin allowlist. When config.Config.Admins
-// is empty the middleware is a no-op.
-//
-// Identity is resolved in priority order:
-//  1. whoisFunc (direct tsnet connections — authoritative)
-//  2. x-tsdproxy-id header, only when the request originates from localhost
-//     (set by the in-process reverse proxy after stripping client headers)
+// is empty the middleware is a no-op. Identity is resolved in priority order:
+//  1. Context (set by ProviderUserMiddleware on direct tsnet connections)
+//  2. x-tsdproxy-* headers, only from localhost (set by the in-process
+//     reverse proxy after stripping client headers)
 //
 // When no identity can be resolved, config.Config.AdminAllowLocalhost
 // controls whether localhost requests are permitted without auth.
-func AdminMiddleware(whoisFunc func(r *http.Request) model.Whois) Middleware {
+func AdminMiddleware() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			admins := config.Config.Admins
@@ -32,53 +33,57 @@ func AdminMiddleware(whoisFunc func(r *http.Request) model.Whois) Middleware {
 				return
 			}
 
-			id := resolveAdminID(r, whoisFunc)
+			id := ResolveWhois(r).ID
 			if id != "" {
 				if slices.Contains(admins, id) {
 					next.ServeHTTP(w, r)
 					return
 				}
-				http.Error(w, "access denied", http.StatusForbidden)
+				writeForbidden(w, "access denied")
 				return
 			}
 
-			if isLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+			if IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			http.Error(w, "admin access requires a Tailscale connection", http.StatusForbidden)
+			writeForbidden(w, "admin access requires a Tailscale connection")
 		})
 	}
 }
 
-// resolveWhois resolves the Tailscale identity for a request using
-// whoisFunc first (context — authoritative, from direct tsnet connections)
-// then falling back to x-tsdproxy-* headers when config.Config.AdminAllowLocalhost
-// is true and the request originates from localhost (set by the in-process
-// reverse proxy after stripping client-supplied headers).
-func resolveWhois(r *http.Request, whoisFunc func(r *http.Request) model.Whois) model.Whois {
-	if who := whoisFunc(r); who.ID != "" {
+func writeForbidden(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusForbidden)
+	if err := json.NewEncoder(w).Encode(map[string]any{"message": message, "code": http.StatusForbidden}); err != nil {
+		log.Error().Err(err).Msg("writeForbidden: failed to encode response")
+	}
+}
+
+// ResolveWhois resolves the Tailscale identity for a request.
+// It tries the context first (set by ProviderUserMiddleware on direct
+// tsnet connections), then falls back to x-tsdproxy-* headers when the
+// request originates from localhost (set by the in-process reverse proxy).
+func ResolveWhois(r *http.Request) model.Whois {
+	if who, ok := model.WhoisFromContext(r.Context()); ok && who.ID != "" {
 		return who
 	}
 
-	if !config.Config.AdminAllowLocalhost || !isLocalhost(r.RemoteAddr) {
-		return model.Whois{}
+	if IsLocalhost(r.RemoteAddr) {
+		return model.Whois{
+			ID:            r.Header.Get(consts.HeaderID),
+			Username:      r.Header.Get(consts.HeaderUsername),
+			DisplayName:   r.Header.Get(consts.HeaderDisplayName),
+			ProfilePicURL: r.Header.Get(consts.HeaderProfilePicURL),
+		}
 	}
 
-	return model.Whois{
-		ID:            r.Header.Get(consts.HeaderID),
-		Username:      r.Header.Get(consts.HeaderUsername),
-		DisplayName:   r.Header.Get(consts.HeaderDisplayName),
-		ProfilePicURL: r.Header.Get(consts.HeaderProfilePicURL),
-	}
+	return model.Whois{}
 }
 
-func resolveAdminID(r *http.Request, whoisFunc func(r *http.Request) model.Whois) string {
-	return resolveWhois(r, whoisFunc).ID
-}
-
-func isLocalhost(remoteAddr string) bool {
+func IsLocalhost(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr
@@ -98,7 +103,7 @@ func isLocalhost(remoteAddr string) bool {
 // external clients and user containers must not.
 func StripProxyIdentityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isLocalhost(r.RemoteAddr) {
+		if !IsLocalhost(r.RemoteAddr) {
 			r.Header.Del(consts.HeaderID)
 			r.Header.Del(consts.HeaderUsername)
 			r.Header.Del(consts.HeaderDisplayName)
@@ -108,17 +113,9 @@ func StripProxyIdentityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func WhoAmIHandler(srv *HTTPServer, whoisFunc func(r *http.Request) model.Whois) http.HandlerFunc {
+func WhoAmIHandler(srv *HTTPServer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		who := whoisFunc(r)
-		if who.ID == "" && isLocalhost(r.RemoteAddr) {
-			who = model.Whois{
-				ID:            r.Header.Get(consts.HeaderID),
-				Username:      r.Header.Get(consts.HeaderUsername),
-				DisplayName:   r.Header.Get(consts.HeaderDisplayName),
-				ProfilePicURL: r.Header.Get(consts.HeaderProfilePicURL),
-			}
-		}
+		who := ResolveWhois(r)
 		if who.ID == "" {
 			srv.ErrorResponse(w, r, nil, "no Tailscale identity found", http.StatusUnauthorized)
 			return

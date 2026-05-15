@@ -45,12 +45,7 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 
 // AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
-	whoisFunc := func(r *http.Request) model.Whois {
-		who, _ := model.WhoisFromContext(r.Context())
-		return who
-	}
-
-	adminMW := core.AdminMiddleware(whoisFunc)
+	adminMW := core.AdminMiddleware()
 
 	dash.HTTP.Get("/stream", dash.streamHandler())
 	dash.HTTP.Get("/stream/{name}/logs", dash.streamProxyLogsHandler())
