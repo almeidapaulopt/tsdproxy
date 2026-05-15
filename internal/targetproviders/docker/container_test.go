@@ -85,33 +85,24 @@ func TestGetTargetURL_TCPFallbackUsesContainerIP(t *testing.T) {
 	}
 }
 
-func TestResolveNonHTTPDirect_SkipsHTTP(t *testing.T) {
-	c := newTestContainer("host.docker.internal", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
-
-	inputURL, _ := url.Parse("http://0.0.0.0:80")
-	u, ok := c.resolveDirectIP(inputURL, "80")
-	if ok {
-		t.Errorf("resolveDirectIP should skip HTTP, got URL %s", u)
-	}
-}
-
-func TestResolveNonHTTPDirect_SkipsHTTPS(t *testing.T) {
-	c := newTestContainer("host.docker.internal", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
-
-	inputURL, _ := url.Parse("https://0.0.0.0:443")
-	u, ok := c.resolveDirectIP(inputURL, "443")
-	if ok {
-		t.Errorf("resolveDirectIP should skip HTTPS, got URL %s", u)
-	}
-}
-
-func TestResolveNonHTTPDirect_TCPWithNoIP(t *testing.T) {
+func TestResolveContainerIP_NoIPReturnsFalse(t *testing.T) {
 	c := newTestContainer("host.docker.internal", []netip.Addr{}, map[string]string{})
 
-	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	u, ok := c.resolveDirectIP(inputURL, "22")
+	u, ok := c.resolveContainerIP("tcp", "22")
 	if ok {
-		t.Errorf("resolveDirectIP should return false with no container IPs, got URL %s", u)
+		t.Errorf("resolveContainerIP should return false with no container IPs, got URL %s", u)
+	}
+}
+
+func TestResolveContainerIP_UsesContainerIP(t *testing.T) {
+	c := newTestContainer("host.docker.internal", []netip.Addr{netip.MustParseAddr("172.26.0.3")}, map[string]string{})
+
+	u, ok := c.resolveContainerIP("tcp", "22")
+	if !ok {
+		t.Fatal("expected resolveContainerIP to succeed")
+	}
+	if u.Host != "172.26.0.3:22" {
+		t.Errorf("host: got %q, want \"172.26.0.3:22\"", u.Host)
 	}
 }
 
@@ -184,7 +175,6 @@ func TestGetTargetURL_TCPPublishedPortNoHostnameFallsBackToContainerIP(t *testin
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// resolvePublished fails (no hostname), resolveDirectIP falls back to container IP.
 	if result.Scheme != "tcp" {
 		t.Errorf("scheme: got %q, want \"tcp\"", result.Scheme)
 	}
@@ -317,19 +307,123 @@ func TestSetContainerNetwork_EmptyIPsSkipped(t *testing.T) {
 	}
 }
 
-func TestResolveNonHTTPDirect_SkipsHostNetwork(t *testing.T) {
+func TestResolveViaGateway_UsesPublishedPort(t *testing.T) {
+	c := &container{
+		log:      zerolog.Nop(),
+		gateways: []netip.Addr{netip.MustParseAddr("172.26.0.1")},
+	}
+
+	u, ok := c.resolveViaGateway("tcp", "2222")
+	if !ok {
+		t.Fatal("expected resolveViaGateway to succeed")
+	}
+	if u.Host != "172.26.0.1:2222" {
+		t.Errorf("host: got %q, want \"172.26.0.1:2222\"", u.Host)
+	}
+}
+
+func TestResolveViaGateway_NoPublishedPortReturnsFalse(t *testing.T) {
+	c := &container{
+		log:      zerolog.Nop(),
+		gateways: []netip.Addr{netip.MustParseAddr("172.26.0.1")},
+	}
+
+	_, ok := c.resolveViaGateway("tcp", "")
+	if ok {
+		t.Error("expected resolveViaGateway to fail with no published port")
+	}
+}
+
+func TestResolveViaGateway_WorksForAllProtocols(t *testing.T) {
+	c := &container{
+		log:      zerolog.Nop(),
+		gateways: []netip.Addr{netip.MustParseAddr("172.26.0.1")},
+	}
+
+	for _, scheme := range []string{"http", "https", "tcp", "udp"} {
+		u, ok := c.resolveViaGateway(scheme, "8080")
+		if !ok {
+			t.Errorf("%s: expected resolveViaGateway to succeed", scheme)
+			continue
+		}
+		if u.Scheme != scheme {
+			t.Errorf("%s: scheme: got %q", scheme, u.Scheme)
+		}
+		if u.Host != "172.26.0.1:8080" {
+			t.Errorf("%s: host: got %q, want \"172.26.0.1:8080\"", scheme, u.Host)
+		}
+	}
+}
+
+func TestGetTargetURL_AcrossNetworksUsesPublishedHostname(t *testing.T) {
 	c := &container{
 		log:                   zerolog.Nop(),
 		id:                    "test-container-id",
-		defaultTargetHostname: "127.0.0.1",
-		ipAddress:             []netip.Addr{netip.MustParseAddr("192.168.1.100")},
-		networkMode:           ctypes.NetworkMode("host"),
+		name:                  "opencode-web",
+		targetProviderName:    "local",
+		defaultTargetHostname: "host.docker.internal",
+		ipAddress:             []netip.Addr{netip.MustParseAddr("172.26.0.3")},
+		gateways:              []netip.Addr{netip.MustParseAddr("172.26.0.1")},
+		ports:                 map[string]string{"22": "2222"},
+		networkMode:           ctypes.NetworkMode("bridge"),
+		autodetect:            false,
 	}
 
-	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	u, ok := c.resolveDirectIP(inputURL, "22")
-	if ok {
-		t.Errorf("resolveDirectIP should skip host-network containers, got URL %s", u)
+	// TCP and HTTP should resolve identically
+	for _, tc := range []struct {
+		scheme string
+		url    string
+	}{
+		{"tcp", "tcp://0.0.0.0:22"},
+		{"http", "http://0.0.0.0:22"},
+	} {
+		inputURL, _ := url.Parse(tc.url)
+		result, err := c.getTargetURL(inputURL, false)
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", tc.scheme, err)
+		}
+		if result.Host != "host.docker.internal:2222" {
+			t.Errorf("%s host: got %q, want \"host.docker.internal:2222\"", tc.scheme, result.Host)
+		}
+	}
+}
+
+func TestGetTargetURL_FallsBackToGateway(t *testing.T) {
+	c := &container{
+		log:         zerolog.Nop(),
+		ipAddress:   []netip.Addr{netip.MustParseAddr("172.26.0.3")},
+		gateways:    []netip.Addr{netip.MustParseAddr("172.26.0.1")},
+		ports:       map[string]string{"80": "8080"},
+		networkMode: ctypes.NetworkMode("bridge"),
+		autodetect:  false,
+	}
+
+	inputURL, _ := url.Parse("http://0.0.0.0:80")
+	result, err := c.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Host != "172.26.0.1:8080" {
+		t.Errorf("host: got %q, want \"172.26.0.1:8080\" (gateway + published port)", result.Host)
+	}
+}
+
+func TestGetTargetURL_FallsBackToContainerIP(t *testing.T) {
+	c := &container{
+		log:         zerolog.Nop(),
+		ipAddress:   []netip.Addr{netip.MustParseAddr("172.26.0.3")},
+		ports:       map[string]string{},
+		networkMode: ctypes.NetworkMode("bridge"),
+		autodetect:  false,
+	}
+
+	inputURL, _ := url.Parse("http://0.0.0.0:80")
+	result, err := c.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Host != "172.26.0.3:80" {
+		t.Errorf("host: got %q, want \"172.26.0.3:80\" (container IP fallback)", result.Host)
 	}
 }
 

@@ -359,18 +359,23 @@ func (c *container) getTargetURL(iPort *url.URL, noAutoDetect bool) (*url.URL, e
 		return u, nil
 	}
 
-	if u, ok := c.resolveAutoDetect(iPort.Scheme, internalPort, publishedPort, noAutoDetect); ok {
+	if u, ok := c.resolveByProbing(iPort.Scheme, internalPort, publishedPort, noAutoDetect); ok {
 		return u, nil
 	}
 
-	// Prefer published ports (same path as HTTP, works across networks).
 	if u, ok := c.resolvePublished(iPort, publishedPort, internalPort); ok {
 		return u, nil
 	}
 
-	// Fallback: direct container IP for non-HTTP protocols (shared networks only).
-	if u, ok := c.resolveDirectIP(iPort, internalPort); ok {
-		return u, nil
+	// Bridge-mode fallbacks: gateway via published port, then direct container IP.
+	if !c.networkMode.IsHost() {
+		if u, ok := c.resolveViaGateway(iPort.Scheme, publishedPort); ok {
+			return u, nil
+		}
+
+		if u, ok := c.resolveContainerIP(iPort.Scheme, internalPort); ok {
+			return u, nil
+		}
 	}
 
 	return nil, ErrNoPortFoundInContainer
@@ -389,8 +394,8 @@ func (c *container) resolveSelfHost(scheme, internalPort string) (*url.URL, bool
 	return u, err == nil
 }
 
-// resolveAutoDetect tries to auto-detect the target URL by probing connectivity.
-func (c *container) resolveAutoDetect(scheme, internalPort, publishedPort string, noAutoDetect bool) (*url.URL, bool) {
+// resolveByProbing tries to auto-detect the target URL by probing connectivity.
+func (c *container) resolveByProbing(scheme, internalPort, publishedPort string, noAutoDetect bool) (*url.URL, bool) {
 	if !c.autodetect || noAutoDetect {
 		return nil, false
 	}
@@ -404,36 +409,47 @@ func (c *container) resolveAutoDetect(scheme, internalPort, publishedPort string
 	return nil, false
 }
 
-// resolveDirectIP connects directly to the container IP for non-HTTP
-// protocols (e.g. TCP passthrough). This bypasses Docker's host-side port
-// mapping, which may not reliably forward raw TCP streams.
-//
-// This resolver is a fallback after resolvePublished: it only activates when
-// published-port resolution fails (no published port, no defaultTargetHostname),
-// meaning the proxy and container likely share a Docker network.
-//
-// Security note: this requires the proxy to share a Docker network with the
-// target container. It also bypasses any published-port ACLs that the user
-// may have configured as a soft firewall.
-func (c *container) resolveDirectIP(iPort *url.URL, internalPort string) (*url.URL, bool) {
-	if iPort.Scheme == "http" || iPort.Scheme == "https" {
+// resolveViaGateway tries to reach the container through the Docker network
+// gateway using the published port. Works across networks since published
+// ports are accessible on the host, which is typically the gateway.
+func (c *container) resolveViaGateway(scheme, publishedPort string) (*url.URL, bool) {
+	if publishedPort == "" {
 		return nil, false
 	}
-	if c.networkMode.IsHost() {
-		return nil, false
+	for _, gateway := range c.gateways {
+		gw := gateway.String()
+		u, err := url.Parse(scheme + "://" + gw + ":" + publishedPort)
+		if err != nil {
+			continue
+		}
+
+		c.log.Info().
+			Str("scheme", scheme).
+			Str("gateway", gw).
+			Str("port", publishedPort).
+			Msg("resolving via gateway and published port")
+
+		return u, true
 	}
+	return nil, false
+}
+
+// resolveContainerIP connects directly to the container's internal IP.
+// Last-resort fallback: only works when tsdproxy shares a Docker network
+// with the target container.
+func (c *container) resolveContainerIP(scheme, internalPort string) (*url.URL, bool) {
 	if len(c.ipAddress) == 0 || internalPort == "" {
 		return nil, false
 	}
 
 	ip := c.ipAddress[0].String()
 	c.log.Info().
-		Str("scheme", iPort.Scheme).
+		Str("scheme", scheme).
 		Str("container_ip", ip).
 		Str("internal_port", internalPort).
-		Msg("Non-HTTP protocol: connecting directly to container IP")
+		Msg("resolving via direct container IP (requires shared network)")
 
-	u, err := url.Parse(iPort.Scheme + "://" + ip + ":" + internalPort)
+	u, err := url.Parse(scheme + "://" + ip + ":" + internalPort)
 	return u, err == nil
 }
 
