@@ -1,7 +1,7 @@
 ---
 linkTitle: Advanced
 title: Advanced Topics
-prev: /docs/providers
+prev: /docs/notifications
 next: /docs/advanced/dashboard
 weight: 5
 ---
