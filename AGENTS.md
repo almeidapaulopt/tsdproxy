@@ -86,6 +86,18 @@ Docker containers ──labels──► TargetProvider (Docker/List)
 
 Data flow: TargetProvider watches containers → emits TargetEvent → ProxyManager creates Proxy → Proxy spins up Tailscale tsnet.Server → reverse-proxies traffic to container.
 
+### Target URL Resolution
+
+`getTargetURL()` in `internal/targetproviders/docker/container.go` resolves the backend address for a container port. The resolution chain is **protocol-agnostic** — HTTP, TCP, and UDP all follow the same priority order:
+
+1. **resolveSelfHost** — container IS the tsdproxy process → `127.0.0.1:internalPort`
+2. **resolveByProbing** — probe connectivity by dialing container IPs and gateways (retries 5×, 5s sleep)
+3. **resolvePublished** — `defaultTargetHostname:publishedPort` (or `internalPort` if no published port)
+4. **resolveViaGateway** — Docker network gateway + published port (bridge-mode only)
+5. **resolveContainerIP** — direct container IP + internal port, last resort (bridge-mode only)
+
+Steps 4–5 are skipped for host-network containers. The chain is intentionally the same for all protocols to avoid resolution discrepancies between e.g. HTTPS and TCP ports on the same container.
+
 ## CONVENTIONS
 
 - **SPDX headers required**: Every `.go` file must have `SPDX-FileCopyrightText` + `SPDX-License-Identifier: MIT` (enforced by golangci-lint `goheader`)
