@@ -490,3 +490,29 @@ func TestGetTargetURL_HostNetworkNoHostnameFails(t *testing.T) {
 		t.Error("expected error when host-network container has no hostname")
 	}
 }
+
+func TestBuildRedetectFunc(t *testing.T) {
+	c := newTestContainer("host.docker.internal",
+		[]netip.Addr{netip.MustParseAddr("172.17.0.5"), netip.MustParseAddr("10.0.1.5")},
+		map[string]string{"3000": "32768", "8080": "8080"},
+	)
+
+	fn := c.buildRedetectFunc()
+	if fn == nil {
+		t.Fatal("expected non-nil redetect func for container with IPs")
+	}
+
+	// The closure won't find anything listening, so it should return false.
+	_, ok := fn()
+	if ok {
+		t.Error("expected redetect to fail when nothing is listening")
+	}
+}
+
+func TestBuildRedetectFunc_NoIPs(t *testing.T) {
+	c := newTestContainer("host.docker.internal", nil, map[string]string{"3000": "32768"})
+	fn := c.buildRedetectFunc()
+	if fn != nil {
+		t.Error("expected nil redetect func when no container IPs")
+	}
+}

@@ -44,18 +44,22 @@ type HealthResult struct {
 }
 
 // healthChecker probes a proxy's backend target on a fixed interval.
+// After redetectThreshold consecutive failures, onRedetect is called to re-discover the upstream.
 type healthChecker struct {
-	log       zerolog.Logger
-	target    string // host:port for TCP, full URL for HTTP
-	scheme    string // "http", "https", "tcp"
-	result    atomic.Pointer[HealthResult]
-	ctx       context.Context
-	cancel    context.CancelFunc
+	log                 zerolog.Logger
+	target              string // host:port for TCP, full URL for HTTP
+	scheme              string // "http", "https", "tcp"
+	result              atomic.Pointer[HealthResult]
+	consecutiveFailures atomic.Int32
+	onRedetect          func() // called when re-detection should be attempted
+	ctx                 context.Context
+	cancel              context.CancelFunc
 }
 
 const (
 	healthCheckInterval = 30 * time.Second
 	healthCheckTimeout  = 5 * time.Second
+	redetectThreshold   = 3
 )
 
 func newHealthChecker(log zerolog.Logger, target, scheme string) *healthChecker {
@@ -115,6 +119,14 @@ func (hc *healthChecker) check() {
 	}
 
 	hc.result.Store(&result)
+
+	if result.Status == HealthDown {
+		if hc.consecutiveFailures.Add(1) >= redetectThreshold && hc.onRedetect != nil {
+			hc.onRedetect()
+		}
+	} else {
+		hc.consecutiveFailures.Store(0)
+	}
 
 	hc.log.Debug().
 		Str("status", result.Status.String()).

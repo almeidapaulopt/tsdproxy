@@ -5,6 +5,7 @@ package docker
 
 import (
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -205,6 +206,8 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 			pcfg.Ports["legacy"] = legacyPort
 		}
 	}
+
+	pcfg.RedetectTarget = c.buildRedetectFunc()
 
 	return pcfg, nil
 }
@@ -468,6 +471,37 @@ func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort
 	}
 	u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + port)
 	return u, err == nil
+}
+
+// buildRedetectFunc returns a closure that probes the container's internal
+// network addresses and returns the first reachable target URL.
+// Returns nil when the container has no internal IPs (e.g. host-network mode).
+func (c *container) buildRedetectFunc() func() (*url.URL, bool) {
+	if len(c.ipAddress) == 0 {
+		return nil
+	}
+
+	var addrs []string
+	for _, ip := range c.ipAddress {
+		for internal := range c.ports {
+			addrs = append(addrs, net.JoinHostPort(ip.String(), internal))
+		}
+	}
+	if len(addrs) == 0 {
+		return nil
+	}
+
+	return func() (*url.URL, bool) {
+		for _, addr := range addrs {
+			conn, err := net.DialTimeout("tcp", addr, dialTimeout)
+			if err != nil {
+				continue
+			}
+			conn.Close()
+			return &url.URL{Host: addr}, true
+		}
+		return nil, false
+	}
 }
 
 // getPublishedPort method returns the container port

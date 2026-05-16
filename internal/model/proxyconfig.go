@@ -5,6 +5,7 @@ package model
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/creasty/defaults"
 )
@@ -23,6 +24,7 @@ type (
 		Tailscale         Tailscale `validate:"dive"`
 		ProxyAccessLog    bool      `default:"true" validate:"boolean"`
 		IdentityHeaders   bool      `default:"true" validate:"boolean"`
+		RedetectTarget func() (*url.URL, bool) `json:"-" yaml:"-" validate:"-"`
 	}
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider

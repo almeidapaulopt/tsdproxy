@@ -324,6 +324,7 @@ func (proxy *Proxy) startHealthChecker() {
 		}
 
 		proxy.health = newHealthChecker(proxy.log, checkTarget, scheme)
+		proxy.health.onRedetect = proxy.makeRedetectFunc(k, pc)
 		proxy.health.start()
 		return
 	}
@@ -332,6 +333,49 @@ func (proxy *Proxy) startHealthChecker() {
 func (proxy *Proxy) stopHealthChecker() {
 	if proxy.health != nil {
 		proxy.health.stop()
+	}
+}
+
+// makeRedetectFunc returns a callback that asks the target provider to
+// re-discover a reachable upstream and hot-swaps the target if it changed.
+func (proxy *Proxy) makeRedetectFunc(portName string, pc model.PortConfig) func() {
+	redetect := proxy.Config.RedetectTarget
+	if redetect == nil {
+		return nil
+	}
+
+	return func() {
+		found, ok := redetect()
+		if !ok {
+			proxy.log.Debug().Str("port", portName).Msg("upstream re-detection failed, will retry")
+			return
+		}
+
+		current := pc.GetFirstTarget()
+		scheme := current.Scheme
+
+		newURL := &url.URL{
+			Scheme: scheme,
+			Host:   found.Host,
+		}
+
+		if current.Host == newURL.Host {
+			return
+		}
+
+		pc.ReplaceTarget(current, newURL)
+
+		if scheme == "http" || scheme == "https" {
+			proxy.health.target = newURL.String()
+		} else {
+			proxy.health.target = newURL.Host
+		}
+
+		proxy.log.Info().
+			Str("port", portName).
+			Str("old", current.String()).
+			Str("new", newURL.String()).
+			Msg("Re-detected upstream after health failure")
 	}
 }
 
