@@ -9,13 +9,14 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type (
 	PortConfig struct {
 		name          string `validate:"string" yaml:"name"`
 		ProxyProtocol string `validate:"string" yaml:"proxyProtocol"`
-		targets       []*url.URL
+		targets       *targetState
 		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
 		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
 		NoAutoDetect  bool          `validate:"boolean" yaml:"noAutoDetect"`
@@ -25,6 +26,11 @@ type (
 
 	TailscalePort struct {
 		Funnel bool `validate:"boolean" yaml:"funnel"`
+	}
+
+	targetState struct {
+		mtx     sync.RWMutex
+		targets []*url.URL
 	}
 )
 
@@ -130,6 +136,7 @@ func defaultPortConfig(name string) PortConfig {
 		ProxyProtocol: "https",
 		ProxyPort:     443, //nolint:mnd
 		IsRedirect:    false,
+		targets:       &targetState{},
 	}
 }
 
@@ -200,7 +207,7 @@ func parseTargetSegment(segment string, config *PortConfig) error {
 		return fmt.Errorf("error to parse url: %w", err)
 	}
 
-	config.targets = []*url.URL{urlParsed}
+	config.targets = &targetState{targets: []*url.URL{urlParsed}}
 
 	return nil
 }
@@ -217,26 +224,70 @@ func parseRedirectTarget(segment string, config *PortConfig) error {
 }
 
 func (p *PortConfig) GetTargets() []*url.URL {
-	return p.targets
+	if p.targets == nil {
+		return nil
+	}
+	return p.targets.get()
 }
 
 func (p *PortConfig) GetFirstTarget() *url.URL {
-	if len(p.GetTargets()) > 0 {
-		return p.GetTargets()[0]
+	if p.targets == nil {
+		return &url.URL{}
 	}
-	return &url.URL{}
+	return p.targets.getFirst()
 }
 
 func (p *PortConfig) AddTarget(target *url.URL) {
-	p.targets = append(p.targets, target)
+	if p.targets == nil {
+		p.targets = &targetState{}
+	}
+	p.targets.add(target)
 }
 
 // ReplaceTarget replaces a target URL with a new one.
 // used mainly for updating the target URL when the container IP changes like docker provider.
 func (p *PortConfig) ReplaceTarget(origin, target *url.URL) {
-	for k, v := range p.targets {
+	if p.targets == nil {
+		return
+	}
+	p.targets.replace(origin, target)
+}
+
+func (ts *targetState) get() []*url.URL {
+	ts.mtx.RLock()
+	defer ts.mtx.RUnlock()
+	res := make([]*url.URL, len(ts.targets))
+	copy(res, ts.targets)
+	return res
+}
+
+func (ts *targetState) getFirst() *url.URL {
+	ts.mtx.RLock()
+	defer ts.mtx.RUnlock()
+	if len(ts.targets) == 0 {
+		return &url.URL{}
+	}
+	// Deep copy via round-trip through Parse to avoid sharing pointer fields
+	// (e.g. url.User) with the stored target.
+	cp, _ := url.Parse(ts.targets[0].String())
+	if cp == nil {
+		return &url.URL{}
+	}
+	return cp
+}
+
+func (ts *targetState) add(target *url.URL) {
+	ts.mtx.Lock()
+	defer ts.mtx.Unlock()
+	ts.targets = append(ts.targets, target)
+}
+
+func (ts *targetState) replace(origin, target *url.URL) {
+	ts.mtx.Lock()
+	defer ts.mtx.Unlock()
+	for k, v := range ts.targets {
 		if v.String() == origin.String() {
-			p.targets[k] = target
+			ts.targets[k] = target
 		}
 	}
 }
@@ -423,7 +474,7 @@ func ExpandPortRangeLabel(s string) (map[string]PortConfig, error) {
 			ProxyPort:     proxyPort,
 			IsRedirect:    false,
 			TLSValidate:   true,
-			targets:       []*url.URL{targetURL},
+			targets:       &targetState{targets: []*url.URL{targetURL}},
 		}
 
 		key := fmt.Sprintf("range_%d", i)
@@ -465,6 +516,7 @@ func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
 			ProxyPort:     p,
 			IsRedirect:    false,
 			TLSValidate:   true,
+			targets:       &targetState{},
 		}
 		key := fmt.Sprintf("range_%d", idx)
 		result[key] = cfg

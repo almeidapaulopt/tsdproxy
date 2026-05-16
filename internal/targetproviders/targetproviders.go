@@ -17,6 +17,7 @@ type (
 		Close()
 		AddTarget(id string) (*model.Config, error)
 		DeleteProxy(id string) error
+		ReResolve(id string) (*model.Config, error)
 	}
 )
 

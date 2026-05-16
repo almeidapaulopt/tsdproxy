@@ -30,12 +30,29 @@ func (c *container) getLabelBool(label string, defaultValue bool) bool {
 
 // getLabelString method returns a string from a container label.
 func (c *container) getLabelString(label string, defaultValue string) string {
-	// Set default value
 	value := defaultValue
 	if valueString, ok := c.labels[label]; ok {
 		value = valueString
 	}
 
+	return value
+}
+
+func (c *container) getLabelInt(label string, defaultValue, min, max int) int {
+	value := defaultValue
+	if valueString, ok := c.labels[label]; ok {
+		if v, err := strconv.Atoi(valueString); err == nil {
+			if v >= min && v <= max {
+				value = v
+			} else {
+				c.log.Debug().Str("label", label).Int("value", v).Int("min", min).Int("max", max).
+					Msg("label value out of range, using default")
+			}
+		} else {
+			c.log.Debug().Str("label", label).Str("value", valueString).
+				Msg("invalid label value, using default")
+		}
+	}
 	return value
 }
 

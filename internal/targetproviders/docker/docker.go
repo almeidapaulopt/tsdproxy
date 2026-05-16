@@ -11,7 +11,6 @@ import (
 	"net/netip"
 	"sync"
 
-	ctypes "github.com/moby/moby/api/types/container"
 	devents "github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/api/types/swarm"
 	"github.com/moby/moby/client"
@@ -34,6 +33,10 @@ type (
 		defaultProxyProvider     string
 		defaultBridgeAddress     netip.Addr
 		tryDockerInternalNetwork bool
+		autoRestart              bool
+		healthCheckInterval      int
+		healthCheckFailures      int
+		healthCheckCooldown      int
 
 		mutex sync.Mutex
 	}
@@ -63,6 +66,10 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		defaultTargetHostname:    provider.TargetHostname,
 		defaultProxyProvider:     provider.DefaultProxyProvider,
 		tryDockerInternalNetwork: provider.TryDockerInternalNetwork,
+		autoRestart:              provider.AutoRestart,
+		healthCheckInterval:      provider.HealthCheckInterval,
+		healthCheckFailures:      provider.HealthCheckFailures,
+		healthCheckCooldown:      provider.HealthCheckCooldown,
 		containers:               make(map[string]*container),
 	}
 
@@ -87,16 +94,39 @@ func (c *Client) AddTarget(id string) (*model.Config, error) {
 	c.log.Trace().Msgf("AddTarget %s", id)
 	defer c.log.Trace().Msgf("End AddTarget %s", id)
 
+	pcfg, ctn, err := c.buildProxyConfig(id)
+	if err != nil {
+		return nil, err
+	}
+
+	c.addContainer(ctn, ctn.id)
+	return pcfg, nil
+}
+
+// ReResolve re-inspects the container and returns a fresh proxy config.
+// Unlike AddTarget, it does not re-register the container.
+func (c *Client) ReResolve(id string) (*model.Config, error) {
+	c.log.Trace().Msgf("ReResolve %s", id)
+	defer c.log.Trace().Msgf("End ReResolve %s", id)
+
+	pcfg, _, err := c.buildProxyConfig(id)
+	if err != nil {
+		return nil, err
+	}
+	return pcfg, nil
+}
+
+func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) {
 	ctx := context.Background()
 
 	dcontainerResult, err := c.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("error inspecting container: %w", err)
+		return nil, nil, fmt.Errorf("error inspecting container: %w", err)
 	}
 	dcontainer := dcontainerResult.Container
 
 	if dcontainer.Config == nil || dcontainer.HostConfig == nil {
-		return nil, fmt.Errorf("container %s missing required fields", id)
+		return nil, nil, fmt.Errorf("container %s missing required fields", id)
 	}
 
 	var dservice swarm.Service
@@ -110,7 +140,20 @@ func (c *Client) AddTarget(id string) (*model.Config, error) {
 		}
 	}
 
-	return c.newProxyConfig(dcontainer, dservice)
+	ctn := newContainer(c.log, dcontainer, dservice, c.tryDockerInternalNetwork,
+		withDefaultBridgeAddress(c.defaultBridgeAddress),
+		withDefaultTargetHostname(c.defaultTargetHostname),
+		withTargetProviderName(c.name),
+		withProviderAutoRestart(c.autoRestart),
+		withProviderHealthCheck(c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
+	)
+
+	pcfg, err := ctn.newProxyConfig()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error getting proxy config: %w", err)
+	}
+
+	return pcfg, ctn, nil
 }
 
 // DeleteProxy method implements TargetProvider DeleteProxy method
@@ -221,26 +264,6 @@ func (c *Client) startAllProxies(ctx context.Context, eventsChan chan targetprov
 	}
 }
 
-// newProxyConfig method returns a new proxyconfig.Config
-func (c *Client) newProxyConfig(dcontainer ctypes.InspectResponse, dservice swarm.Service) (*model.Config, error) {
-	c.log.Trace().Msg("newProxyConfig")
-	defer c.log.Trace().Msg("End newProxyConfig")
-
-	ctn := newContainer(c.log, dcontainer, dservice, c.tryDockerInternalNetwork,
-		withDefaultBridgeAddress(c.defaultBridgeAddress),
-		withDefaultTargetHostname(c.defaultTargetHostname),
-		withTargetProviderName(c.name),
-	)
-
-	pcfg, err := ctn.newProxyConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error getting proxy config: %w", err)
-	}
-	c.addContainer(ctn, ctn.id)
-	return pcfg, nil
-}
-
-// getStartEvent method returns a targetproviders.TargetEvent for a container start
 func (c *Client) getStartEvent(id string) targetproviders.TargetEvent {
 	c.log.Trace().Msgf("getStartEvent %s", id)
 	defer c.log.Trace().Msgf("End getStartEvent %s", id)

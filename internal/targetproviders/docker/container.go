@@ -24,20 +24,28 @@ import (
 // container struct stores the data from the docker container.
 type (
 	container struct {
-		log                   zerolog.Logger
-		ports                 map[string]string
-		labels                map[string]string
-		image                 string
-		id                    string
-		targetProviderName    string
-		name                  string
-		hostname              string
-		networkMode           ctypes.NetworkMode
-		defaultBridgeAddress  netip.Addr
-		defaultTargetHostname string
-		ipAddress             []netip.Addr
-		gateways              []netip.Addr
-		autodetect            bool
+		log                    zerolog.Logger
+		ports                  map[string]string
+		labels                 map[string]string
+		image                  string
+		id                     string
+		targetProviderName     string
+		name                   string
+		hostname               string
+		networkMode            ctypes.NetworkMode
+		defaultBridgeAddress   netip.Addr
+		defaultTargetHostname  string
+		ipAddress              []netip.Addr
+		gateways               []netip.Addr
+		autodetect             bool
+		autoRestart            bool
+		providerAutoRestart    bool
+		healthCheckInterval    int
+		healthCheckFailures    int
+		healthCheckCooldown    int
+		providerHealthInterval int
+		providerHealthFailures int
+		providerHealthCooldown int
 	}
 
 	ContainerOption func(*container)
@@ -68,6 +76,10 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	}
 
 	c.autodetect = c.getLabelBool(LabelAutoDetect, providerAutoDetect)
+	c.autoRestart = c.getLabelBool(LabelAutoRestart, c.providerAutoRestart)
+	c.healthCheckInterval = c.getLabelInt(LabelHealthCheckInterval, c.providerHealthInterval, 1, 86400)
+	c.healthCheckFailures = c.getLabelInt(LabelHealthCheckFailures, c.providerHealthFailures, 1, 100)
+	c.healthCheckCooldown = c.getLabelInt(LabelHealthCheckCooldown, c.providerHealthCooldown, 0, 86400)
 
 	// add ports from container
 	c.setContainerPorts(dcontainer, dservice)
@@ -188,6 +200,10 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, model.DefaultProxyProvider)
 	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, model.DefaultProxyAccessLog)
 	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
+	pcfg.AutoRestart = c.autoRestart
+	pcfg.HealthCheckInterval = c.healthCheckInterval
+	pcfg.HealthCheckFailures = c.healthCheckFailures
+	pcfg.HealthCheckCooldown = c.healthCheckCooldown
 	pcfg.Dashboard.Visible = c.getLabelBool(LabelDashboardVisible, model.DefaultDashboardVisible)
 	pcfg.Dashboard.Label = c.getLabelString(LabelDashboardLabel, pcfg.Hostname)
 
@@ -516,5 +532,19 @@ func withDefaultBridgeAddress(address netip.Addr) ContainerOption {
 func withDefaultTargetHostname(hostname string) ContainerOption {
 	return func(c *container) {
 		c.defaultTargetHostname = hostname
+	}
+}
+
+func withProviderAutoRestart(autoRestart bool) ContainerOption {
+	return func(c *container) {
+		c.providerAutoRestart = autoRestart
+	}
+}
+
+func withProviderHealthCheck(interval, failures, cooldown int) ContainerOption {
+	return func(c *container) {
+		c.providerHealthInterval = interval
+		c.providerHealthFailures = failures
+		c.providerHealthCooldown = cooldown
 	}
 }

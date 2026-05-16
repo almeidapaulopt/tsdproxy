@@ -67,6 +67,25 @@ services:
       - tsdproxy.dash.label=Standalone App
       - tsdproxy.dash.icon=mdi/application
 
+  # --- Auto-restart / re-resolution demo ---
+  # Starts healthy (nginx on port 80). To trigger health-triggered re-resolution:
+  #   docker compose -f dev/docker-compose-local.yaml exec autorestart-demo nginx -s stop
+  # Wait ~90s (3 × 30s health checks). TSDProxy logs will show:
+  #   health check: triggering re-resolution
+  #   health re-resolution: target changed, hot-swapping  (if IP changed)
+  # To make it healthy again:
+  #   docker compose -f dev/docker-compose-local.yaml exec autorestart-demo nginx
+  autorestart-demo:
+    image: nginx:alpine
+    ports:
+      - 86:80
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=autorestart-demo
+      - tsdproxy.dash.label=AutoRestart Demo
+      - tsdproxy.dash.icon=mdi/refresh-auto
+      - tsdproxy.container_port=80
+
   udprange:
     image: nginx:alpine
     ports:

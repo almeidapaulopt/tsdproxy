@@ -37,41 +37,81 @@ func (s HealthStatus) String() string {
 
 // HealthResult holds the latest health check result for a proxy target.
 type HealthResult struct {
-	Status   HealthStatus
-	Latency  time.Duration
-	Error    string
+	Status    HealthStatus
+	Latency   time.Duration
+	Error     string
 	CheckedAt time.Time
 }
 
-// healthChecker probes a proxy's backend target on a fixed interval.
 type healthChecker struct {
-	log       zerolog.Logger
-	target    string // host:port for TCP, full URL for HTTP
-	scheme    string // "http", "https", "tcp"
-	result    atomic.Pointer[HealthResult]
-	ctx       context.Context
-	cancel    context.CancelFunc
+	log                 zerolog.Logger
+	target              atomic.Value // stores string — host:port for TCP, full URL for HTTP
+	scheme              string       // "http", "https", "tcp"
+	result              atomic.Pointer[HealthResult]
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	interval            time.Duration
+	failThreshold       int
+	cooldown            time.Duration
+	tlsValidate         bool
+	consecutiveFailures int
+	retryAttempt        int
+	cooldownUntil       time.Time
+	onRedetect          func() error
 }
 
-const (
-	healthCheckInterval = 30 * time.Second
-	healthCheckTimeout  = 5 * time.Second
-)
+const healthCheckTimeout = 5 * time.Second //nolint:mnd
+const maxBackoff = 24 * time.Hour          //nolint:mnd
 
-func newHealthChecker(log zerolog.Logger, target, scheme string) *healthChecker {
+// maxBackoffShift is the maximum bit shift that stays within int64 positive range.
+const maxBackoffShift = 62 //nolint:mnd
+
+func nextBackoff(interval time.Duration, attempt int) time.Duration {
+	if attempt > maxBackoffShift {
+		return maxBackoff
+	}
+	shift := time.Duration(1 << uint(attempt))
+	// Guard against overflow: if interval * shift would exceed maxBackoff, cap it.
+	if shift > 0 && interval > maxBackoff/shift {
+		return maxBackoff
+	}
+	d := interval * shift
+	if d > maxBackoff {
+		return maxBackoff
+	}
+	return d
+}
+
+func newHealthChecker(log zerolog.Logger, target, scheme string, interval time.Duration, failThreshold int, cooldown time.Duration, tlsValidate bool, onRedetect func() error) *healthChecker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	hc := &healthChecker{
-		log:    log.With().Str("component", "health").Logger(),
-		target: target,
-		scheme: scheme,
-		ctx:    ctx,
-		cancel: cancel,
+		log:           log.With().Str("component", "health").Logger(),
+		scheme:        scheme,
+		ctx:           ctx,
+		cancel:        cancel,
+		interval:      interval,
+		failThreshold: failThreshold,
+		cooldown:      cooldown,
+		tlsValidate:   tlsValidate,
+		onRedetect:    onRedetect,
 	}
 
+	hc.target.Store(target)
 	hc.result.Store(&HealthResult{Status: HealthUnknown})
 
 	return hc
+}
+
+// SetTarget atomically updates the target address for health checks.
+// Safe to call from any goroutine while checks are running.
+func (hc *healthChecker) SetTarget(target string) {
+	hc.target.Store(target)
+}
+
+func (hc *healthChecker) getTarget() string {
+	t, _ := hc.target.Load().(string)
+	return t
 }
 
 func (hc *healthChecker) start() {
@@ -85,7 +125,7 @@ func (hc *healthChecker) stop() {
 func (hc *healthChecker) run() {
 	hc.check()
 
-	ticker := time.NewTicker(healthCheckInterval)
+	ticker := time.NewTicker(hc.interval)
 	defer ticker.Stop()
 
 	for {
@@ -120,6 +160,41 @@ func (hc *healthChecker) check() {
 		Str("status", result.Status.String()).
 		Dur("latency", result.Latency).
 		Msg("health check completed")
+
+	if result.Status == HealthHealthy {
+		hc.consecutiveFailures = 0
+		hc.retryAttempt = 0
+		hc.cooldownUntil = time.Time{}
+		return
+	}
+
+	if !hc.cooldownUntil.IsZero() && time.Now().Before(hc.cooldownUntil) {
+		return
+	}
+
+	hc.consecutiveFailures++
+
+	if hc.ctx.Err() == nil && hc.consecutiveFailures >= hc.failThreshold {
+		bo := hc.cooldown
+		if bo == 0 {
+			bo = nextBackoff(hc.interval, hc.retryAttempt)
+		}
+		hc.retryAttempt++
+
+		hc.log.Warn().
+			Int("consecutive_failures", hc.consecutiveFailures).
+			Dur("next_retry_after", bo).
+			Msg("health check: triggering re-resolution")
+
+		if hc.onRedetect != nil {
+			if err := hc.onRedetect(); err != nil {
+				hc.log.Error().Err(err).Msg("re-resolution callback failed")
+			}
+		}
+
+		hc.consecutiveFailures = 0
+		hc.cooldownUntil = time.Now().Add(bo)
+	}
 }
 
 func (hc *healthChecker) checkHTTP(ctx context.Context) HealthResult {
@@ -129,8 +204,8 @@ func (hc *healthChecker) checkHTTP(ctx context.Context) HealthResult {
 	client := &http.Client{
 		Timeout: healthCheckTimeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint
-			DialContext: (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !hc.tlsValidate}, //nolint
+			DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Don't follow redirects — a 3xx still means the backend is up
@@ -138,7 +213,7 @@ func (hc *healthChecker) checkHTTP(ctx context.Context) HealthResult {
 		},
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hc.target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hc.getTarget(), nil)
 	if err != nil {
 		result.Status = HealthDown
 		result.Error = fmt.Sprintf("invalid target URL: %v", err)
@@ -166,7 +241,7 @@ func (hc *healthChecker) checkTCP(ctx context.Context) HealthResult {
 
 	var d net.Dialer
 	start := time.Now()
-	conn, err := d.DialContext(ctx, "tcp", hc.target)
+	conn, err := d.DialContext(ctx, "tcp", hc.getTarget())
 	result.Latency = time.Since(start)
 
 	if err != nil {
@@ -184,7 +259,7 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 	var result HealthResult
 	result.CheckedAt = time.Now()
 
-	addr, err := net.ResolveUDPAddr("udp", hc.target)
+	addr, err := net.ResolveUDPAddr("udp", hc.getTarget())
 	if err != nil {
 		result.Status = HealthDown
 		result.Error = fmt.Sprintf("error resolving address: %v", err)
@@ -208,17 +283,37 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 		return result
 	}
 
-	// Wait for either a response or an ICMP error.
-	if err := conn.SetReadDeadline(time.Now().Add(healthCheckTimeout)); err != nil {
+	// Wait for either a response, an ICMP error, or context cancellation.
+	deadline := time.Now().Add(healthCheckTimeout)
+	if err := conn.SetReadDeadline(deadline); err != nil {
 		result.Latency = time.Since(start)
 		result.Status = HealthDown
 		result.Error = err.Error()
 		return result
 	}
 
-	buf := make([]byte, 1)
-	_, readErr := conn.Read(buf)
+	done := make(chan struct{})
+	var readErr error
+	go func() {
+		buf := make([]byte, 1)
+		_, readErr = conn.Read(buf)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		conn.SetReadDeadline(time.Now())
+		<-done
+	}
+
 	result.Latency = time.Since(start)
+
+	if ctx.Err() != nil {
+		result.Status = HealthDown
+		result.Error = ctx.Err().Error()
+		return result
+	}
 
 	if readErr == nil {
 		// Backend sent a response.

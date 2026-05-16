@@ -348,7 +348,7 @@ func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
 		return fmt.Errorf("no target configured for UDP port")
 	}
 
-	p.relayPackets(pc, target.Host)
+	p.relayPackets(pc)
 	return nil
 }
 
@@ -367,7 +367,7 @@ type clientEntry struct {
 	limiter  *rate.Limiter
 }
 
-func (p *udpPort) relayPackets(pc net.PacketConn, targetHost string) {
+func (p *udpPort) relayPackets(pc net.PacketConn) {
 	buf := make([]byte, udpBufSize)
 
 	clientMap := make(map[string]*clientEntry)
@@ -425,7 +425,14 @@ func (p *udpPort) relayPackets(pc net.PacketConn, targetHost string) {
 			}
 		}
 
-		backendAddr, err := net.ResolveUDPAddr("udp", targetHost)
+		// Resolve target for each new client connection so re-resolution takes effect.
+		target := p.pconfig.GetFirstTarget()
+		if target.Host == "" {
+			delete(clientMap, key)
+			return nil, fmt.Errorf("no target configured for UDP port")
+		}
+
+		backendAddr, err := net.ResolveUDPAddr("udp", target.Host)
 		if err != nil {
 			delete(clientMap, key)
 			return nil, fmt.Errorf("error resolving backend UDP address: %w", err)

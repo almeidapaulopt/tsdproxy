@@ -6,7 +6,10 @@ package model
 import (
 	"fmt"
 	"net/url"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestNewPortLongLabel_TCPProxyPort(t *testing.T) {
@@ -606,5 +609,70 @@ func TestExpandPortRangeShortLabel_NotRange(t *testing.T) {
 	}
 	if cfg.ProxyProtocol != "https" {
 		t.Errorf("ProxyProtocol = %q, want \"https\"", cfg.ProxyProtocol)
+	}
+}
+
+func TestPortConfig_ConcurrentGetAndReplace(t *testing.T) {
+	cfg, _ := NewPortLongLabel("443/https:80/http")
+
+	original := cfg.GetFirstTarget()
+
+	var stop int32
+	var wg sync.WaitGroup
+
+	// Readers
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for atomic.LoadInt32(&stop) == 0 {
+				target := cfg.GetFirstTarget()
+				if target == nil {
+					t.Error("GetFirstTarget returned nil")
+					return
+				}
+			}
+		}()
+	}
+
+	// Writers
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for atomic.LoadInt32(&stop) == 0 {
+				replacement := urlMustParse(fmt.Sprintf("http://backend-%d:8080", id))
+				cfg.ReplaceTarget(original, replacement)
+				// Swap back so readers always have a valid target
+				cfg.ReplaceTarget(replacement, original)
+			}
+		}(i)
+	}
+
+	// Let them run for a bit
+	time.Sleep(100 * time.Millisecond)
+	atomic.StoreInt32(&stop, 1)
+	wg.Wait()
+}
+
+func TestPortConfig_ConcurrentAddAndGet(t *testing.T) {
+	cfg := PortConfig{
+		targets: &targetState{},
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			u := urlMustParse(fmt.Sprintf("http://backend-%d:8080", id))
+			cfg.AddTarget(u)
+		}(i)
+	}
+	wg.Wait()
+
+	targets := cfg.GetTargets()
+	if len(targets) != 10 {
+		t.Errorf("expected 10 targets, got %d", len(targets))
 	}
 }

@@ -6,10 +6,10 @@ package model
 const (
 	// Default values to proxyconfig
 	//
-	DefaultProxyAccessLog = true
+	DefaultProxyAccessLog  = true
 	DefaultIdentityHeaders = true
-	DefaultProxyProvider  = ""
-	DefaultTLSValidate    = true
+	DefaultProxyProvider   = ""
+	DefaultTLSValidate     = true
 
 	// tailscale defaults
 	DefaultTailscaleEphemeral    = false
@@ -23,7 +23,7 @@ const (
 	// restart at once and all proxies request certs simultaneously.
 	DefaultMaxCertConcurrency int64 = 2
 
-	// Dashboard defauts
+	// Dashboard defaults
 	DefaultDashboardVisible = true
 	DefaultDashboardIcon    = "tsdproxy"
 )

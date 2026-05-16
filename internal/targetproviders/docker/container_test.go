@@ -490,3 +490,80 @@ func TestGetTargetURL_HostNetworkNoHostnameFails(t *testing.T) {
 		t.Error("expected error when host-network container has no hostname")
 	}
 }
+
+func TestGetTargetURL_ReResolveSamePath(t *testing.T) {
+	c := newTestContainer("host.docker.internal", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{
+		"3000": "32768",
+	})
+
+	inputURL, _ := url.Parse("http://0.0.0.0:3000")
+
+	result1, err := c.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("first resolution failed: %v", err)
+	}
+
+	result2, err := c.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("second resolution failed: %v", err)
+	}
+
+	if result1.String() != result2.String() {
+		t.Errorf("re-resolution mismatch: first=%q second=%q", result1.String(), result2.String())
+	}
+}
+
+func TestGetTargetURL_ReResolveDifferentIP(t *testing.T) {
+	// First resolution: container at 172.17.0.5
+	c1 := newTestContainer("", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{
+		"80": "8080",
+	})
+
+	inputURL, _ := url.Parse("http://0.0.0.0:80")
+	result1, err := c1.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("first resolution failed: %v", err)
+	}
+
+	// Simulate container restart with new IP: 172.17.0.99
+	c2 := newTestContainer("", []netip.Addr{netip.MustParseAddr("172.17.0.99")}, map[string]string{
+		"80": "8080",
+	})
+
+	result2, err := c2.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("re-resolution failed: %v", err)
+	}
+
+	// Results should differ because the container IP changed
+	if result1.String() == result2.String() {
+		t.Errorf("expected different targets after IP change, got same: %q", result1.String())
+	}
+
+	// Second result should use the new IP
+	if result2.Host != "172.17.0.99:80" {
+		t.Errorf("expected new IP in target, got %q", result2.Host)
+	}
+}
+
+func TestGetTargetURL_TCPReResolveConsistent(t *testing.T) {
+	c := newTestContainer("host.docker.internal", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{
+		"22": "8222",
+	})
+
+	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
+
+	result1, err := c.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("first TCP resolution failed: %v", err)
+	}
+
+	result2, err := c.getTargetURL(inputURL, false)
+	if err != nil {
+		t.Fatalf("second TCP resolution failed: %v", err)
+	}
+
+	if result1.String() != result2.String() {
+		t.Errorf("TCP re-resolution mismatch: first=%q second=%q", result1.String(), result2.String())
+	}
+}

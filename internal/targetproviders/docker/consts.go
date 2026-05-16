@@ -27,7 +27,11 @@ const (
 	LabelAutoDetect   = LabelPrefix + "autodetect"
 	LabelTags         = LabelPrefix + "tags"
 	// Identity / auth header injection (default: enabled)
-	LabelIdentityHeaders = LabelPrefix + "identity_headers"
+	LabelIdentityHeaders      = LabelPrefix + "identity_headers"
+	LabelAutoRestart          = LabelPrefix + "auto_restart"
+	LabelHealthCheckInterval  = LabelPrefix + "health_check_interval"
+	LabelHealthCheckFailures  = LabelPrefix + "health_check_failures"
+	LabelHealthCheckCooldown  = LabelPrefix + "health_check_cooldown"
 	// Legacy
 	LabelContainerPort = LabelPrefix + "container_port"
 	LabelScheme        = LabelPrefix + "scheme"

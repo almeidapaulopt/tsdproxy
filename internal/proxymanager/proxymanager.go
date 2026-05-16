@@ -432,6 +432,18 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		pm.broadcastStatusEvents(event)
 	}
 
+	// Wire re-resolution: health checker will call this to get a fresh config
+	// when the target goes down after being healthy.
+	targetID := proxyConfig.TargetID
+	targetProviderName := proxyConfig.TargetProvider
+	p.reResolveConfig = func() (*model.Config, error) {
+		tp, ok := pm.getTargetProvider(targetProviderName)
+		if !ok {
+			return nil, fmt.Errorf("target provider %q not found", targetProviderName)
+		}
+		return tp.ReResolve(targetID)
+	}
+
 	pm.closeAndRemoveProxy(proxyConfig.Hostname)
 
 	pm.mtx.Lock()
@@ -484,4 +496,12 @@ func (pm *ProxyManager) getProxyProvider(proxy *model.Config) (proxyproviders.Pr
 	}
 
 	return nil, ErrProxyProviderNotFound
+}
+
+func (pm *ProxyManager) getTargetProvider(name string) (targetproviders.TargetProvider, bool) {
+	pm.mtx.RLock()
+	defer pm.mtx.RUnlock()
+
+	tp, ok := pm.TargetProviders[name]
+	return tp, ok
 }

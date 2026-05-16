@@ -31,17 +31,17 @@ type (
 		errChan       chan error
 		name          string
 		config        config.ListTargetProviderConfig
-		mtx           sync.Mutex
+		mtx           sync.RWMutex
 	}
 
 	configProxyList map[string]proxyConfig
 
 	proxyConfig struct {
-		Dashboard      model.Dashboard `validate:"dive" yaml:"dashboard"`
-		Ports          map[string]port `yaml:"ports"`
-		ProxyProvider  string          `yaml:"proxyProvider"`
-		Tailscale      model.Tailscale `yaml:"tailscale"`
-		IdentityHeaders bool           `default:"true" validate:"boolean" yaml:"identityHeaders"`
+		Dashboard       model.Dashboard `validate:"dive" yaml:"dashboard"`
+		Ports           map[string]port `yaml:"ports"`
+		ProxyProvider   string          `yaml:"proxyProvider"`
+		Tailscale       model.Tailscale `yaml:"tailscale"`
+		IdentityHeaders bool            `default:"true" validate:"boolean" yaml:"identityHeaders"`
 	}
 
 	port struct {
@@ -52,10 +52,10 @@ type (
 	}
 
 	ProxyConfigAPI struct {
-		Dashboard     DashboardAPI            `yaml:"dashboard"`
-		Ports         map[string]PortAPI      `yaml:"ports"`
-		ProxyProvider string                  `yaml:"proxyProvider,omitempty"`
-		Tailscale     TailscaleAPI            `yaml:"tailscale"`
+		Dashboard     DashboardAPI       `yaml:"dashboard"`
+		Ports         map[string]PortAPI `yaml:"ports"`
+		ProxyProvider string             `yaml:"proxyProvider,omitempty"`
+		Tailscale     TailscaleAPI       `yaml:"tailscale"`
 	}
 
 	DashboardAPI struct {
@@ -174,7 +174,10 @@ func (c *Client) Close() {
 }
 
 func (c *Client) AddTarget(id string) (*model.Config, error) {
+	c.mtx.RLock()
 	proxy, ok := c.configProxies[id]
+	c.mtx.RUnlock()
+
 	if !ok {
 		return nil, fmt.Errorf("target %s not found", id)
 	}
@@ -200,30 +203,57 @@ func (c *Client) DeleteProxy(id string) error {
 	return nil
 }
 
-// newProxyConfig method returns a new proxyconfig.Config
-func (c *Client) newProxyConfig(name string, p proxyConfig) (*model.Config, error) {
+// ReResolve re-reads the proxy config for the given target ID.
+// Returns the same result as AddTarget — used by health-triggered re-resolution.
+func (c *Client) ReResolve(id string) (*model.Config, error) {
+	c.log.Trace().Msgf("ReResolve %s", id)
+	defer c.log.Trace().Msgf("End ReResolve %s", id)
+
+	c.mtx.RLock()
+	proxy, ok := c.configProxies[id]
+	c.mtx.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("target %s not found", id)
+	}
+
+	return c.buildConfig(id, proxy)
+}
+
+func (c *Client) buildConfig(id string, p proxyConfig) (*model.Config, error) {
 	proxyProvider := c.config.DefaultProxyProvider
 	if p.ProxyProvider != "" {
 		proxyProvider = p.ProxyProvider
 	}
-
-	proxyAccessLog := model.DefaultProxyAccessLog
-	identityHeaders := model.DefaultIdentityHeaders
 
 	pcfg, err := model.NewConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	pcfg.TargetID = name
-	pcfg.Hostname = name
+	pcfg.TargetID = id
+	pcfg.Hostname = id
 	pcfg.TargetProvider = c.name
 	pcfg.Tailscale = p.Tailscale
 	pcfg.ProxyProvider = proxyProvider
-	pcfg.ProxyAccessLog = proxyAccessLog
-	pcfg.IdentityHeaders = identityHeaders
+	pcfg.ProxyAccessLog = model.DefaultProxyAccessLog
+	pcfg.IdentityHeaders = model.DefaultIdentityHeaders
+	pcfg.AutoRestart = c.config.AutoRestart
+	pcfg.HealthCheckInterval = c.config.HealthCheckInterval
+	pcfg.HealthCheckFailures = c.config.HealthCheckFailures
+	pcfg.HealthCheckCooldown = c.config.HealthCheckCooldown
 	pcfg.Ports = c.getPorts(p.Ports)
 	pcfg.Dashboard = p.Dashboard
+
+	return pcfg, nil
+}
+
+// newProxyConfig method returns a new proxyconfig.Config
+func (c *Client) newProxyConfig(name string, p proxyConfig) (*model.Config, error) {
+	pcfg, err := c.buildConfig(name, p)
+	if err != nil {
+		return nil, err
+	}
 
 	c.addTarget(p, name)
 
@@ -232,6 +262,10 @@ func (c *Client) newProxyConfig(name string, p proxyConfig) (*model.Config, erro
 
 func (c *Client) onFileChange(_ fsnotify.Event) {
 	c.log.Info().Msg("config changed, reloading")
+
+	var stops, starts, restarts []string
+
+	c.mtx.Lock()
 	oldConfigProxies := maps.Clone(c.configProxies)
 
 	for k := range c.configProxies {
@@ -242,38 +276,48 @@ func (c *Client) onFileChange(_ fsnotify.Event) {
 		for k := range oldConfigProxies {
 			c.configProxies[k] = oldConfigProxies[k]
 		}
+		c.mtx.Unlock()
 		return
 	}
 
-	// delete proxies that don't exist in new config
 	for name := range oldConfigProxies {
 		if _, ok := c.configProxies[name]; !ok {
-			c.eventsChan <- targetproviders.TargetEvent{
-				ID:             name,
-				TargetProvider: c,
-				Action:         targetproviders.ActionStopProxy,
-			}
+			stops = append(stops, name)
 		}
 	}
 
 	for name := range c.configProxies {
-		// start new proxies
 		if _, ok := oldConfigProxies[name]; !ok {
-			c.eventsChan <- targetproviders.TargetEvent{
-				ID:             name,
-				TargetProvider: c,
-				Action:         targetproviders.ActionStartProxy,
-			}
+			starts = append(starts, name)
 			continue
 		}
-		// restart if the proxy configuration changed
-		//
 		if !reflect.DeepEqual(c.configProxies[name], oldConfigProxies[name]) {
-			c.eventsChan <- targetproviders.TargetEvent{
-				ID:             name,
-				TargetProvider: c,
-				Action:         targetproviders.ActionRestartProxy,
-			}
+			restarts = append(restarts, name)
+		}
+	}
+	c.mtx.Unlock()
+
+	for _, name := range stops {
+		c.eventsChan <- targetproviders.TargetEvent{
+			ID:             name,
+			TargetProvider: c,
+			Action:         targetproviders.ActionStopProxy,
+		}
+	}
+
+	for _, name := range starts {
+		c.eventsChan <- targetproviders.TargetEvent{
+			ID:             name,
+			TargetProvider: c,
+			Action:         targetproviders.ActionStartProxy,
+		}
+	}
+
+	for _, name := range restarts {
+		c.eventsChan <- targetproviders.TargetEvent{
+			ID:             name,
+			TargetProvider: c,
+			Action:         targetproviders.ActionRestartProxy,
 		}
 	}
 }

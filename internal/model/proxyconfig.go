@@ -13,16 +13,20 @@ type (
 
 	// Config struct stores all the configuration for the proxy
 	Config struct {
-		Ports             PortConfigList `validate:"dive"`
-		TargetProvider    string
-		TargetID          string
-		TargetImage       string
-		ProxyProvider     string
-		Hostname          string
-		Dashboard         Dashboard `validate:"dive"`
-		Tailscale         Tailscale `validate:"dive"`
-		ProxyAccessLog    bool      `default:"true" validate:"boolean"`
-		IdentityHeaders   bool      `default:"true" validate:"boolean"`
+		Ports               PortConfigList `validate:"dive"`
+		TargetProvider      string
+		TargetID            string
+		TargetImage         string
+		ProxyProvider       string
+		Hostname            string
+		Dashboard           Dashboard `validate:"dive"`
+		Tailscale           Tailscale `validate:"dive"`
+		ProxyAccessLog      bool      `default:"true" validate:"boolean"`
+		IdentityHeaders     bool      `default:"true" validate:"boolean"`
+		AutoRestart         bool      `default:"true" validate:"boolean"`
+		HealthCheckInterval int       `default:"30" validate:"numeric,min=1"`
+		HealthCheckFailures int       `default:"3" validate:"numeric,min=1"`
+		HealthCheckCooldown int       `default:"0" validate:"numeric,min=0"`
 	}
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider
