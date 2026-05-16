@@ -13,6 +13,18 @@ weight: 500
 - Replaced Datastar with Vanilla JS + EventSource for SSE real-time updates
 - Removed Datastar Go and JavaScript dependencies
 
+### 2.1.0
+
+#### New features
+
+- **Backend health monitoring with automatic target re-resolution** — when a proxied container restarts and gets a new IP address, TSDProxy now detects the backend failure via configurable health probes and automatically re-resolves the target without restarting the proxy or tearing down the Tailscale connection. The hot-swap is transparent — running connections continue on the old target while new connections use the updated address. Configurable per-provider and per-container with `autoRestart`, `healthCheckInterval`, `healthCheckFailures`, and `healthCheckCooldown` settings. See [Health Check]({{< ref "/docs/operations/health-check#backend-health-monitoring" >}}) for details.
+
+#### Fixes
+
+- Fix permanent 502 errors after container restart — health checker now triggers target re-resolution instead of only reporting status
+- Fix UDP port handlers not reflecting target changes after re-resolution
+- Fix potential race condition in list provider config reload — diffs are now computed under lock and events emitted after unlock
+
 ### 2.0.0
 
 #### Breaking changes
