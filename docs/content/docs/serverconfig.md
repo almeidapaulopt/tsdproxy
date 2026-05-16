@@ -30,11 +30,19 @@ docker:
     host: unix:///var/run/docker.sock # Docker socket or daemon address
     targetHostname: host.docker.internal # hostname or IP of docker server (ex: host.docker.internal or 172.31.0.1)
     defaultProxyProvider: default # Default proxy provider for this Docker server
+    autoRestart: true # (optional) Enable automatic re-resolution on backend failure (default: true)
+    healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
+    healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
+    healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
 lists:
   critical: # Name of the target list provider
     filename: /config/critical.yaml # Path to the proxy list file
     defaultProxyProvider: tailscale1 # (Optional) Default proxy provider for this list
     defaultProxyAccessLog: true # (Optional) Enable access logs for this list
+    autoRestart: true # (optional) Enable automatic re-resolution on backend failure (default: true)
+    healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
+    healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
+    healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
 tailscale:
   providers:
     default: # Name of the Tailscale provider
@@ -167,6 +175,36 @@ docker:
     defaultProxyProvider: default
     tryDockerInternalNetwork: true
 ```
+
+##### autoRestart
+
+Defaults to `true`. When enabled, TSDProxy monitors each proxy's backend health
+and automatically re-resolves the target when consecutive health check failures
+reach the configured threshold. See [Health Check]({{< ref "/docs/operations/health-check#backend-health-monitoring" >}}) for details.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  local:
+    host: unix:///var/run/docker.sock
+    autoRestart: true
+    healthCheckInterval: 30
+    healthCheckFailures: 3
+    healthCheckCooldown: 0
+```
+
+##### healthCheckInterval
+
+Seconds between health probes. Must be at least 1. Defaults to `30`.
+
+##### healthCheckFailures
+
+Number of consecutive health check failures before triggering target re-resolution.
+Must be at least 1. Defaults to `3`.
+
+##### healthCheckCooldown
+
+Fixed cooldown in seconds between re-resolution attempts while the target remains
+unhealthy. Set to `0` (default) to use exponential backoff instead.
 
 #### http Section
 

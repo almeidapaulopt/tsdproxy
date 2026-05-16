@@ -99,7 +99,14 @@ lists:
     filename: /config/critical.yaml # file with the proxy list
     defaultProxyProvider: tailscale1 # (optional) default proxy provider
     defaultProxyAccessLog: true # (optional) Enable access logs
+    autoRestart: true # (optional) Enable automatic re-resolution on backend failure (default: true)
+    healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
+    healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
+    healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
 ```
+
+See [Health Check]({{< ref "/docs/operations/health-check#backend-health-monitoring" >}}) for details on
+how backend health monitoring and re-resolution work.
 
 ### Proxy list file options
 
