@@ -29,7 +29,11 @@ This is the only label you need. TSDProxy will use the container name as the Tai
 | `tsdproxy.authkey` | — | Per-container auth key |
 | `tsdproxy.authkeyfile` | — | Path to a file containing the auth key |
 | `tsdproxy.tags` | — | Comma-separated Tailscale tags (OAuth only) |
-| `tsdproxy.identity_headers` | `"true"` | Inject Tailscale identity headers (`Remote-User`, `X-Forwarded-User`, `X-TSDProxy-*`) into upstream requests. Set to `"false"` for backends that consume these headers in conflicting ways (e.g. wetty). Client-supplied headers are always stripped. |
+| `tsdproxy.identity_headers` | `"true"` | Inject identity headers into upstream requests. Set to `"false"` to disable. Client-supplied headers are always stripped. |
+| `tsdproxy.auto_restart` | `"true"` | Enable automatic re-resolution on backend failure |
+| `tsdproxy.health_check_interval` | `"30"` | Seconds between health probes |
+| `tsdproxy.health_check_failures` | `"3"` | Consecutive failures before re-resolution |
+| `tsdproxy.health_check_cooldown` | `"0"` | Fixed cooldown in seconds (0 = exponential backoff) |
 
 ## Dashboard Labels
 

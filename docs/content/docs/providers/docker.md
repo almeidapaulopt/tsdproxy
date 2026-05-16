@@ -250,6 +250,59 @@ labels:
 
 {{% /details %}}
 
+## Health Check Labels
+
+These labels configure backend health monitoring and automatic target re-resolution
+when a container restarts and gets a new IP. See [Health Check]({{< ref "/docs/operations/health-check#backend-health-monitoring" >}}) for details.
+
+{{% details title="tsdproxy.auto_restart" %}}
+
+Enable or disable automatic target re-resolution when the backend becomes
+unhealthy. Defaults to `true`.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.auto_restart: "false"
+```
+
+{{% /details %}}
+{{% details title="tsdproxy.health_check_interval" %}}
+
+Seconds between health probes. Must be at least 1. Defaults to `30`.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.health_check_interval: "60"
+```
+
+{{% /details %}}
+{{% details title="tsdproxy.health_check_failures" %}}
+
+Number of consecutive health check failures before triggering re-resolution.
+Must be at least 1. Defaults to `3`.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.health_check_failures: "5"
+```
+
+{{% /details %}}
+{{% details title="tsdproxy.health_check_cooldown" %}}
+
+Fixed cooldown in seconds between re-resolution attempts while the target
+remains unhealthy. Set to `0` (default) to use exponential backoff instead.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.health_check_cooldown: "120"
+```
+
+{{% /details %}}
+
 ## Dashboard Labels
 
 {{% details title="tsdproxy.dash.visible" %}}
