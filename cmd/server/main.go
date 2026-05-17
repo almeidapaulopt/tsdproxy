@@ -24,16 +24,17 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/dashboard"
 	pm "github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
+	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
 type WebApp struct {
-	Log           zerolog.Logger
-	HTTP          *core.HTTPServer
-	Health        *core.Health
-	Docker        *client.Client
-	ProxyManager  *pm.ProxyManager
-	Dashboard     *dashboard.Dashboard
-	httpServer    *http.Server
+	Log            zerolog.Logger
+	HTTP           *core.HTTPServer
+	Health         *core.Health
+	Docker         *client.Client
+	ProxyManager   *pm.ProxyManager
+	Dashboard      *dashboard.Dashboard
+	httpServer     *http.Server
 	tracerProvider *sdktrace.TracerProvider
 }
 
@@ -77,11 +78,11 @@ func InitializeApp() (*WebApp, error) {
 	}
 
 	webApp := &WebApp{
-		Log:           logger,
-		HTTP:          httpServer,
-		Health:        health,
-		ProxyManager:  proxymanager,
-		Dashboard:     dash,
+		Log:            logger,
+		HTTP:           httpServer,
+		Health:         health,
+		ProxyManager:   proxymanager,
+		Dashboard:      dash,
 		tracerProvider: tracerProvider,
 	}
 	return webApp, nil
@@ -117,6 +118,9 @@ func (app *WebApp) Start() {
 	//
 	app.Dashboard.AddRoutes()
 	api.New(app.HTTP, app.ProxyManager, app.Log).AddRoutes()
+
+	// Static assets from embedded dist/ (CSS, JS, icons, etc.)
+	app.HTTP.Mux.Handle("/", web.Static)
 
 	app.HTTP.Get("/metrics", app.ProxyManager.MetricsHandler())
 	core.PprofAddRoutes(app.HTTP)
