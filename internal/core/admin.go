@@ -19,6 +19,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 )
 
 var proxyAuthToken string
@@ -63,7 +64,7 @@ func AdminMiddleware() Middleware {
 					return
 				}
 				if id != "" {
-					writeForbidden(w, "access denied")
+					writeForbidden(w, r, "access denied")
 					return
 				}
 
@@ -72,7 +73,7 @@ func AdminMiddleware() Middleware {
 					return
 				}
 
-				writeForbidden(w, "admin access requires a Tailscale connection")
+				writeForbidden(w, r, "admin access requires a Tailscale connection")
 				return
 			}
 
@@ -86,7 +87,7 @@ func AdminMiddleware() Middleware {
 				return
 			}
 
-			writeForbidden(w, "admin access requires a Tailscale connection")
+			writeForbidden(w, r, "admin access requires a Tailscale connection")
 		})
 	}
 }
@@ -108,7 +109,14 @@ func extractBearerToken(r *http.Request) string {
 	return ""
 }
 
-func writeForbidden(w http.ResponseWriter, message string) {
+func writeForbidden(w http.ResponseWriter, r *http.Request, message string) {
+	accept := r.Header.Get("Accept")
+	if strings.Contains(accept, "text/html") {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_ = pages.ForbiddenPage(message).Render(r.Context(), w)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusForbidden)
