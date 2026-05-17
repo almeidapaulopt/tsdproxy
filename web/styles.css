@@ -1,6 +1,6 @@
 @import "tailwindcss";
 @source "../internal/**/*.templ";
-@source "./index.html";
+@source "./app.js";
 
 @variant dark (&:where(.tsdproxy-dark, .tsdproxy-dark *, [data-theme=tsdproxy-dark], [data-theme=tsdproxy-dark] *));
 
@@ -403,4 +403,6 @@
     border-radius: 9999px;
     margin: 0.375rem auto 0.75rem;
   }
+
 }
+
