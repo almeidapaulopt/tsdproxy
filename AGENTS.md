@@ -113,6 +113,15 @@ Steps 4–5 are skipped for host-network containers. The chain is intentionally 
 - **Authentication**: Uses Tailscale user ID as auth — since access requires a Tailscale connection, the Tailscale identity (user ID) is used to authenticate and identify users. No separate auth system.
 - **Identity propagation via localhost headers**: User identity flows through two paths: (1) direct tsnet connections store the Tailscale `Whois` in the request context, (2) the in-process reverse proxy forwards requests to the main HTTP server on localhost and sets `x-tsdproxy-*` headers with the authenticated identity. `StripProxyIdentityHeaders` strips these headers from non-localhost requests, so only the internal proxy can set them. Trusting `x-tsdproxy-*` headers from localhost is safe by design — they are always set by the internal proxy after Tailscale authentication; there is no scenario where a non-Tailscale user causes these headers to be set. The `AdminAllowLocalhost` config controls only whether *unauthenticated* localhost requests (with no identity at all) are permitted on admin endpoints — it does NOT gate header trust.
 
+## DASHBOARD STACK
+
+- **Frontend framework:** htmx 4 with `hx-sse` extension (migrating from vanilla JS). Use `<hx-partial>` for SSE DOM updates. Minimal vanilla JS only for keyboard navigation and browser notifications.
+- **SSE pattern:** Server sends pre-rendered HTML fragments via SSE. Use `<hx-partial hx-target="..." hx-swap="...">` to target DOM elements from the server side.
+- **Modals:** Loaded into `#modal-root` outside `#proxy-list` via `hx-get`, decoupled from live list updates so list refreshes don't close open modals.
+- **Sorting/filtering/grouping:** Server-side. Client triggers via `hx-get`; server returns ready-to-swap HTML.
+- **User preferences:** Persisted per Tailscale user as JSON at `{DataDir}/dashboard/preferences/{userID}.json`. Identity key: `ResolveWhois(r).ID`, fallback `__localhost__` for localhost admin. Schema: `dark`, `view`, `sort`, `grouped`, `filterStatus`, `filterHealth`, `pinned`. Search is transient (per-connection, not persisted).
+- **Proxy actions:** `hx-post` with `hx-swap="none"` — SSE drives state updates after actions.
+
 ## ANTI-PATTERNS (THIS PROJECT)
 
 - **TODOs in validator**: `internal/config/validator.go` has `TODO: add validation for each provider` and `TODO: add default proxy provider`
