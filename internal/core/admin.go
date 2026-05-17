@@ -4,11 +4,16 @@
 package core
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
 	"slices"
+	"strings"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -16,30 +21,63 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-// AdminMiddleware enforces the admin allowlist. When config.Config.Admins
-// is empty the middleware is a no-op. Identity is resolved in priority order:
-//  1. Context (set by ProviderUserMiddleware on direct tsnet connections)
-//  2. x-tsdproxy-* headers, only from localhost (set by the in-process
-//     reverse proxy after stripping client headers)
+var proxyAuthToken string
+
+// InitProxyAuth generates the per-process secret used to authenticate
+// identity headers forwarded by the internal reverse proxy. Must be
+// called once during startup, before any HTTP handlers are registered.
+func InitProxyAuth(log zerolog.Logger) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatal().Err(err).Msg("failed to generate proxy auth token")
+	}
+	proxyAuthToken = hex.EncodeToString(b)
+}
+
+// ProxyAuthToken returns the per-process secret set by InitProxyAuth.
+func ProxyAuthToken() string { return proxyAuthToken }
+
+// AdminMiddleware authenticates requests to API and dashboard endpoints.
 //
-// When no identity can be resolved, config.Config.AdminAllowLocalhost
-// controls whether localhost requests are permitted without auth.
+// Access is granted in priority order:
+//  1. Valid API key via Authorization: Bearer <token>
+//  2. Tailscale identity (context or forwarded headers)
+//  3. Localhost + AdminAllowLocalhost
+//
+// When config.Config.Admins is non-empty, Tailscale users must appear in
+// the list. A valid API key bypasses the allowlist entirely.
 func AdminMiddleware() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			admins := config.Config.Admins
-			if len(admins) == 0 {
+			if validAPIKey(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			id := ResolveWhois(r).ID
-			if id != "" {
-				if slices.Contains(admins, id) {
+
+			admins := config.Config.Admins
+			if len(admins) > 0 {
+				if id != "" && slices.Contains(admins, id) {
 					next.ServeHTTP(w, r)
 					return
 				}
-				writeForbidden(w, "access denied")
+				if id != "" {
+					writeForbidden(w, "access denied")
+					return
+				}
+
+				if IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+					next.ServeHTTP(w, r)
+					return
+				}
+
+				writeForbidden(w, "admin access requires a Tailscale connection")
+				return
+			}
+
+			if id != "" {
+				next.ServeHTTP(w, r)
 				return
 			}
 
@@ -53,6 +91,23 @@ func AdminMiddleware() Middleware {
 	}
 }
 
+func validAPIKey(r *http.Request) bool {
+	key := config.Config.APIKey
+	if key == "" {
+		return false
+	}
+	token := extractBearerToken(r)
+	return subtle.ConstantTimeCompare([]byte(token), []byte(key)) == 1
+}
+
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if len(auth) > 7 && strings.EqualFold(auth[:7], "Bearer ") {
+		return auth[7:]
+	}
+	return ""
+}
+
 func writeForbidden(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -63,9 +118,10 @@ func writeForbidden(w http.ResponseWriter, message string) {
 }
 
 // ResolveWhois resolves the Tailscale identity for a request.
-// It tries the context first (set by ProviderUserMiddleware on direct
-// tsnet connections), then falls back to x-tsdproxy-* headers when the
-// request originates from localhost (set by the in-process reverse proxy).
+// Priority: request context (set by ProviderUserMiddleware on direct
+// tsnet connections), then x-tsdproxy-* headers from localhost (set by
+// the internal reverse proxy, validated via per-process auth token in
+// StripProxyIdentityHeaders).
 func ResolveWhois(r *http.Request) model.Whois {
 	if who, ok := model.WhoisFromContext(r.Context()); ok && who.ID != "" {
 		return who
@@ -97,18 +153,39 @@ func IsLocalhost(remoteAddr string) bool {
 	return ip.IsLoopback()
 }
 
-// StripProxyIdentityHeaders removes x-tsdproxy-* headers from incoming
-// requests that do not originate from localhost. Locally-forwarded requests
-// from the in-process reverse proxy are permitted to carry these headers;
-// external clients and user containers must not.
+// validProxyAuthToken checks whether the request carries a valid per-process
+// auth token from localhost. Returns false when the token is uninitialised
+// (fail-closed) and uses constant-time comparison.
+func validProxyAuthToken(r *http.Request) bool {
+	if !IsLocalhost(r.RemoteAddr) {
+		return false
+	}
+	if proxyAuthToken == "" {
+		return false
+	}
+	token := r.Header.Get(consts.HeaderAuthToken)
+	return subtle.ConstantTimeCompare([]byte(token), []byte(proxyAuthToken)) == 1
+}
+
+// StripProxyIdentityHeaders removes x-tsdproxy-* identity and auth-token
+// headers from incoming requests. Identity headers are preserved only when
+// the request carries the correct per-process auth token and originates from
+// localhost (i.e. from the internal reverse proxy forwarding an authenticated
+// Tailscale session to the management listener). The auth token itself is
+// always stripped to prevent leakage.
 func StripProxyIdentityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !IsLocalhost(r.RemoteAddr) {
-			r.Header.Del(consts.HeaderID)
-			r.Header.Del(consts.HeaderUsername)
-			r.Header.Del(consts.HeaderDisplayName)
-			r.Header.Del(consts.HeaderProfilePicURL)
+		defer r.Header.Del(consts.HeaderAuthToken)
+
+		if validProxyAuthToken(r) {
+			next.ServeHTTP(w, r)
+			return
 		}
+
+		r.Header.Del(consts.HeaderID)
+		r.Header.Del(consts.HeaderUsername)
+		r.Header.Del(consts.HeaderDisplayName)
+		r.Header.Del(consts.HeaderProfilePicURL)
 		next.ServeHTTP(w, r)
 	})
 }

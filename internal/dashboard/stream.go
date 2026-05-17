@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/consts"
+	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
 	"github.com/a-h/templ"
@@ -139,10 +139,12 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 }
 
 func (dash *Dashboard) updateUser(r *http.Request, client *sseClient) {
+	who := core.ResolveWhois(r)
+
 	signals := map[string]string{
-		"user_username":      r.Header.Get(consts.HeaderUsername),
-		"user_displayName":   r.Header.Get(consts.HeaderDisplayName),
-		"user_profilePicUrl": r.Header.Get(consts.HeaderProfilePicURL),
+		"user_username":      who.Username,
+		"user_displayName":   who.DisplayName,
+		"user_profilePicUrl": who.ProfilePicURL,
 	}
 
 	b, err := json.Marshal(signals)

@@ -48,6 +48,8 @@ func InitializeApp() (*WebApp, error) {
 
 	logger := core.NewLog()
 
+	core.InitProxyAuth(logger)
+
 	httpServer := core.NewHTTPServer(logger)
 	httpServer.Use(core.StripProxyIdentityHeaders)
 	httpServer.Use(core.SessionMiddleware)
