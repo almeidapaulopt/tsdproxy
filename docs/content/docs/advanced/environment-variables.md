@@ -11,7 +11,6 @@ This page documents every environment variable that TSDProxy recognizes, includi
 | Variable | Purpose | Default | Set By |
 |----------|---------|---------|--------|
 | `TSDPROXY_HTTP_PORT` | HTTP server port for the healthcheck binary | Value of `http.port` in config (defaults to `8080`) | Server binary (automatic) |
-| `TSDPROXY_PPROF` | Enable Go pprof profiling endpoints | `"false"` | User |
 | `DOCKER_HOST` | Docker daemon address (standard Docker variable) | `unix:///var/run/docker.sock` | User / Docker runtime |
 
 ### `TSDPROXY_HTTP_PORT`
@@ -19,31 +18,6 @@ This page documents every environment variable that TSDProxy recognizes, includi
 Set automatically by the server binary on startup. It reads the `http.port` value from your config file and exports it so the healthcheck binary can reach the readiness endpoint at `http://127.0.0.1:<port>/health/ready/`.
 
 You should not need to set this yourself. If the variable is empty (for example, when running the healthcheck binary standalone), it falls back to `8080`.
-
-### `TSDPROXY_PPROF`
-
-Set to `"true"` to enable Go's built-in profiling endpoints on the HTTP server. This is useful for debugging performance issues or memory leaks.
-
-```yaml {filename="docker-compose.yaml"}
-services:
-  tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
-    environment:
-      TSDPROXY_PPROF: "true"
-```
-
-When enabled, the following endpoints become available:
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/debug/pprof/` | Profile index |
-| `/debug/pprof/cmdline` | Command line |
-| `/debug/pprof/profile` | CPU profile |
-| `/debug/pprof/symbol` | Symbol table |
-| `/debug/pprof/trace` | Execution trace |
-
-> [!WARNING]
-> pprof endpoints expose internal runtime data, including memory contents and goroutine stacks. Never enable this in production.
 
 ### `DOCKER_HOST`
 
@@ -76,8 +50,6 @@ services:
       - ./tsdproxy.yaml:/config/tsdproxy.yaml
       - ./data:/data
     environment:
-      # Optional: enable pprof for debugging (do not use in production)
-      TSDPROXY_PPROF: "true"
       # Optional: override Docker daemon address
       DOCKER_HOST: "unix:///var/run/docker.sock"
     ports:

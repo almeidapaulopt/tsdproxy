@@ -50,30 +50,4 @@ log:
   level: trace
 ```
 
-### pprof debug profiling
-
-Set the `TSDPROXY_PPROF` environment variable to `"true"` before starting
-TSDProxy to enable Go profiling endpoints:
-
-```yaml
-services:
-  tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
-    environment:
-      TSDPROXY_PPROF: "true"
-```
-
-This exposes the following endpoints:
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/debug/pprof/` | Profile index |
-| `/debug/pprof/cmdline` | Command line |
-| `/debug/pprof/profile` | CPU profile |
-| `/debug/pprof/symbol` | Symbol table |
-| `/debug/pprof/trace` | Execution trace |
-
-> [!WARNING]
-> pprof endpoints expose internal runtime data. Never enable in production.
-
 {{% /steps %}}
