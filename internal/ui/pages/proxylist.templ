@@ -178,53 +178,57 @@ templ logsPanel(item ProxyData) {
 		<div
 			id={ "log-lines-" + dom.SafeID(item.Name) }
 			class="max-h-52 overflow-y-auto px-3 py-2.5 font-mono"
+			hx-ext="sse"
+			hx-sse:connect={ "/stream/" + url.PathEscape(item.Name) + "/logs" }
 		>
 			<div id={ "log-placeholder-" + dom.SafeID(item.Name) } class={ logLineClasses + logPlaceholderExtra }>{ logPlaceholderText }</div>
 		</div>
-		<div id={ "log-stream-" + dom.SafeID(item.Name) }></div>
 	</div>
 }
 
 templ actionsPanel(item ProxyData) {
 	<div class="flex flex-col gap-3">
 		<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1">Proxy Controls</p>
-		<!-- Restart — available for all non-transitional states -->
 		if item.ProxyStatus == model.ProxyStatusRunning || item.ProxyStatus == model.ProxyStatusPaused || item.ProxyStatus == model.ProxyStatusError || item.ProxyStatus == model.ProxyStatusStopped {
 			<button
 				class="btn btn-sm btn-outline w-full"
-				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "restart")) }
+				hx-post={ "/api/proxy/" + url.PathEscape(item.Name) + "/restart" }
+				hx-swap="none"
+				hx-disabled-elt="this"
 			>
 				Restart
 			</button>
 		}
-		<!-- Pause — only when Running -->
 		if item.ProxyStatus == model.ProxyStatusRunning {
 			<button
 				class="btn btn-sm btn-outline w-full"
-				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "pause")) }
+				hx-post={ "/api/proxy/" + url.PathEscape(item.Name) + "/pause" }
+				hx-swap="none"
+				hx-disabled-elt="this"
 			>
 				Pause
 			</button>
 		}
-		<!-- Resume — only when Paused -->
 		if item.ProxyStatus == model.ProxyStatusPaused {
 			<button
 				class="btn btn-sm btn-primary w-full"
-				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "resume")) }
+				hx-post={ "/api/proxy/" + url.PathEscape(item.Name) + "/resume" }
+				hx-swap="none"
+				hx-disabled-elt="this"
 			>
 				Resume
 			</button>
 		}
-		<!-- Re-authenticate — only when Authenticating -->
 		if item.ProxyStatus == model.ProxyStatusAuthenticating {
 			<button
 				class="btn btn-sm btn-warning w-full"
-				onclick={ templ.JSUnsafeFuncCall(fetchAction(item.Name, "reauth")) }
+				hx-post={ "/api/proxy/" + url.PathEscape(item.Name) + "/reauth" }
+				hx-swap="none"
+				hx-disabled-elt="this"
 			>
 				Re-authenticate
 			</button>
 		}
-		<!-- No actions available for transitional states -->
 		if item.ProxyStatus == model.ProxyStatusInitializing || item.ProxyStatus == model.ProxyStatusStarting || item.ProxyStatus == model.ProxyStatusStopping {
 			<p class="text-xs text-base-content/40 italic">No actions available while proxy is { strings.ToLower(item.ProxyStatus.String()) }…</p>
 		}
@@ -374,11 +378,166 @@ templ Proxy(item ProxyData) {
 					</div>
 				}
 			</div>
-			<form method="dialog" class="modal-backdrop">
+			<form method="dialog" class="modal-backdrop" hx-on:click="document.getElementById('modal-root').innerHTML=''">
 				<button>close</button>
 			</form>
 		</dialog>
 	</div>
+}
+
+// ProxyCard renders only the summary card (no modal) for htmx dashboard.
+templ ProxyCard(item ProxyData) {
+	<div
+		class="proxy"
+		id={ item.Name }
+		data-category={ item.Category }
+		data-status={ item.ProxyStatus.String() }
+		data-health={ healthValue(item.HealthStatus) }
+		data-provider={ item.TargetProvider }
+		data-label={ item.Label }
+	>
+		<div class="proxy-icon-col">
+			<button
+				class="pin-btn"
+				hx-post={ "/api/dashboard/pin/" + url.PathEscape(item.Name) }
+				hx-swap="none"
+				aria-label="pin proxy"
+			>
+				@components.InlineIcon("mdi/star", "size-3.5")
+			</button>
+			<figure>
+				@components.InlineIcon(item.Icon, "size-10 object-contain")
+			</figure>
+		</div>
+
+		<div class="card-body">
+			<button
+				class="info-btn"
+				hx-get={ "/dashboard/proxy/" + url.PathEscape(item.Name) + "/modal" }
+				hx-target="#modal-root"
+				hx-swap="innerHTML"
+				aria-label="proxy details"
+			>
+				@components.InlineIcon("mdi/information-variant", "size-3.5")
+			</button>
+			<h2 class="card-title">
+				<span>{ item.Label }</span>
+			</h2>
+
+			<div class="proxy-status-row">
+				<span class={ "badge badge-xs font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
+				if item.ProxyStatus == model.ProxyStatusRunning && item.HealthStatus != "" {
+					<div
+						class={ "health-dot", item.HealthStatus }
+						title={ "health: " + item.HealthStatus + " " + item.HealthLatency }
+					></div>
+				}
+			</div>
+
+			<div class="openbtn">
+				<a
+					href={ templ.URL(item.URL) }
+					class={ templ.KV("btn-disabled", !item.Enabled) }
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					if item.ProxyStatus == model.ProxyStatusAuthenticating {
+						Authenticate
+					} else {
+						Open
+					}
+				</a>
+			</div>
+		</div>
+	</div>
+}
+
+// ProxyModal renders the detail modal for a proxy, loaded into #modal-root.
+templ ProxyModal(item ProxyData) {
+	<dialog id={ modalname(item.Name) } class="modal" open>
+		<div class="modal-box max-w-lg">
+			<div class="drag-handle sm:hidden"></div>
+			<form method="dialog">
+				<button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+			</form>
+
+			<div class="flex items-center gap-3 mb-5">
+				<div class="size-14 rounded-xl bg-base-200/80 flex items-center justify-center shrink-0 border border-base-content/8">
+					@components.InlineIcon(item.Icon, "size-9 object-contain")
+				</div>
+				<div class="min-w-0 flex-1">
+					<h3 class="text-lg font-bold leading-tight text-base-content">{ item.Label }</h3>
+					if item.Name != item.Label {
+						<p class="text-sm text-base-content/50 mt-0.5 truncate">{ item.Name }</p>
+					}
+				</div>
+				<span class={ "badge badge-sm shrink-0 ml-auto font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
+			</div>
+
+			if item.ProxyAccessLog {
+				<div class="tabs tabs-border mb-4">
+					<input
+						id={ "log-info-tab-" + dom.SafeID(item.Name) }
+						type="radio"
+						name={ modalname(item.Name) + "_tabs" }
+						class="tab"
+						aria-label="Info"
+						checked="checked"
+					/>
+					<div class="tab-content pt-4">
+						@infoPanel(item)
+					</div>
+					<input
+						id={ "log-actions-tab-" + dom.SafeID(item.Name) }
+						type="radio"
+						name={ modalname(item.Name) + "_tabs" }
+						class="tab"
+						aria-label="Actions"
+					/>
+					<div class="tab-content pt-4">
+						@actionsPanel(item)
+					</div>
+					<input
+						id={ "log-logs-tab-" + dom.SafeID(item.Name) }
+						type="radio"
+						name={ modalname(item.Name) + "_tabs" }
+						class="tab"
+						aria-label="Logs"
+					/>
+					<div class="tab-content pt-4">
+						@logsPanel(item)
+					</div>
+				</div>
+			} else {
+				<div class="tabs tabs-border mb-4">
+					<input
+						id={ "log-info-tab-" + dom.SafeID(item.Name) }
+						type="radio"
+						name={ modalname(item.Name) + "_tabs" }
+						class="tab"
+						aria-label="Info"
+						checked="checked"
+					/>
+					<div class="tab-content pt-4">
+						@infoPanel(item)
+					</div>
+					<input
+						id={ "log-actions-tab-" + dom.SafeID(item.Name) }
+						type="radio"
+						name={ modalname(item.Name) + "_tabs" }
+						class="tab"
+						aria-label="Actions"
+					/>
+					<div class="tab-content pt-4">
+						@actionsPanel(item)
+					</div>
+				</div>
+			}
+		</div>
+		<form method="dialog" class="modal-backdrop" hx-on:click="document.getElementById('modal-root').innerHTML=''">
+			<button>close</button>
+		</form>
+	</dialog>
 }
 
 // LogLine renders a single access-log entry as an HTML row.
