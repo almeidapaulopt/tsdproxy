@@ -27,3 +27,13 @@ const (
 	DefaultDashboardVisible = true
 	DefaultDashboardIcon    = "tsdproxy"
 )
+
+type Preferences struct {
+	Dark         bool     `json:"dark"`
+	View         string   `json:"view"`
+	Sort         string   `json:"sort"`
+	Grouped      bool     `json:"grouped"`
+	FilterStatus string   `json:"filterStatus"`
+	FilterHealth string   `json:"filterHealth"`
+	Pinned       []string `json:"pinned"`
+}
