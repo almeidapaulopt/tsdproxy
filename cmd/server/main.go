@@ -119,8 +119,6 @@ func (app *WebApp) Start() {
 	api.New(app.HTTP, app.ProxyManager, app.Log).AddRoutes()
 
 	app.HTTP.Get("/metrics", app.ProxyManager.MetricsHandler())
-	core.PprofAddRoutes(app.HTTP)
-
 	// Setup proxy for existing containers
 	//
 	app.Log.Info().Msg("Setting up proxy proxies")
