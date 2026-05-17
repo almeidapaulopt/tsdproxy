@@ -71,6 +71,15 @@ type (
 		// the admin allowlist. Use only for bootstrapping —
 		// any process on the host can then call admin endpoints.
 		AdminAllowLocalhost bool `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
+
+		// APIKey is a bearer token that grants full access to all API
+		// and dashboard endpoints, independent of the Tailscale admin
+		// allowlist. Mutually exclusive with APIKeyFile.
+		APIKey string `yaml:"apiKey,omitempty"`
+
+		// APIKeyFile is the path to a file containing the bearer token.
+		// Takes precedence over APIKey.
+		APIKeyFile string `yaml:"apiKeyFile,omitempty"`
 	}
 
 	WebhookConfig struct {
@@ -95,7 +104,7 @@ type (
 
 	// HTTPConfig stores HTTP configuration.
 	HTTPConfig struct {
-		Hostname string `validate:"ip|hostname,required" default:"0.0.0.0" yaml:"hostname"`
+		Hostname string `validate:"ip|hostname,required" default:"127.0.0.1" yaml:"hostname"`
 		Port     uint16 `validate:"numeric,min=1,max=65535,required" default:"8080" yaml:"port"`
 	}
 
@@ -194,6 +203,18 @@ func InitializeConfig() error {
 			}
 			d.AuthKey = authkey
 		}
+	}
+
+	// load API key from file
+	if Config.APIKeyFile != "" {
+		key, err := Config.getAuthKeyFromFile(Config.APIKeyFile)
+		if err != nil {
+			return fmt.Errorf("error reading API key file: %w", err)
+		}
+		if key == "" {
+			return fmt.Errorf("API key file %q is empty", Config.APIKeyFile)
+		}
+		Config.APIKey = key
 	}
 
 	// validate config

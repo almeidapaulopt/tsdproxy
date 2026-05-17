@@ -45,16 +45,16 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 
 // AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
-	adminMW := core.AdminMiddleware()
+	authMW := core.AdminMiddleware()
 
-	dash.HTTP.Get("/stream", dash.streamHandler())
-	dash.HTTP.Get("/stream/{name}/logs", dash.streamProxyLogsHandler())
+	dash.HTTP.Get("/stream", authMW(dash.streamHandler()))
+	dash.HTTP.Get("/stream/{name}/logs", authMW(dash.streamProxyLogsHandler()))
 	dash.HTTP.Get("/", web.Static)
 
-	dash.HTTP.Post("/api/proxy/{name}/restart", adminMW(dash.restartHandler()))
-	dash.HTTP.Post("/api/proxy/{name}/pause", adminMW(dash.pauseHandler()))
-	dash.HTTP.Post("/api/proxy/{name}/resume", adminMW(dash.resumeHandler()))
-	dash.HTTP.Post("/api/proxy/{name}/reauth", adminMW(dash.reauthHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/restart", authMW(dash.restartHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/pause", authMW(dash.pauseHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/resume", authMW(dash.resumeHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/reauth", authMW(dash.reauthHandler()))
 }
 
 // index is the HandlerFunc to index page of dashboard
