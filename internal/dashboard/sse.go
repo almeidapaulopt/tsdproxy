@@ -31,28 +31,34 @@ func WriteSSE(w http.ResponseWriter, event string, data string) error {
 	return nil
 }
 
-func SSEAppendHTML(w http.ResponseWriter, v any) error {
-	html, err := renderHTML(v)
+// WriteSSEPartial sends an unnamed SSE data message containing an <hx-partial>
+// element for htmx 4 to process.
+func WriteSSEPartial(w http.ResponseWriter, target string, swap string, html string) error {
+	msg := fmt.Sprintf(
+		`<hx-partial hx-target="%s" hx-swap="%s">%s</hx-partial>`,
+		target, swap, html,
+	)
+	for _, line := range strings.Split(msg, "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return fmt.Errorf("write sse partial: %w", err)
+		}
+	}
+	if _, err := fmt.Fprint(w, "\n"); err != nil {
+		return fmt.Errorf("write sse delimiter: %w", err)
+	}
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return nil
+}
+
+// WriteSSEPartialComponent renders a templ component and sends it as an hx-partial.
+func WriteSSEPartialComponent(w http.ResponseWriter, target string, swap string, cmp templ.Component) error {
+	html, err := renderHTML(cmp)
 	if err != nil {
 		return err
 	}
-	return WriteSSE(w, "proxy-append", html)
-}
-
-func SSEMergeHTML(w http.ResponseWriter, v any) error {
-	html, err := renderHTML(v)
-	if err != nil {
-		return err
-	}
-	return WriteSSE(w, "proxy-merge", html)
-}
-
-func SSERemoveElement(w http.ResponseWriter, selector string) error {
-	return WriteSSE(w, "proxy-remove", selector)
-}
-
-func SSEClearList(w http.ResponseWriter, selector string) error {
-	return WriteSSE(w, "list-clear", selector)
+	return WriteSSEPartial(w, target, swap, html)
 }
 
 func SSEUpdateState(w http.ResponseWriter, jsonString string) error {
