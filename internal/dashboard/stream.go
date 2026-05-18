@@ -4,12 +4,13 @@
 package dashboard
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/core"
+	"github.com/almeidapaulopt/tsdproxy/internal/dom"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 
 	"github.com/a-h/templ"
@@ -22,8 +23,9 @@ const (
 	EventNotify EventType = iota
 	EventScrollLogs
 	EventTrimLogs
-	EventUpdateSignals
 	EventHTMXListRefresh
+	EventHTMXCardUpdate
+	EventConnID
 )
 
 type (
@@ -32,13 +34,17 @@ type (
 		channel chan SSEMessage
 		done    chan struct{}
 		userID  string
+		connID  string
 		search  string
+		mtx     sync.Mutex
 	}
 
 	SSEMessage struct {
 		Comp    templ.Component
 		Message string
 		Type    EventType
+		Target  string
+		Swap    string
 	}
 )
 
@@ -70,6 +76,7 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 			channel: make(chan SSEMessage, chanSizeSSEQueue),
 			done:    make(chan struct{}),
 			userID:  userID,
+			connID:  connID,
 		}
 
 		dash.mtx.Lock()
@@ -80,8 +87,8 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 		defer dash.removeSSEClient(connID)
 
 		go func() {
-			dash.renderHTMXList(client)
-			dash.updateUser(r, client)
+			dash.renderHTMXList(client, dash.pm.GetProxies())
+			dash.sendConnID(client, connID)
 		}()
 
 		var err error
@@ -102,11 +109,14 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 				case EventTrimLogs:
 					err = WriteSSE(w, "trim-logs", message.Message)
 
-				case EventUpdateSignals:
-					err = SSEUpdateState(w, message.Message)
-
 				case EventHTMXListRefresh:
 					err = WriteSSEPartialComponent(w, "#proxy-list", "innerHTML", message.Comp)
+
+				case EventHTMXCardUpdate:
+					err = WriteSSEPartialComponent(w, message.Target, message.Swap, message.Comp)
+
+				case EventConnID:
+					err = WriteSSE(w, "conn-id", message.Message)
 				}
 			}
 
@@ -118,10 +128,13 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 	}
 }
 
-func (dash *Dashboard) renderHTMXList(client *sseClient) {
+func (dash *Dashboard) renderHTMXList(client *sseClient, proxies proxymanager.ProxyList) {
 	prefs := dash.loadPrefs(client.userID)
-	proxies := dash.pm.GetProxies()
-	view := BuildDashboardView(proxies, prefs, client.search)
+	client.mtx.Lock()
+	search := client.search
+	client.mtx.Unlock()
+
+	view := BuildDashboardView(proxies, prefs, search)
 
 	viewData := pages.DashboardData{
 		Prefs: prefs,
@@ -134,24 +147,10 @@ func (dash *Dashboard) renderHTMXList(client *sseClient) {
 	})
 }
 
-func (dash *Dashboard) updateUser(r *http.Request, client *sseClient) {
-	who := core.ResolveWhois(r)
-
-	signals := map[string]string{
-		"user_username":      who.Username,
-		"user_displayName":   who.DisplayName,
-		"user_profilePicUrl": who.ProfilePicURL,
-	}
-
-	b, err := json.Marshal(signals)
-	if err != nil {
-		dash.Log.Error().Err(err).Msg("Error marshaling user signals")
-		return
-	}
-
+func (dash *Dashboard) sendConnID(client *sseClient, connID string) {
 	client.send(SSEMessage{
-		Type:    EventUpdateSignals,
-		Message: string(b),
+		Type:    EventConnID,
+		Message: connID,
 	})
 }
 
@@ -167,36 +166,164 @@ func (dash *Dashboard) removeSSEClient(name string) {
 	dash.Log.Info().Msg("Client disconnected")
 }
 
+// updateClientSearch updates the search term for SSE clients belonging to
+// the given user. If connID is non-empty only the matching connection is
+// updated; otherwise all connections for the user are updated (graceful
+// fallback for requests that arrive before the client receives its conn-id).
+func (dash *Dashboard) updateClientSearch(userID, connID, search string) {
+	dash.mtx.RLock()
+	defer dash.mtx.RUnlock()
+
+	for _, client := range dash.sseClients {
+		if client.userID != userID {
+			continue
+		}
+		if connID != "" && client.connID != connID {
+			continue
+		}
+		client.mtx.Lock()
+		client.search = search
+		client.mtx.Unlock()
+	}
+}
+
+type clientInfo struct {
+	client *sseClient
+	userID string
+	search string
+}
+
+func (dash *Dashboard) snapshotClients() []clientInfo {
+	dash.mtx.RLock()
+	defer dash.mtx.RUnlock()
+
+	snapshot := make([]clientInfo, 0, len(dash.sseClients))
+	for _, c := range dash.sseClients {
+		c.mtx.Lock()
+		search := c.search
+		c.mtx.Unlock()
+		snapshot = append(snapshot, clientInfo{client: c, userID: c.userID, search: search})
+	}
+	return snapshot
+}
+
 func (dash *Dashboard) streamProxyUpdates() {
 	for event := range dash.pm.SubscribeStatusEvents() {
-		dash.mtx.RLock()
-		for _, sseClient := range dash.sseClients {
-			prefs := dash.loadPrefs(sseClient.userID)
+		clients := dash.snapshotClients()
+		if len(clients) == 0 {
+			continue
+		}
+
+		needsFull := dash.needsFullRender(clients, event)
+
+		if needsFull {
 			proxies := dash.pm.GetProxies()
-			view := BuildDashboardView(proxies, prefs, sseClient.search)
-
-			viewData := pages.DashboardData{
-				Prefs: prefs,
+			for _, ci := range clients {
+				dash.renderHTMXList(ci.client, proxies)
+				dash.sendStatusNotification(ci.client, event)
 			}
-			viewData.Proxies = convertView(view)
+			continue
+		}
 
-			sseClient.send(SSEMessage{
-				Type: EventHTMXListRefresh,
-				Comp: pages.ProxyListFragment(viewData),
+		proxy, ok := dash.pm.GetProxy(event.ID)
+		if !ok {
+			proxies := dash.pm.GetProxies()
+			for _, ci := range clients {
+				dash.renderHTMXList(ci.client, proxies)
+				dash.sendStatusNotification(ci.client, event)
+			}
+			continue
+		}
+
+		if !proxy.Config.Dashboard.Visible {
+			continue
+		}
+
+		type cardSend struct {
+			client *sseClient
+			msgs   []SSEMessage
+		}
+
+		safeName := dom.SafeID(event.ID)
+		actionsTarget := "#actions-panel-" + safeName
+
+		var sends []cardSend
+		for _, ci := range clients {
+			prefs := dash.loadPrefs(ci.userID)
+
+			item := ProxyViewItem{Name: event.ID, Category: proxy.Config.Dashboard.Category, Proxy: proxy}
+			if !matchesFilter(item, prefs, ci.search) {
+				continue
+			}
+
+			data := buildProxyDataFromProxy(event.ID, proxy)
+			sends = append(sends, cardSend{
+				client: ci.client,
+				msgs: []SSEMessage{
+					{
+						Type:   EventHTMXCardUpdate,
+						Comp:   pages.ProxyCard(data),
+						Target: "#proxy-" + safeName,
+						Swap:   "outerHTML",
+					},
+					{
+						Type:   EventHTMXCardUpdate,
+						Comp:   pages.ActionsPanel(data),
+						Target: actionsTarget,
+						Swap:   "outerHTML",
+					},
+					{
+						Type:   EventHTMXCardUpdate,
+						Comp:   pages.ModalStatusBadge(data),
+						Target: "#modal-status-" + safeName,
+						Swap:   "outerHTML",
+					},
+				},
 			})
+		}
 
-			if event.Status == model.ProxyStatusStopped {
-				sseClient.send(SSEMessage{
-					Type:    EventNotify,
-					Message: fmt.Sprintf("%s\x00Stopped", event.ID),
-				})
-			} else if event.Status == model.ProxyStatusError {
-				sseClient.send(SSEMessage{
-					Type:    EventNotify,
-					Message: fmt.Sprintf("%s\x00Error", event.ID),
-				})
+		for _, s := range sends {
+			for _, msg := range s.msgs {
+				s.client.send(msg)
+			}
+			dash.sendStatusNotification(s.client, event)
+		}
+	}
+}
+
+func (dash *Dashboard) needsFullRender(clients []clientInfo, event model.ProxyEvent) bool {
+	for _, ci := range clients {
+		prefs := dash.loadPrefs(ci.userID)
+
+		if prefs.Sort == "status" || prefs.Sort == "health" {
+			return true
+		}
+
+		if prefs.FilterStatus != "all" {
+			oldMatch := prefs.FilterStatus == event.OldStatus.String()
+			newMatch := prefs.FilterStatus == event.Status.String()
+			if oldMatch != newMatch {
+				return true
 			}
 		}
-		dash.mtx.RUnlock()
+
+		if prefs.Grouped {
+			return true
+		}
+	}
+	return false
+}
+
+func (dash *Dashboard) sendStatusNotification(client *sseClient, event model.ProxyEvent) {
+	if event.Status == model.ProxyStatusStopped {
+		client.send(SSEMessage{
+			Type:    EventNotify,
+			Message: fmt.Sprintf("%s\x00Stopped", event.ID),
+		})
+	} else if event.Status == model.ProxyStatusError {
+		client.send(SSEMessage{
+			Type:    EventNotify,
+			Message: fmt.Sprintf("%s\x00Error", event.ID),
+		})
 	}
 }

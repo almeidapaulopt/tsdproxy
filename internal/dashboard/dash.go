@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,7 +142,12 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 		}
 
 		if r.Header.Get("HX-Request") == "true" {
-			_ = ui.RenderTempl(w, r, pages.ToastPartial("action succeeded", true))
+			proxy, ok := dash.pm.GetProxy(name)
+			if !ok {
+				_ = ui.RenderTempl(w, r, pages.ToastPartial("action succeeded", true))
+				return
+			}
+			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy)))
 			return
 		}
 		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"})
@@ -163,7 +167,7 @@ func (dash *Dashboard) resumeHandler() http.HandlerFunc {
 }
 
 func (dash *Dashboard) reauthHandler() http.HandlerFunc {
-	return dash.restartHandler()
+	return dash.proxyActionHandler(dash.pm.RestartProxy)
 }
 
 func (dash *Dashboard) writeJSONError(w http.ResponseWriter, message string, code int) {
@@ -176,15 +180,9 @@ func (dash *Dashboard) dashboardHandler() http.HandlerFunc {
 		prefs := dash.loadPrefs(userID)
 		who := core.ResolveWhois(r)
 
-		proxies := dash.pm.GetProxies()
-		view := BuildDashboardView(proxies, prefs, "")
-
-		viewData := pages.DashboardData{
-			Prefs:   prefs,
-			User:    who,
-			Version: core.GetVersion(),
-		}
-		viewData.Proxies = convertView(view)
+		viewData := dash.buildDashboardViewData(prefs, "")
+		viewData.User = who
+		viewData.Version = core.GetVersion()
 
 		if err := ui.RenderTempl(w, r, pages.Dashboard(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -197,21 +195,12 @@ func (dash *Dashboard) listFragmentHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := dash.dashboardSubject(r)
 		prefs := dash.loadPrefs(userID)
-		search := r.URL.Query().Get("search")
+		search := r.FormValue("search")
+		connID := r.FormValue("sseConnId")
 
-		proxies := dash.pm.GetProxies()
-		view := BuildDashboardView(proxies, prefs, search)
+		dash.updateClientSearch(userID, connID, search)
 
-		viewData := pages.DashboardData{
-			Prefs: prefs,
-		}
-		viewData.Proxies = convertView(view)
-
-		if prefs.View == "compact" {
-			w.Header().Set("HX-Trigger", `{"setCompact":true}`)
-		} else {
-			w.Header().Set("HX-Trigger", `{"setCompact":false}`)
-		}
+		viewData := dash.buildDashboardViewData(prefs, search)
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -228,12 +217,7 @@ func (dash *Dashboard) proxyModalHandler() http.HandlerFunc {
 			return
 		}
 
-		decoded, err := url.PathUnescape(name)
-		if err != nil {
-			decoded = name
-		}
-
-		data, ok := dash.buildProxyData(decoded)
+		data, ok := dash.buildProxyData(name)
 		if !ok {
 			http.Error(w, "proxy not found", http.StatusNotFound)
 			return
@@ -249,58 +233,49 @@ func (dash *Dashboard) proxyModalHandler() http.HandlerFunc {
 func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID := dash.dashboardSubject(r)
-		prefs := dash.loadPrefs(userID)
 
 		if err := r.ParseForm(); err != nil {
 			dash.writeJSONError(w, "invalid form data", http.StatusBadRequest)
 			return
 		}
 
-		if v := r.FormValue("dark"); v != "" {
-			prefs.Dark = v == "true"
-		}
-		if v := r.FormValue("view"); v != "" {
-			prefs.View = v
-		}
-		if v := r.FormValue("sort"); v != "" {
-			prefs.Sort = v
-		}
-		if v := r.FormValue("grouped"); v != "" {
-			prefs.Grouped = v == "true"
-		}
-		if v := r.FormValue("filterStatus"); v != "" {
-			prefs.FilterStatus = v
-		}
-		if v := r.FormValue("filterHealth"); v != "" {
-			prefs.FilterHealth = v
-		}
+		search := r.FormValue("search")
 
+		var prefs model.Preferences
 		if dash.prefs != nil {
-			if err := dash.prefs.Save(userID, prefs); err != nil {
+			if err := dash.prefs.Update(userID, func(p *model.Preferences) {
+				if v := r.FormValue("dark"); v != "" {
+					p.Dark = v == "true"
+				}
+				if v := r.FormValue("view"); v != "" {
+					p.View = v
+				}
+				if v := r.FormValue("sort"); v != "" {
+					p.Sort = v
+				}
+				if v := r.FormValue("grouped"); v != "" {
+					p.Grouped = v == "true"
+				}
+				if v := r.FormValue("filterStatus"); v != "" {
+					p.FilterStatus = v
+				}
+				if v := r.FormValue("filterHealth"); v != "" {
+					p.FilterHealth = v
+				}
+				prefs = *p
+			}); err != nil {
 				dash.Log.Error().Err(err).Msg("failed to save preferences")
 			}
+		} else {
+			prefs = dash.loadPrefs(userID)
 		}
 
-		search := r.URL.Query().Get("search")
-		proxies := dash.pm.GetProxies()
-		view := BuildDashboardView(proxies, prefs, search)
-
-		viewData := pages.DashboardData{
-			Prefs: prefs,
-		}
-		viewData.Proxies = convertView(view)
+		viewData := dash.buildDashboardViewData(prefs, search)
 
 		if r.FormValue("dark") != "" {
 			w.Header().Set("HX-Refresh", "true")
+			w.WriteHeader(http.StatusOK)
 			return
-		}
-
-		if r.FormValue("view") != "" {
-			if prefs.View == "compact" {
-				w.Header().Set("HX-Trigger", `{"setCompact":true}`)
-			} else {
-				w.Header().Set("HX-Trigger", `{"setCompact":false}`)
-			}
 		}
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
@@ -318,27 +293,16 @@ func (dash *Dashboard) togglePinHandler() http.HandlerFunc {
 			return
 		}
 
-		decoded, err := url.PathUnescape(name)
-		if err != nil {
-			decoded = name
-		}
-
 		userID := dash.dashboardSubject(r)
 		if dash.prefs != nil {
-			if _, err := dash.prefs.TogglePin(userID, decoded); err != nil {
+			if _, err := dash.prefs.TogglePin(userID, name); err != nil {
 				dash.Log.Error().Err(err).Msg("failed to toggle pin")
 			}
 		}
 
 		prefs := dash.loadPrefs(userID)
-		search := r.URL.Query().Get("search")
-		proxies := dash.pm.GetProxies()
-		view := BuildDashboardView(proxies, prefs, search)
-
-		viewData := pages.DashboardData{
-			Prefs: prefs,
-		}
-		viewData.Proxies = convertView(view)
+		search := r.FormValue("search")
+		viewData := dash.buildDashboardViewData(prefs, search)
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -359,6 +323,14 @@ func (dash *Dashboard) loadPrefs(userID string) model.Preferences {
 	return prefs
 }
 
+func (dash *Dashboard) buildDashboardViewData(prefs model.Preferences, search string) pages.DashboardData {
+	proxies := dash.pm.GetProxies()
+	view := BuildDashboardView(proxies, prefs, search)
+	viewData := pages.DashboardData{Prefs: prefs}
+	viewData.Proxies = convertView(view)
+	return viewData
+}
+
 func (dash *Dashboard) buildProxyData(name string) (pages.ProxyData, bool) {
 	p, ok := dash.pm.GetProxy(name)
 	if !ok {
@@ -371,21 +343,13 @@ func convertView(view DashboardView) pages.DashboardView {
 	var result pages.DashboardView
 
 	for _, item := range view.Proxies {
-		data, ok := buildProxyDataFromView(item)
-		if !ok {
-			continue
-		}
-		result.Items = append(result.Items, data)
+		result.Items = append(result.Items, buildProxyDataFromView(item))
 	}
 
 	for _, g := range view.Groups {
 		var groupItems []pages.ProxyViewItem
 		for _, item := range g.Items {
-			data, ok := buildProxyDataFromView(item)
-			if !ok {
-				continue
-			}
-			groupItems = append(groupItems, data)
+			groupItems = append(groupItems, buildProxyDataFromView(item))
 		}
 		result.Groups = append(result.Groups, pages.DashboardGroup{
 			Name:  g.Name,
@@ -396,13 +360,13 @@ func convertView(view DashboardView) pages.DashboardView {
 	return result
 }
 
-func buildProxyDataFromView(item ProxyViewItem) (pages.ProxyViewItem, bool) {
+func buildProxyDataFromView(item ProxyViewItem) pages.ProxyViewItem {
 	data := buildProxyDataFromProxy(item.Name, item.Proxy)
 	return pages.ProxyViewItem{
 		Name:     item.Name,
 		Category: item.Category,
 		Data:     data,
-	}, true
+	}
 }
 
 func buildProxyDataFromProxy(name string, p *proxymanager.Proxy) pages.ProxyData {
@@ -505,12 +469,7 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 			return
 		}
 
-		decoded, err := url.PathUnescape(name)
-		if err != nil {
-			decoded = name
-		}
-
-		proxy, ok := dash.pm.GetProxy(decoded)
+		proxy, ok := dash.pm.GetProxy(name)
 		if !ok {
 			http.Error(w, "proxy not found", http.StatusNotFound)
 			return
@@ -535,7 +494,8 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
 			return
 		}
-		safeID := dom.SafeID(decoded)
+
+		safeID := dom.SafeID(name)
 		selector := "#log-lines-" + safeID
 		scrollSelector := selector
 		trimSelector := selector
@@ -569,8 +529,7 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 				return
 			}
 		} else {
-			phClasses := pages.LogLineClasses() + pages.LogPlaceholderExtra()
-			if err := writeAppend(fmt.Sprintf(`<div id="log-placeholder-%s" class="%s">%s</div>`, safeID, phClasses, pages.LogPlaceholderText())); err != nil {
+			if err := writeAppend(pages.LogPlaceholder(safeID)); err != nil {
 				return
 			}
 		}
