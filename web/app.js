@@ -4,38 +4,12 @@
 // Minimal JS for the htmx dashboard: keyboard nav, notifications, toasts.
 // All sort/filter/group/pin/rendering is server-side.
 
-import htmx from 'htmx.org';
+import 'htmx.org';
+import 'htmx.org/dist/ext/hx-sse';
 
 window.htmx = htmx;
 
-document.addEventListener('htmx:after:swap', () => {
-  const toasts = document.querySelectorAll('#toast-container .toast-alert');
-  toasts.forEach((t) => {
-    setTimeout(() => {
-      t.classList.add('opacity-0', 'translate-x-full');
-      t.addEventListener('transitionend', () => t.remove(), { once: true });
-    }, 4200);
-  });
-});
-
-document.addEventListener('setCompact', (evt) => {
-  const list = document.getElementById('proxy-list');
-  if (!list) return;
-  const compact = evt.detail.value !== false;
-  list.classList.toggle('compact', compact);
-
-  document.querySelectorAll('.view-toggle-card').forEach((b) =>
-    b.classList.toggle('btn-primary', !compact),
-  );
-  document.querySelectorAll('.view-toggle-compact').forEach((b) =>
-    b.classList.toggle('btn-primary', compact),
-  );
-});
-
-const sse = document.createElement('script');
-sse.src = '/hx-sse.js';
-sse.onload = () => htmx.process(document.body);
-document.head.appendChild(sse);
+// import('htmx.org/dist/ext/hx-sse').then(() => htmx.process(document.body));
 
 let focusedCardId = '';
 
@@ -60,13 +34,53 @@ window.showProxyNotification = function (evt) {
   const name = msg.slice(0, sep);
   const status = msg.slice(sep + 1);
   if (Notification.permission !== 'granted') return;
-  const el = document.getElementById(name);
+  const el = document.getElementById(safeProxyId(name));
   const label = el ? el.querySelector('.card-title span')?.textContent : name;
   new Notification('TSDProxy: ' + label, {
     body: 'Status changed to ' + status,
     icon: '/icons/tsdproxy.svg',
   });
 };
+
+function safeProxyId(name) {
+  let result = 'proxy-';
+  for (const ch of name) {
+    if (/[a-zA-Z0-9-]/.test(ch)) {
+      result += ch;
+    } else {
+      result += '_' + ch.codePointAt(0).toString(16) + '_';
+    }
+  }
+  return result;
+}
+
+window.handleConnId = function (evt) {
+  const connId = typeof evt.detail === 'string' ? evt.detail : (evt.detail?.data || '');
+  const el = document.getElementById('sseConnId');
+  if (el) el.value = connId;
+};
+
+window.scrollLogs = function (evt) {
+  const sel = typeof evt.detail === 'string' ? evt.detail : (evt.detail?.data || '');
+  const el = document.querySelector(sel);
+  if (el) el.scrollTop = el.scrollHeight;
+};
+
+window.trimLogs = function (evt) {
+  const d = typeof evt.detail === 'string' ? evt.detail : (evt.detail?.data || '');
+  const lines = d.split('\n');
+  if (lines.length < 2) return;
+  const el = document.querySelector(lines[0]);
+  const lim = parseInt(lines[1], 10);
+  if (el && !isNaN(lim)) while (el.children.length > lim) el.removeChild(el.firstChild);
+};
+
+// Clean up modal when dialog closes (native <dialog> close or Escape key).
+document.addEventListener('close', (e) => {
+  if (e.target.tagName === 'DIALOG' && e.target.closest('#modal-root')) {
+    document.getElementById('modal-root').innerHTML = '';
+  }
+});
 
 window.addEventListener('keydown', (evt) => {
   const tag = evt.target.tagName;

@@ -3,9 +3,16 @@ import tailwindcss from '@tailwindcss/vite';
 import { compression } from 'vite-plugin-compression2';
 import { VitePWA } from 'vite-plugin-pwa'
 import http from 'node:http';
+import { resolve } from 'node:path';
 
 
 export default defineConfig({
+
+  resolve: {
+    alias: {
+      'htmx.org/dist/ext/hx-sse': resolve('node_modules/htmx.org/dist/ext/hx-sse.js'),
+    },
+  },
 
   server: {
     proxy: {

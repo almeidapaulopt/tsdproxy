@@ -9,7 +9,7 @@
   include: reset, properties, scrollbar, rootscrolllock, rootscrollgutter, rootcolor,
     link, button, toggle, tooltip, card, card-body, badge, label, navbar, footer, menu,
     dropdown, checkbox, filter, radius, modal, kbd, input, select, tab, join, divider,
-    loading, status;
+    loading, status, toast, alert;
 }
 
 @import "./tsdproxy-light.css";
@@ -404,5 +404,17 @@
     margin: 0.375rem auto 0.75rem;
   }
 
+}
+
+@keyframes toast-dismiss {
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+    pointer-events: none;
+  }
+}
+
+.toast-info {
+  animation: toast-dismiss 0.3s ease-in 4.2s forwards;
 }
 
