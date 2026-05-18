@@ -122,8 +122,8 @@ func (app *WebApp) Start() {
 	// Static assets from embedded dist/ (CSS, JS, icons, etc.)
 	app.HTTP.Mux.Handle("/", web.Static)
 
-	app.HTTP.Get("/metrics", app.ProxyManager.MetricsHandler())
-	core.PprofAddRoutes(app.HTTP)
+	adminMW := core.AdminMiddleware()
+	app.HTTP.Get("/metrics", adminMW(app.ProxyManager.MetricsHandler()))
 
 	// Setup proxy for existing containers
 	//
