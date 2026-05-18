@@ -104,14 +104,25 @@ func (s *PreferencesStore) Load(userID string) (model.Preferences, error) {
 	}
 	s.mu.RUnlock()
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if cached, ok := s.cache[userID]; ok {
+		return cached, nil
+	}
+
+	return s.loadFromDisk(userID)
+}
+
+// Caller must hold s.mu write lock.
+func (s *PreferencesStore) loadFromDisk(userID string) (model.Preferences, error) {
 	p := defaultPreferences()
 
 	data, err := os.ReadFile(s.path(userID))
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.mu.Lock()
 			s.cache[userID] = p
-			s.mu.Unlock()
 			return p, nil
 		}
 		return p, fmt.Errorf("read preferences: %w", err)
@@ -124,30 +135,38 @@ func (s *PreferencesStore) Load(userID string) (model.Preferences, error) {
 
 	validatePrefs(&p)
 
-	s.mu.Lock()
 	s.cache[userID] = p
-	s.mu.Unlock()
 
 	return p, nil
 }
 
 func (s *PreferencesStore) Save(userID string, prefs model.Preferences) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	return s.save(userID, prefs)
+}
 
+// prepareSave validates, marshals, and writes the temp file — no lock held.
+func (s *PreferencesStore) prepareSave(userID string, prefs model.Preferences) (string, error) {
 	validatePrefs(&prefs)
 
 	data, err := json.Marshal(prefs)
 	if err != nil {
-		return fmt.Errorf("marshal preferences: %w", err)
+		return "", fmt.Errorf("marshal preferences: %w", err)
 	}
 
 	dst := s.path(userID)
 	tmp := dst + ".tmp"
 
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write temp preferences: %w", err)
+		return "", fmt.Errorf("write temp preferences: %w", err)
 	}
+
+	return tmp, nil
+}
+
+// commitSave renames temp to final and updates the cache.
+// Caller must hold s.mu write lock.
+func (s *PreferencesStore) commitSave(userID, tmp string, prefs model.Preferences) error {
+	dst := s.path(userID)
 
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
@@ -159,32 +178,68 @@ func (s *PreferencesStore) Save(userID string, prefs model.Preferences) error {
 	return nil
 }
 
-func (s *PreferencesStore) TogglePin(userID, proxyName string) (model.Preferences, error) {
-	prefs, err := s.Load(userID)
+// save validates, writes temp file (unlocked), then commits under the write lock.
+func (s *PreferencesStore) save(userID string, prefs model.Preferences) error {
+	tmp, err := s.prepareSave(userID, prefs)
 	if err != nil {
-		return prefs, err
+		return err
 	}
 
-	pinnedSet := make(map[string]bool, len(prefs.Pinned))
-	for _, p := range prefs.Pinned {
-		pinnedSet[p] = true
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.commitSave(userID, tmp, prefs)
+}
+
+// Caller must hold s.mu write lock.
+func (s *PreferencesStore) saveLocked(userID string, prefs model.Preferences) error {
+	tmp, err := s.prepareSave(userID, prefs)
+	if err != nil {
+		return err
+	}
+	return s.commitSave(userID, tmp, prefs)
+}
+
+// Update atomically loads, mutates, and saves preferences for a user.
+// The fn callback receives the current prefs and may mutate it in place;
+// the result is validated and persisted under the store's write lock,
+// preventing lost-update races with concurrent requests (e.g. TogglePin).
+func (s *PreferencesStore) Update(userID string, fn func(*model.Preferences)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	prefs, err := s.loadFromDisk(userID)
+	if err != nil {
+		return err
 	}
 
-	if pinnedSet[proxyName] {
-		delete(pinnedSet, proxyName)
-	} else {
-		pinnedSet[proxyName] = true
-	}
+	fn(&prefs)
 
-	newPinned := make([]string, 0, len(pinnedSet))
-	for name := range pinnedSet {
-		newPinned = append(newPinned, name)
-	}
-	prefs.Pinned = newPinned
+	return s.saveLocked(userID, prefs)
+}
 
-	if err := s.Save(userID, prefs); err != nil {
-		return prefs, err
-	}
+func (s *PreferencesStore) TogglePin(userID, proxyName string) (model.Preferences, error) {
+	var prefs model.Preferences
+	err := s.Update(userID, func(p *model.Preferences) {
+		pinnedSet := make(map[string]bool, len(p.Pinned))
+		for _, name := range p.Pinned {
+			pinnedSet[name] = true
+		}
 
+		if pinnedSet[proxyName] {
+			delete(pinnedSet, proxyName)
+		} else {
+			pinnedSet[proxyName] = true
+		}
+
+		newPinned := make([]string, 0, len(pinnedSet))
+		for name := range pinnedSet {
+			newPinned = append(newPinned, name)
+		}
+		p.Pinned = newPinned
+		prefs = *p
+	})
+	if err != nil {
+		return defaultPreferences(), err
+	}
 	return prefs, nil
 }
