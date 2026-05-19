@@ -128,14 +128,14 @@ templ Dashboard(d DashboardData) {
 							</svg>
 						</button>
 						<button
-							class={ "btn btn-xs join-item view-toggle-compact", templ.KV("btn-primary", d.Prefs.View == "compact") }
+							class={ "btn btn-xs join-item view-toggle-list", templ.KV("btn-primary", d.Prefs.View == "list") }
 							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"view":"compact"}` }
+							hx-vals={ `{"view":"list"}` }
 							hx-target="#proxy-list"
 							hx-swap="innerHTML"
 							hx-include="#searchInput,#sseConnId"
-							aria-label="compact view"
-							title="Compact view"
+							aria-label="list view"
+							title="List view"
 						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -266,9 +266,9 @@ templ Dashboard(d DashboardData) {
 										Cards
 									</button>
 									<button
-										class={ "btn btn-xs join-item flex-1 view-toggle-compact", templ.KV("btn-primary", d.Prefs.View == "compact") }
+										class={ "btn btn-xs join-item flex-1 view-toggle-list", templ.KV("btn-primary", d.Prefs.View == "list") }
 										hx-put="/api/dashboard/preferences"
-										hx-vals={ `{"view":"compact"}` }
+										hx-vals={ `{"view":"list"}` }
 										hx-target="#proxy-list"
 										hx-swap="innerHTML"
 										hx-include="#searchInput,#sseConnId"
@@ -543,7 +543,7 @@ templ Dashboard(d DashboardData) {
 				<input type="hidden" id="sseConnId" name="sseConnId" value=""/>
 				<div
 					id="proxy-list"
-					class={ templ.KV("compact", d.Prefs.View == "compact") }
+					class={ templ.KV("list", d.Prefs.View == "list") }
 				>
 					@proxyListContent(d)
 				</div>
@@ -600,6 +600,14 @@ templ Dashboard(d DashboardData) {
 	</html>
 }
 
+templ proxyItem(view string, data ProxyData) {
+	if view == "list" {
+		@ProxyListRow(data)
+	} else {
+		@ProxyCard(data)
+	}
+}
+
 templ proxyListContent(d DashboardData) {
 	if d.Proxies.Groups != nil {
 		for _, g := range d.Proxies.Groups {
@@ -611,14 +619,14 @@ templ proxyListContent(d DashboardData) {
 				</div>
 				<div class="proxy-group-items">
 					for _, item := range g.Items {
-						@ProxyCard(item.Data)
+						@proxyItem(d.Prefs.View, item.Data)
 					}
 				</div>
 			</div>
 		}
 	} else {
 		for _, item := range d.Proxies.Items {
-			@ProxyCard(item.Data)
+			@proxyItem(d.Prefs.View, item.Data)
 		}
 	}
 }

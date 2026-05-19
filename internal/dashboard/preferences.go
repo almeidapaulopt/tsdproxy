@@ -35,7 +35,7 @@ var validSortKeys = map[string]bool{
 }
 
 var validViewValues = map[string]bool{
-	"card": true, "compact": true,
+	"card": true, "list": true,
 }
 
 var validFilterStatusValues = map[string]bool{
@@ -48,6 +48,10 @@ var validFilterHealthValues = map[string]bool{
 
 func validatePrefs(p *model.Preferences) {
 	def := defaultPreferences()
+	// Migration: "compact" was renamed to "list"
+	if p.View == "compact" {
+		p.View = "list"
+	}
 	if !validViewValues[p.View] {
 		p.View = def.View
 	}

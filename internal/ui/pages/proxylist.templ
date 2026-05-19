@@ -450,4 +450,75 @@ func statusBadgeColor(status string) string {
 	return s.BadgeColor
 }
 
+templ ProxyListRow(item ProxyData) {
+	<div
+		class="proxy-list-row"
+		id={ "proxy-" + dom.SafeID(item.Name) }
+		data-category={ item.Category }
+		data-status={ item.ProxyStatus.String() }
+		data-health={ healthValue(item.HealthStatus) }
+		data-provider={ item.TargetProvider }
+		data-label={ item.Label }
+	>
+		<div class="row-status">
+			<span class={ "status-dot", statusDotClass(item.ProxyStatus.String()) }></span>
+		</div>
 
+		<div class="row-icon">
+			<figure>
+				@components.InlineIcon(item.Icon, "size-5 object-contain")
+			</figure>
+		</div>
+
+		<div class="row-info">
+			<div class="row-name-row">
+				<span class="row-name">{ item.Label }</span>
+				<span class={ "badge badge-xs font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
+			</div>
+			if item.TargetProvider != "" {
+				<span class="row-provider">{ item.TargetProvider }</span>
+			}
+		</div>
+
+		<div class="row-url">
+			<span class="row-hostname" title={ item.Hostname }>{ item.Hostname }</span>
+		</div>
+
+		<div class="row-health">
+			if item.ProxyStatus == model.ProxyStatusRunning && item.HealthStatus != "" {
+				<div class="health-meta">
+					<div class={ "health-dot", item.HealthStatus }></div>
+					<span class="health-label">{ item.HealthStatus }</span>
+				</div>
+			}
+			if item.Pinned {
+				@components.InlineIcon("mdi/star", "size-3.5 row-pinned")
+			}
+		</div>
+
+		<div class="row-actions">
+			<button
+				class="row-info-btn"
+				hx-get={ "/dashboard/proxy/" + url.PathEscape(item.Name) + "/modal" }
+				hx-target="#modal-root"
+				hx-swap="innerHTML"
+				aria-label="proxy details"
+				title="Details"
+			>
+				@components.InlineIcon("mdi/information-variant", "size-3.5")
+			</button>
+			<a
+				href={ templ.URL(item.URL) }
+				class={ "row-open-btn", templ.KV("btn-disabled", !item.Enabled) }
+				target="_blank"
+				rel="noopener noreferrer"
+			>
+				if item.ProxyStatus == model.ProxyStatusAuthenticating {
+					Auth
+				} else {
+					Open
+				}
+			</a>
+		</div>
+	</div>
+}
