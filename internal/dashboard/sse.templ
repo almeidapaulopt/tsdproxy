@@ -1,0 +1,12 @@
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
+
+package dashboard
+
+templ ssePartialElement(target string, swap string, cmp templ.Component) {
+	<hx-partial hx-target={ target } hx-swap={ swap }>
+		if cmp != nil {
+			@cmp
+		}
+	</hx-partial>
+}

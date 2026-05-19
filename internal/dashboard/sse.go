@@ -3,6 +3,8 @@
 
 package dashboard
 
+//go:generate templ generate
+
 import (
 	"bytes"
 	"context"
@@ -31,45 +33,24 @@ func WriteSSE(w http.ResponseWriter, event string, data string) error {
 	return nil
 }
 
-func SSEAppendHTML(w http.ResponseWriter, v any) error {
-	html, err := renderHTML(v)
-	if err != nil {
-		return err
+// WriteSSEPartialComponent renders a templ component inside an <hx-partial>
+// element and sends it as an SSE data message. Pass nil cmp for swap-only
+// operations (e.g. delete, outerHTML clear).
+func WriteSSEPartialComponent(w http.ResponseWriter, target string, swap string, cmp templ.Component) error {
+	var buf bytes.Buffer
+	if err := ssePartialElement(target, swap, cmp).Render(context.Background(), &buf); err != nil {
+		return fmt.Errorf("render sse partial: %w", err)
 	}
-	return WriteSSE(w, "proxy-append", html)
-}
-
-func SSEMergeHTML(w http.ResponseWriter, v any) error {
-	html, err := renderHTML(v)
-	if err != nil {
-		return err
-	}
-	return WriteSSE(w, "proxy-merge", html)
-}
-
-func SSERemoveElement(w http.ResponseWriter, selector string) error {
-	return WriteSSE(w, "proxy-remove", selector)
-}
-
-func SSEClearList(w http.ResponseWriter, selector string) error {
-	return WriteSSE(w, "list-clear", selector)
-}
-
-func SSEUpdateState(w http.ResponseWriter, jsonString string) error {
-	return WriteSSE(w, "update-state", jsonString)
-}
-
-func renderHTML(v any) (string, error) {
-	switch val := v.(type) {
-	case string:
-		return val, nil
-	case templ.Component:
-		var buf bytes.Buffer
-		if err := val.Render(context.Background(), &buf); err != nil {
-			return "", fmt.Errorf("render template: %w", err)
+	for _, line := range strings.Split(buf.String(), "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return fmt.Errorf("write sse partial: %w", err)
 		}
-		return buf.String(), nil
-	default:
-		return fmt.Sprintf("%v", val), nil
 	}
+	if _, err := fmt.Fprint(w, "\n"); err != nil {
+		return fmt.Errorf("write sse delimiter: %w", err)
+	}
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return nil
 }

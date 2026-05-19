@@ -57,6 +57,11 @@ func (a *HTTPServer) Post(pattern string, handler http.Handler) {
 	a.Handle("POST "+pattern, handler)
 }
 
+// Put method add a PUT handler
+func (a *HTTPServer) Put(pattern string, handler http.Handler) {
+	a.Handle("PUT "+pattern, handler)
+}
+
 // StartServer starts a custom http server.
 func (a *HTTPServer) StartServer(s *http.Server) error {
 	// set Logger the first middlewares

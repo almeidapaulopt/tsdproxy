@@ -1,0 +1,697 @@
+package pages
+
+import (
+	"fmt"
+	"unicode"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
+)
+
+type DashboardData struct {
+	Prefs   model.Preferences
+	Proxies DashboardView
+	User    model.Whois
+	Version string
+	Search  string
+}
+
+type DashboardView struct {
+	Items  []ProxyViewItem
+	Groups []DashboardGroup
+}
+
+type ProxyViewItem struct {
+	Name     string
+	Category string
+	Data     ProxyData
+}
+
+type DashboardGroup struct {
+	Name  string
+	Items []ProxyViewItem
+}
+
+templ Dashboard(d DashboardData) {
+	<!DOCTYPE html>
+	<html lang="en" data-theme={ themeName(d.Prefs.Dark) }>
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>TSDProxy</title>
+			<link rel="stylesheet" href="/styles.css" type="text/css"/>
+			<script src="/app.js" type="module" defer></script>
+		</head>
+		<body>
+			<!-- NAVBAR -->
+			<nav class="navbar sticky top-0 z-40 px-4 md:px-6 h-14 min-h-14 bg-base-100/95 backdrop-blur-xs border-b border-base-content/10">
+				<div class="navbar-start">
+					<a href="/" class="flex items-center gap-2 px-1 py-1.5 rounded-lg hover:bg-base-content/5 transition-colors">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="25 25 100 100" fill="none" class="h-7 w-7 shrink-0">
+							<circle cx="75" cy="75" r="50" fill="var(--color-primary)"></circle>
+							<circle cx="75" cy="55" r="5" fill="#FFFFFF"></circle>
+							<circle cx="95" cy="75" r="5" fill="#FFFFFF"></circle>
+							<circle cx="75" cy="95" r="5" fill="#FFFFFF"></circle>
+							<circle cx="55" cy="75" r="5" fill="#FFFFFF"></circle>
+							<line x1="75" y1="55" x2="95" y2="75" stroke="#FFFFFF" stroke-width="2"></line>
+							<line x1="95" y1="75" x2="75" y2="95" stroke="#FFFFFF" stroke-width="2"></line>
+							<line x1="75" y1="95" x2="55" y2="75" stroke="#FFFFFF" stroke-width="2"></line>
+							<line x1="55" y1="75" x2="75" y2="55" stroke="#FFFFFF" stroke-width="2"></line>
+						</svg>
+						<span class="font-bold text-base tracking-tight text-base-content">TSDProxy</span>
+					</a>
+				</div>
+				<div class="navbar-end gap-1 sm:gap-2">
+					<!-- Search -->
+					<label class="input input-sm flex items-center gap-2 flex-1 sm:flex-none sm:min-w-52 max-w-xs">
+						<svg class="h-4 w-4 opacity-40 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+							<g stroke-linejoin="round" stroke-linecap="round" stroke-width="2.5" fill="none" stroke="currentColor">
+								<circle cx="11" cy="11" r="8"></circle>
+								<path d="m21 21-4.3-4.3"></path>
+							</g>
+						</svg>
+						<input
+							id="searchInput"
+							type="search"
+							name="search"
+							value={ d.Search }
+							placeholder="Search..."
+							class="grow min-w-0 text-sm"
+							tabindex="0"
+							hx-get="/dashboard/list"
+							hx-trigger="input changed delay:200ms, keyup[key=='Enter'], search"
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#sseConnId"
+						/>
+						<kbd class="kbd kbd-xs hidden md:inline opacity-40">ctrl</kbd>
+						<kbd class="kbd kbd-xs hidden md:inline opacity-40">f</kbd>
+					</label>
+					<!-- Docs -->
+					<a
+						class="btn btn-ghost btn-sm hidden sm:inline-flex text-sm font-medium"
+						href="https://almeidapaulopt.github.io/tsdproxy/docs/"
+					>Docs</a>
+					<!-- Sponsor -->
+					<a
+						class="btn btn-sm btn-soft btn-secondary hidden sm:inline-flex"
+						href="https://buymeacoffee.com/almeidapaulopt"
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						☕ Sponsor
+					</a>
+					<!-- View toggle -->
+					<div class="join hidden sm:inline-flex">
+						<button
+							class={ "btn btn-xs join-item view-toggle-card", templ.KV("btn-primary", d.Prefs.View == "card") }
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"view":"card"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							aria-label="card view"
+							title="Card view"
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect>
+								<rect width="7" height="7" x="3" y="14" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect>
+							</svg>
+						</button>
+						<button
+							class={ "btn btn-xs join-item view-toggle-compact", templ.KV("btn-primary", d.Prefs.View == "compact") }
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"view":"compact"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							aria-label="compact view"
+							title="Compact view"
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<line x1="8" x2="21" y1="6" y2="6"></line><line x1="8" x2="21" y1="12" y2="12"></line><line x1="8" x2="21" y1="18" y2="18"></line>
+								<line x1="3" x2="3.01" y1="6" y2="6"></line><line x1="3" x2="3.01" y1="12" y2="12"></line><line x1="3" x2="3.01" y1="18" y2="18"></line>
+							</svg>
+						</button>
+					</div>
+					<!-- Notifications -->
+					<button
+						class="btn btn-ghost btn-sm btn-square hidden sm:inline-flex request-notifications-btn"
+						hx-on:click="requestNotifications()"
+						aria-label="enable notifications"
+						title="Enable notifications"
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path>
+							<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path>
+						</svg>
+					</button>
+					<!-- Theme toggle -->
+					<label class="cursor-pointer gap-1.5 hidden sm:inline-flex items-center" title="Toggle theme">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="opacity-60"
+						>
+							<circle cx="12" cy="12" r="5"></circle>
+							<path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"></path>
+						</svg>
+						<input
+							type="checkbox"
+							class="toggle toggle-sm theme-controller"
+							checked?={ d.Prefs.Dark }
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ fmt.Sprintf(`{"dark":%v}`, !d.Prefs.Dark) }
+							hx-swap="none"
+							hx-on:htmx:after:request="document.documentElement.dataset.theme=this.checked?'tsdproxy-dark':'tsdproxy-light'"
+							aria-label="theme switch"
+						/>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							width="16"
+							height="16"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							class="opacity-60"
+						>
+							<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+						</svg>
+					</label>
+					<!-- User menu -->
+					if d.User.ID != "" {
+						<details class="dropdown dropdown-end" id="user-menu">
+							<summary class="btn btn-ghost btn-sm btn-circle avatar border border-base-content/15" aria-label="user menu">
+								<div class="w-7 h-7 rounded-full flex items-center justify-center">
+									<img class="rounded-full w-full h-full object-cover" src={ d.User.ProfilePicURL } alt="user avatar"/>
+								</div>
+							</summary>
+							<div class="dropdown-content bg-base-100 border border-base-content/10 rounded-xl z-50 mt-2 w-52 p-3 shadow-md">
+								<p class="text-sm font-semibold truncate">{ d.User.DisplayName }</p>
+								<p class="text-xs text-base-content/50 truncate">{ d.User.Username }</p>
+							</div>
+						</details>
+					}
+					<!-- Mobile hamburger -->
+					<details class="dropdown dropdown-end sm:hidden">
+						<summary class="btn btn-ghost btn-sm btn-square" aria-label="menu">
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path>
+							</svg>
+						</summary>
+						<ul class="dropdown-content menu bg-base-100 border border-base-content/10 rounded-xl z-50 mt-2 w-56 p-2 shadow-md gap-0.5">
+							<li>
+								<div class="join w-full">
+									<button
+										class={ "btn btn-xs join-item flex-1 view-toggle-card", templ.KV("btn-primary", d.Prefs.View == "card") }
+										hx-put="/api/dashboard/preferences"
+										hx-vals={ `{"view":"card"}` }
+										hx-target="#proxy-list"
+										hx-swap="innerHTML"
+										hx-include="#searchInput,#sseConnId"
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="13"
+											height="13"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect>
+											<rect width="7" height="7" x="3" y="14" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect>
+										</svg>
+										Cards
+									</button>
+									<button
+										class={ "btn btn-xs join-item flex-1 view-toggle-compact", templ.KV("btn-primary", d.Prefs.View == "compact") }
+										hx-put="/api/dashboard/preferences"
+										hx-vals={ `{"view":"compact"}` }
+										hx-target="#proxy-list"
+										hx-swap="innerHTML"
+										hx-include="#searchInput,#sseConnId"
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											width="13"
+											height="13"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<line x1="8" x2="21" y1="6" y2="6"></line><line x1="8" x2="21" y1="12" y2="12"></line><line x1="8" x2="21" y1="18" y2="18"></line>
+											<line x1="3" x2="3.01" y1="6" y2="6"></line><line x1="3" x2="3.01" y1="12" y2="12"></line><line x1="3" x2="3.01" y1="18" y2="18"></line>
+										</svg>
+										List
+									</button>
+								</div>
+							</li>
+							<li>
+								<button class="flex items-center gap-2 text-sm" hx-on:click="requestNotifications()" aria-label="enable notifications">
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="15"
+										height="15"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path>
+										<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path>
+									</svg>
+									Notifications
+								</button>
+							</li>
+							<li><a href="https://almeidapaulopt.github.io/tsdproxy/docs/" class="text-sm">Documentation</a></li>
+							<li>
+								<a
+									class="text-sm text-secondary"
+									href="https://buymeacoffee.com/almeidapaulopt"
+									target="_blank"
+									rel="noopener noreferrer"
+								>☕ Become a Sponsor</a>
+							</li>
+							<div class="divider my-1"></div>
+							<li>
+								<label class="flex cursor-pointer items-center gap-2 px-2 py-1.5">
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="opacity-60"
+									>
+										<circle cx="12" cy="12" r="5"></circle>
+										<path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"></path>
+									</svg>
+									<span class="text-sm flex-1">Dark mode</span>
+									<input
+										type="checkbox"
+										class="toggle toggle-sm theme-controller"
+										checked?={ d.Prefs.Dark }
+										hx-put="/api/dashboard/preferences"
+										hx-vals={ fmt.Sprintf(`{"dark":%v}`, !d.Prefs.Dark) }
+										hx-swap="none"
+										hx-on:htmx:after:request="document.documentElement.dataset.theme=this.checked?'tsdproxy-dark':'tsdproxy-light'"
+										aria-label="theme switch"
+									/>
+								</label>
+							</li>
+						</ul>
+					</details>
+				</div>
+			</nav>
+			<!-- TOOLBAR -->
+			<div class="toolbar">
+				<button
+					class={ "btn btn-xs", templ.KV("btn-primary", d.Prefs.Grouped) }
+					hx-put="/api/dashboard/preferences"
+					hx-vals={ fmt.Sprintf(`{"grouped":%v}`, !d.Prefs.Grouped) }
+					hx-target="#proxy-list"
+					hx-swap="innerHTML"
+					hx-include="#searchInput,#sseConnId"
+					aria-label="group toggle"
+				>
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						width="13"
+						height="13"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<path d="M12 13V2l8 4-8 4"></path><path d="M20.55 10.23A9 9 0 1 1 8 4.94"></path>
+					</svg>
+					<span class="hidden sm:inline">Group</span>
+				</button>
+				<div class="flex items-center gap-1.5">
+					<label class="text-xs text-base-content/50 shrink-0">Sort</label>
+					<select
+						class="select select-xs"
+						name="sort"
+						hx-trigger="change"
+						hx-put="/api/dashboard/preferences"
+						hx-target="#proxy-list"
+						hx-swap="innerHTML"
+						hx-include="#searchInput,#sseConnId"
+					>
+						<option value="name" selected?={ d.Prefs.Sort == "name" }>Name</option>
+						<option value="status" selected?={ d.Prefs.Sort == "status" }>Status</option>
+						<option value="provider" selected?={ d.Prefs.Sort == "provider" }>Provider</option>
+						<option value="health" selected?={ d.Prefs.Sort == "health" }>Health</option>
+					</select>
+				</div>
+				<div class="flex items-center gap-1 min-w-0">
+					<label class="text-xs text-base-content/50 sm:mr-1 shrink-0">Status</label>
+					<div class="filter filter-scroll">
+						<input
+							class="btn btn-xs filter-reset"
+							type="radio"
+							name="filterStatus"
+							aria-label="All"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"all"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "all" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="Running"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"Running"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "Running" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="Stopped"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"Stopped"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "Stopped" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="Paused"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"Paused"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "Paused" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="Error"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"Error"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "Error" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="Auth"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"Authenticating"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "Authenticating" }
+						/>
+					</div>
+				</div>
+				<div class="flex items-center gap-1 min-w-0">
+					<label class="text-xs text-base-content/50 sm:mr-1 shrink-0">Health</label>
+					<div class="filter filter-scroll">
+						<input
+							class="btn btn-xs filter-reset"
+							type="radio"
+							name="filterHealth"
+							aria-label="All"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterHealth":"all"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterHealth == "all" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterHealth"
+							aria-label="Healthy"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterHealth":"healthy"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterHealth == "healthy" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterHealth"
+							aria-label="Unhealthy"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterHealth":"down"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterHealth == "down" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterHealth"
+							aria-label="Unknown"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterHealth":"unknown"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterHealth == "unknown" }
+						/>
+					</div>
+				</div>
+			</div>
+			<!-- MAIN -->
+			<main>
+				<input type="hidden" id="sseConnId" name="sseConnId" value=""/>
+				<div
+					id="proxy-list"
+					class={ templ.KV("compact", d.Prefs.View == "compact") }
+				>
+					@proxyListContent(d)
+				</div>
+			</main>
+			<!-- MODAL ROOT (outside proxy-list so list refreshes don't close modals) -->
+			<div id="modal-root"></div>
+			<!-- SSE connection (invisible, drives list updates) -->
+			<div
+				hx-sse:connect="/stream"
+				style="display:none"
+				hx-on:notify="showProxyNotification(event)"
+				hx-on:conn-id="handleConnId(event)"
+				hx-on:scroll-logs="scrollLogs(event)"
+				hx-on:trim-logs="trimLogs(event)"
+			></div>
+			<!-- TOASTS -->
+			<div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2"></div>
+			<!-- FOOTER -->
+			<footer class="footer sm:footer-horizontal bg-base-200/60 border-t border-base-content/8 px-6 py-5 mt-10">
+				<aside class="flex items-center gap-3">
+					<img src="/icons/tsdproxy.svg" alt="TSDProxy Logo" class="h-7 w-7 opacity-80"/>
+					<p class="text-sm text-base-content/60">
+						TSDProxy <span id="app-version" class="text-base-content/40">{ versionStr(d.Version) }</span> by <strong class="text-base-content/80">Paulo Almeida</strong>
+						&amp; <a
+	href="https://github.com/almeidapaulopt/tsdproxy/graphs/contributors"
+	target="_blank"
+	rel="noopener noreferrer"
+	class="link link-hover text-base-content/60"
+>contributors</a>
+					</p>
+				</aside>
+				<nav class="flex items-center gap-5 sm:place-self-center sm:justify-self-end">
+					<a
+						href="https://github.com/almeidapaulopt/tsdproxy"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="opacity-50 hover:opacity-100 transition-opacity"
+						aria-label="GitHub"
+					>
+						<img class="h-5" src="/icons/sh/github.svg" alt="github"/>
+					</a>
+					<a
+						href="https://x.com/almeidapaulopt"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="opacity-50 hover:opacity-100 transition-opacity"
+						aria-label="X / Twitter"
+					>
+						<img class="h-5" src="/icons/sh/x.svg" alt="X"/>
+					</a>
+				</nav>
+			</footer>
+		</body>
+	</html>
+}
+
+templ proxyListContent(d DashboardData) {
+	if d.Proxies.Groups != nil {
+		for _, g := range d.Proxies.Groups {
+			<div class="proxy-group" data-category={ g.Name }>
+				<div class="proxy-group-header" hx-on:click="this.parentElement.classList.toggle('is-collapsed'); this.nextElementSibling.classList.toggle('collapsed');">
+					<span class="proxy-group-name">{ capitalize(g.Name) }</span>
+					<span class="proxy-group-count badge badge-xs badge-ghost">{ fmt.Sprintf("%d", len(g.Items)) }</span>
+					<svg class="proxy-group-chevron" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+				</div>
+				<div class="proxy-group-items">
+					for _, item := range g.Items {
+						@ProxyCard(item.Data)
+					}
+				</div>
+			</div>
+		}
+	} else {
+		for _, item := range d.Proxies.Items {
+			@ProxyCard(item.Data)
+		}
+	}
+}
+
+// ProxyListFragment renders only the proxy list content for htmx swaps.
+templ ProxyListFragment(d DashboardData) {
+	@proxyListContent(d)
+}
+
+func themeName(dark bool) string {
+	if dark {
+		return "tsdproxy-dark"
+	}
+	return "tsdproxy-light"
+}
+
+func versionStr(v string) string {
+	if v == "" {
+		return ""
+	}
+	return "v" + v
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	runes := []rune(s)
+	runes[0] = unicode.ToUpper(runes[0])
+	return string(runes)
+}
+
+templ Toast(message string, success bool) {
+	<div class="toast toast-info">
+		<div class="alert alert-info">
+			if success {
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="16"
+					height="16"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<path d="M20 6 9 17l-5-5"></path>
+				</svg>
+			} else {
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					width="16"
+					height="16"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
+					<circle cx="12" cy="12" r="10"></circle>
+					<line x1="12" x2="12" y1="8" y2="12"></line>
+					<line x1="12" x2="12.01" y1="16" y2="16"></line>
+				</svg>
+			}
+			<span>{ message }</span>
+		</div>
+	</div>
+}
+
+templ ToastPartial(message string, success bool) {
+	<hx-partial hx-target="#toast-container" hx-swap="beforeend">
+		@Toast(message, success)
+	</hx-partial>
+}

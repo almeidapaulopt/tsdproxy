@@ -1,0 +1,23 @@
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
+
+package pages
+
+templ ForbiddenPage(message string) {
+	<!DOCTYPE html>
+	<html lang="en" data-theme="dark">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>403 Forbidden</title>
+		<link rel="stylesheet" href="/styles.css" type="text/css" />
+	</head>
+	<body class="min-h-screen flex items-center justify-center bg-base-300">
+		<div class="card bg-base-200 shadow-xl rounded-2xl p-10 max-w-md text-center">
+			<h1 class="text-2xl font-bold text-base-content mb-2">{ message }</h1>
+			<p class="text-base-content/50 mb-6">Access requires a Tailscale connection.</p>
+			<span class="badge badge-ghost font-mono text-sm">tsdproxy</span>
+		</div>
+	</body>
+	</html>
+}
