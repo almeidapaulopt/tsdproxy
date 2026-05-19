@@ -28,6 +28,7 @@ function hideNotificationBtn() {
 hideNotificationBtn();
 
 window.showProxyNotification = function (evt) {
+  if (!('Notification' in window)) return;
   const msg = typeof evt.detail === 'string' ? evt.detail : evt.detail?.data || '';
   const sep = msg.indexOf('\x00');
   if (sep === -1) return;
