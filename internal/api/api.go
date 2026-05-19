@@ -51,27 +51,27 @@ type (
 	}
 
 	apiProxy struct {
-		Name           string       `json:"name"`
-		Label          string       `json:"label"`
+		Category       string       `json:"category,omitempty"`
+		TargetID       string       `json:"targetId"`
 		Status         string       `json:"status"`
 		Health         string       `json:"health"`
 		HealthLatency  string       `json:"healthLatency,omitempty"`
 		URL            string       `json:"url"`
-		Category       string       `json:"category,omitempty"`
-		Uptime         string       `json:"uptime,omitempty"`
-		Ports          []apiPort    `json:"ports"`
-		Tailscale      apiTailscale `json:"tailscale"`
-		StatusHistory  []apiStatus  `json:"statusHistory,omitempty"`
-		TargetProvider string       `json:"targetProvider"`
-		TargetID       string       `json:"targetId"`
 		TargetImage    string       `json:"targetImage,omitempty"`
+		Name           string       `json:"name"`
+		Label          string       `json:"label"`
+		Uptime         string       `json:"uptime,omitempty"`
+		TargetProvider string       `json:"targetProvider"`
+		StatusHistory  []apiStatus  `json:"statusHistory,omitempty"`
+		Tailscale      apiTailscale `json:"tailscale"`
+		Ports          []apiPort    `json:"ports"`
 	}
 
 	apiPort struct {
 		Name          string `json:"name"`
 		ProxyProtocol string `json:"proxyProtocol"`
-		ProxyPort     int    `json:"proxyPort"`
 		TargetURL     string `json:"targetUrl"`
+		ProxyPort     int    `json:"proxyPort"`
 		TLSValidate   bool   `json:"tlsValidate"`
 		IsRedirect    bool   `json:"isRedirect"`
 		Funnel        bool   `json:"funnel"`
@@ -277,7 +277,7 @@ func (a *API) testWebhookHandler() http.HandlerFunc {
 		sender := webhook.NewSender(a.Log, config.Config.Webhooks)
 		defer sender.Close()
 
-		if err := sender.SendSync(webhook.WebhookEvent{
+		if err := sender.SendSync(webhook.Event{
 			ProxyName: "test-proxy",
 			Status:    running.String(),
 			OldStatus: stopped.String(),
@@ -302,9 +302,9 @@ func formatDuration(d time.Duration) string {
 	if d == 0 {
 		return ""
 	}
-	days := int(d.Hours() / 24)
-	hours := int(math.Mod(d.Hours(), 24))
-	minutes := int(math.Mod(d.Minutes(), 60))
+	days := int(d.Hours() / 24)               //nolint:mnd
+	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
+	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
 
 	var parts []string
 	if days > 0 {

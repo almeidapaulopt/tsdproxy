@@ -19,7 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type ConfigFile struct {
+type File struct {
 	data any
 	log  zerolog.Logger
 
@@ -30,15 +30,15 @@ type ConfigFile struct {
 	mtx sync.Mutex
 }
 
-func NewConfigFile(log zerolog.Logger, filename string, data any) *ConfigFile {
-	return &ConfigFile{
+func NewConfigFile(log zerolog.Logger, filename string, data any) *File {
+	return &File{
 		filename: filename,
 		data:     data,
 		log:      log.With().Str("module", "file").Str("files", filename).Logger(),
 	}
 }
 
-func (f *ConfigFile) Load() error {
+func (f *File) Load() error {
 	data, err := os.ReadFile(f.filename)
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func (f *ConfigFile) Load() error {
 	return nil
 }
 
-func (f *ConfigFile) Save() error {
+func (f *File) Save() error {
 	// create config directory
 	dir, _ := filepath.Split(f.filename)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -75,7 +75,7 @@ func (f *ConfigFile) Save() error {
 }
 
 // OnConfigChange sets the event handler that is called when a config file changes.
-func (f *ConfigFile) OnChange(run func(in fsnotify.Event)) {
+func (f *File) OnChange(run func(in fsnotify.Event)) {
 	f.mtx.Lock()
 	defer f.mtx.Unlock()
 
@@ -83,7 +83,7 @@ func (f *ConfigFile) OnChange(run func(in fsnotify.Event)) {
 }
 
 // Watch starts watching a config file for changes.
-func (f *ConfigFile) Watch() error {
+func (f *File) Watch() error {
 	f.log.Debug().Str("file", f.filename).Msg("Start watching file")
 
 	errChan := make(chan error, 1)
@@ -119,7 +119,7 @@ func (f *ConfigFile) Watch() error {
 	return <-errChan
 }
 
-func (f *ConfigFile) watchEvents(watcher *fsnotify.Watcher, file string) {
+func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
 	realFile, _ := filepath.EvalSymlinks(f.filename)
 	for {
 		select {
@@ -137,7 +137,7 @@ func (f *ConfigFile) watchEvents(watcher *fsnotify.Watcher, file string) {
 	}
 }
 
-func (f *ConfigFile) handleEvent(event fsnotify.Event, file string, realFile *string) {
+func (f *File) handleEvent(event fsnotify.Event, file string, realFile *string) {
 	currentFile, _ := filepath.EvalSymlinks(f.filename)
 	if (filepath.Clean(event.Name) == file &&
 		(event.Has(fsnotify.Write) || event.Has(fsnotify.Create))) ||

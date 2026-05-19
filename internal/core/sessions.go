@@ -17,7 +17,7 @@ func SessionMiddleware(next http.Handler) http.Handler {
 
 		if errors.Is(err, http.ErrNoCookie) {
 			sessionID = uuid.New().String()
-			http.SetCookie(w, &http.Cookie{
+			http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure is conditional on TLS
 				Name:     "session_id",
 				Value:    sessionID,
 				Path:     "/",

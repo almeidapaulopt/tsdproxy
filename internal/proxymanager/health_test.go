@@ -14,7 +14,7 @@ import (
 )
 
 func TestHealthChecker_FiresAfterThreeFailures(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
@@ -69,7 +69,7 @@ func TestHealthChecker_FiresEvenIfNeverHealthy(t *testing.T) {
 }
 
 func TestHealthChecker_CancelledContextNoFire(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
@@ -98,17 +98,17 @@ func TestHealthChecker_CancelledContextNoFire(t *testing.T) {
 		hc.check()
 	}
 	if count := atomic.LoadInt32(&redetectCount); count != 0 {
-		t.Fatalf("onRedetect fired with cancelled context: %d", count)
+		t.Fatalf("onRedetect fired with canceled context: %d", count)
 	}
 }
 
 func TestHealthChecker_SetTargetUpdatesProbe(t *testing.T) {
-	backendA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backendA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backendA.Close()
 
-	backendB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backendB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backendB.Close()
@@ -140,7 +140,7 @@ func TestHealthChecker_SetTargetUpdatesProbe(t *testing.T) {
 }
 
 func TestHealthChecker_AfterFireRequiresNewHealthyPeriod(t *testing.T) {
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend.Close()
@@ -170,7 +170,7 @@ func TestHealthChecker_AfterFireRequiresNewHealthyPeriod(t *testing.T) {
 	}
 
 	// Phase 3: spin up a new healthy backend via SetTarget.
-	backend2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer backend2.Close()

@@ -24,6 +24,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const (
+	hxRequestHeader = "true"
+	subjectRemote   = "__remote__"
+)
+
 type Dashboard struct {
 	Log        zerolog.Logger
 	HTTP       *core.HTTPServer
@@ -61,7 +66,7 @@ func (dash *Dashboard) dashboardSubject(r *http.Request) string {
 	if core.IsLocalhost(r.RemoteAddr) {
 		return "__localhost__"
 	}
-	return "__remote__"
+	return subjectRemote
 }
 
 // AddRoutes method add dashboard related routes to the http server
@@ -103,7 +108,7 @@ func formatAgo(t time.Time) string {
 		}
 		return fmt.Sprintf("%dh ago", h)
 	default:
-		days := int(math.Round(d.Hours() / 24))
+		days := int(math.Round(d.Hours() / 24)) //nolint:mnd
 		if days == 1 {
 			return "1d ago"
 		}
@@ -115,9 +120,9 @@ func formatDuration(d time.Duration) string {
 	if d == 0 {
 		return ""
 	}
-	days := int(d.Hours() / 24)
-	hours := int(math.Mod(d.Hours(), 24))
-	minutes := int(math.Mod(d.Minutes(), 60))
+	days := int(d.Hours() / 24)               //nolint:mnd
+	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
+	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
 
 	var parts []string
 	if days > 0 {
@@ -151,7 +156,7 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 			return
 		}
 
-		if r.Header.Get("HX-Request") == "true" {
+		if r.Header.Get("HX-Request") == hxRequestHeader {
 			pinned := pinnedSet(dash.loadPrefs(dash.dashboardSubject(r)))
 			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned)))
 			return
@@ -378,11 +383,11 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 
 		switch scheme {
 		case "https":
-			if target.ProxyPort != 443 {
+			if target.ProxyPort != 443 { //nolint:mnd
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}
 		case "http":
-			if target.ProxyPort != 80 {
+			if target.ProxyPort != 80 { //nolint:mnd
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}
 		default:
@@ -488,7 +493,7 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 		selector := "#log-lines-" + safeID
 		scrollSelector := selector
 		trimSelector := selector
-		maxLines := fmt.Sprintf("%d", proxymanager.DefaultLogBufferSize)
+		maxLines := strconv.Itoa(proxymanager.DefaultLogBufferSize)
 
 		writeAppend := func(cmp templ.Component) error {
 			return WriteSSEPartialComponent(w, selector, "beforeend", cmp)

@@ -14,9 +14,9 @@ import (
 
 type (
 	PortConfig struct {
-		name          string `validate:"string" yaml:"name"`
-		ProxyProtocol string `validate:"string" yaml:"proxyProtocol"`
 		targets       *targetState
+		name          string        `validate:"string" yaml:"name"`
+		ProxyProtocol string        `validate:"string" yaml:"proxyProtocol"`
 		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
 		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
 		NoAutoDetect  bool          `validate:"boolean" yaml:"noAutoDetect"`
@@ -29,8 +29,8 @@ type (
 	}
 
 	targetState struct {
-		mtx     sync.RWMutex
 		targets []*url.URL
+		mtx     sync.RWMutex
 	}
 )
 
@@ -38,6 +38,14 @@ const (
 	redirectSeparator = "->"
 	proxySeparator    = ":"
 	protocolSeparator = "/"
+	splitPairCount    = 2
+
+	ProtoHTTPS = "https"
+	ProtoHTTP  = "http"
+	ProtoTCP   = "tcp"
+	ProtoUDP   = "udp"
+
+	rangeKeyPrefix = "range_0"
 )
 
 var (
@@ -90,7 +98,7 @@ func NewPortLongLabel(s string) (PortConfig, error) {
 	separator := detectSeparator(s)
 
 	parts := strings.Split(s, separator)
-	if len(parts) != 2 { //nolint:mnd
+	if len(parts) != splitPairCount { //nolint:mnd
 		return config, ErrInvalidProxyConfig
 	}
 
@@ -133,7 +141,7 @@ func (p *PortConfig) String() string {
 func defaultPortConfig(name string) PortConfig {
 	return PortConfig{
 		name:          name,
-		ProxyProtocol: "https",
+		ProxyProtocol: ProtoHTTPS,
 		ProxyPort:     443, //nolint:mnd
 		IsRedirect:    false,
 		targets:       &targetState{},
@@ -151,7 +159,7 @@ func detectSeparator(s string) string {
 // parseProxySegment parses the proxy segment of the configuration string.
 func parseProxySegment(segment string, config *PortConfig) error {
 	proxyParts := strings.Split(segment, protocolSeparator)
-	if len(proxyParts) > 2 { //nolint:mnd
+	if len(proxyParts) > splitPairCount { //nolint:mnd
 		return ErrInvalidProxyConfig
 	}
 
@@ -164,7 +172,7 @@ func parseProxySegment(segment string, config *PortConfig) error {
 	}
 	config.ProxyPort = proxyPort
 
-	if len(proxyParts) == 2 { //nolint:mnd
+	if len(proxyParts) == splitPairCount { //nolint:mnd
 		config.ProxyProtocol = proxyParts[1]
 	}
 
@@ -173,18 +181,18 @@ func parseProxySegment(segment string, config *PortConfig) error {
 
 func defaultTargetProtocol(proxyProtocol string) string {
 	switch proxyProtocol {
-	case "tcp":
-		return "tcp"
-	case "udp":
-		return "udp"
+	case ProtoTCP:
+		return ProtoTCP
+	case ProtoUDP:
+		return ProtoUDP
 	default:
-		return "http"
+		return ProtoHTTP
 	}
 }
 
 func parseTargetSegment(segment string, config *PortConfig) error {
 	targetParts := strings.Split(segment, protocolSeparator)
-	if len(targetParts) > 2 { //nolint:mnd
+	if len(targetParts) > splitPairCount { //nolint:mnd
 		return ErrInvalidTargetConfig
 	}
 
@@ -192,13 +200,13 @@ func parseTargetSegment(segment string, config *PortConfig) error {
 	if err != nil {
 		return fmt.Errorf("invalid target port: %w", err)
 	}
-	if err := validatePortRange(targetPort); err != nil {
-		return fmt.Errorf("invalid target port: %w", err)
+	if err2 := validatePortRange(targetPort); err2 != nil {
+		return fmt.Errorf("invalid target port: %w", err2)
 	}
 
 	targetProtocol := defaultTargetProtocol(config.ProxyProtocol)
 
-	if len(targetParts) == 2 { //nolint:mnd
+	if len(targetParts) == splitPairCount { //nolint:mnd
 		targetProtocol = targetParts[1]
 	}
 
@@ -294,8 +302,8 @@ func (ts *targetState) replace(origin, target *url.URL) {
 
 // isPortRange checks whether a port string contains a range expression (e.g., "56000-56100").
 func isPortRange(s string) bool {
-	parts := strings.SplitN(s, rangeSep, 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(s, rangeSep, splitPairCount) //nolint:mnd
+	if len(parts) != splitPairCount {                    //nolint:mnd
 		return false
 	}
 	_, err1 := strconv.Atoi(parts[0])
@@ -305,8 +313,8 @@ func isPortRange(s string) bool {
 
 // parsePortRange parses a port range string like "56000-56100" and returns the start and end ports.
 func parsePortRange(s string) (start, end int, err error) {
-	parts := strings.SplitN(s, rangeSep, 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(s, rangeSep, splitPairCount) //nolint:mnd
+	if len(parts) != splitPairCount {                    //nolint:mnd
 		return 0, 0, fmt.Errorf("invalid port range %q: expected format start-end", s)
 	}
 
@@ -344,17 +352,17 @@ func parsePortRange(s string) (start, end int, err error) {
 func IsPortRangeLabel(s string) bool {
 	separator := detectSeparator(s)
 	parts := strings.Split(s, separator)
-	if len(parts) != 2 { //nolint:mnd
+	if len(parts) != splitPairCount { //nolint:mnd
 		return false
 	}
 
-	proxyPort := strings.SplitN(parts[0], protocolSeparator, 2)[0]
+	proxyPort := strings.SplitN(parts[0], protocolSeparator, splitPairCount)[0] //nolint:mnd
 	if isPortRange(proxyPort) {
 		return true
 	}
 
 	if separator != redirectSeparator {
-		targetPort := strings.SplitN(parts[1], protocolSeparator, 2)[0]
+		targetPort := strings.SplitN(parts[1], protocolSeparator, splitPairCount)[0]
 		return isPortRange(targetPort)
 	}
 
@@ -378,23 +386,23 @@ func IsPortRangeLabel(s string) bool {
 func ExpandPortRangeLabel(s string) (map[string]PortConfig, error) {
 	separator := detectSeparator(s)
 	if separator == redirectSeparator {
-		return nil, fmt.Errorf("port ranges are not supported with redirect syntax")
+		return nil, errors.New("port ranges are not supported with redirect syntax")
 	}
 
 	parts := strings.Split(s, separator)
-	if len(parts) != 2 { //nolint:mnd
+	if len(parts) != splitPairCount { //nolint:mnd
 		return nil, ErrInvalidProxyConfig
 	}
 
-	proxyParts := strings.SplitN(parts[0], protocolSeparator, 2)
-	proxyProtocol := "https"
-	if len(proxyParts) == 2 { //nolint:mnd
+	proxyParts := strings.SplitN(parts[0], protocolSeparator, splitPairCount)
+	proxyProtocol := ProtoHTTPS
+	if len(proxyParts) == splitPairCount { //nolint:mnd
 		proxyProtocol = proxyParts[1]
 	}
 
-	targetParts := strings.SplitN(parts[1], protocolSeparator, 2)
+	targetParts := strings.SplitN(parts[1], protocolSeparator, splitPairCount)
 	targetProtocol := defaultTargetProtocol(proxyProtocol)
-	if len(targetParts) == 2 { //nolint:mnd
+	if len(targetParts) == splitPairCount { //nolint:mnd
 		targetProtocol = targetParts[1]
 	}
 
@@ -487,9 +495,9 @@ func ExpandPortRangeLabel(s string) (map[string]PortConfig, error) {
 // ExpandPortRangeShortLabel parses a short label that may contain a port range
 // (e.g., "56000-56100/udp") and returns one PortConfig per port.
 func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
-	proxyParts := strings.SplitN(s, protocolSeparator, 2)
-	proxyProtocol := "https"
-	if len(proxyParts) == 2 { //nolint:mnd
+	proxyParts := strings.SplitN(s, protocolSeparator, splitPairCount)
+	proxyProtocol := ProtoHTTPS
+	if len(proxyParts) == splitPairCount { //nolint:mnd
 		proxyProtocol = proxyParts[1]
 	}
 
@@ -498,7 +506,7 @@ func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]PortConfig{"range_0": cfg}, nil
+		return map[string]PortConfig{rangeKeyPrefix: cfg}, nil
 	}
 
 	start, end, err := parsePortRange(proxyParts[0])
@@ -527,6 +535,6 @@ func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
 
 // IsPortRangeShortLabel checks whether a short label uses range syntax.
 func IsPortRangeShortLabel(s string) bool {
-	portPart := strings.SplitN(s, protocolSeparator, 2)[0]
+	portPart := strings.SplitN(s, protocolSeparator, splitPairCount)[0]
 	return isPortRange(portPart)
 }

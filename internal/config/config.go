@@ -46,40 +46,19 @@ type (
 	// config stores complete configuration.
 	//
 	config struct {
-		DefaultProxyProvider string `validate:"required" default:"default" yaml:"defaultProxyProvider"`
-
-		Docker    map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
-		Lists     map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
-		Tailscale TailscaleProxyProviderConfig           `yaml:"tailscale"`
-
-		HTTP      HTTPConfig      `yaml:"http"`
-		Log       LogConfig       `yaml:"log"`
-		Telemetry TelemetryConfig `yaml:"telemetry"`
-		Webhooks  []WebhookConfig `yaml:"webhooks"`
-
-		ProxyAccessLog bool `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
-
-		// Admins is a list of Tailscale UserProfile.IDs authorized to
-		// access admin endpoints (restart, pause, resume, reauth).
-		// Use /api/whoami to discover your UserProfile.ID.
-		// Example:
-		//   admins:
-		//     - "12345"  # alice@github
-		Admins []string `yaml:"admins,omitempty"`
-
-		// AdminAllowLocalhost permits localhost requests to bypass
-		// the admin allowlist. Use only for bootstrapping —
-		// any process on the host can then call admin endpoints.
-		AdminAllowLocalhost bool `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
-
-		// APIKey is a bearer token that grants full access to all API
-		// and dashboard endpoints, independent of the Tailscale admin
-		// allowlist. Mutually exclusive with APIKeyFile.
-		APIKey string `yaml:"apiKey,omitempty"`
-
-		// APIKeyFile is the path to a file containing the bearer token.
-		// Takes precedence over APIKey.
-		APIKeyFile string `yaml:"apiKeyFile,omitempty"`
+		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
+		Lists                map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
+		Tailscale            TailscaleProxyProviderConfig           `yaml:"tailscale"`
+		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
+		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
+		APIKey               string                                 `yaml:"apiKey,omitempty"`
+		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
+		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
+		Admins               []string                               `yaml:"admins,omitempty"`
+		Log                  LogConfig                              `yaml:"log"`
+		HTTP                 HTTPConfig                             `yaml:"http"`
+		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
+		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
 	}
 
 	WebhookConfig struct {
@@ -97,8 +76,8 @@ type (
 
 	// TelemetryConfig stores OpenTelemetry configuration.
 	TelemetryConfig struct {
-		Enabled  bool   `default:"false" yaml:"enabled"`
 		Endpoint string `default:"localhost:4317" yaml:"endpoint"`
+		Enabled  bool   `default:"false" yaml:"enabled"`
 		Insecure bool   `default:"false" yaml:"insecure"`
 	}
 
@@ -230,7 +209,7 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(resolved)
+	data, err := os.ReadFile(resolved) //nolint:gosec // G703: path is validated by ValidateKeyFilePath
 	if err != nil {
 		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}

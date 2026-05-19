@@ -30,10 +30,10 @@ const (
 
 type Preferences struct {
 	Dark         bool     `json:"dark"`
-	View         string   `json:"view"`
-	Sort         string   `json:"sort"`
 	Grouped      bool     `json:"grouped"`
-	FilterStatus string   `json:"filterStatus"`
 	FilterHealth string   `json:"filterHealth"`
+	FilterStatus string   `json:"filterStatus"`
 	Pinned       []string `json:"pinned"`
+	Sort         string   `json:"sort"`
+	View         string   `json:"view"`
 }

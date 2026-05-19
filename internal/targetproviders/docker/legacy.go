@@ -13,7 +13,7 @@ func (c *container) getLegacyPort() (model.PortConfig, error) {
 
 	cProtocol, hasProtocol := c.labels[LabelScheme]
 	if !hasProtocol {
-		cProtocol = "http"
+		cProtocol = DefaultTargetScheme
 	}
 
 	port, err := model.NewPortLongLabel("443/https:" + cPort + "/" + cProtocol)

@@ -77,9 +77,9 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 
 	c.autodetect = c.getLabelBool(LabelAutoDetect, providerAutoDetect)
 	c.autoRestart = c.getLabelBool(LabelAutoRestart, c.providerAutoRestart)
-	c.healthCheckInterval = c.getLabelInt(LabelHealthCheckInterval, c.providerHealthInterval, 1, 86400)
-	c.healthCheckFailures = c.getLabelInt(LabelHealthCheckFailures, c.providerHealthFailures, 1, 100)
-	c.healthCheckCooldown = c.getLabelInt(LabelHealthCheckCooldown, c.providerHealthCooldown, 0, 86400)
+	c.healthCheckInterval = c.getLabelInt(LabelHealthCheckInterval, c.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
+	c.healthCheckFailures = c.getLabelInt(LabelHealthCheckFailures, c.providerHealthFailures, 1, healthCheckMaxFailures)
+	c.healthCheckCooldown = c.getLabelInt(LabelHealthCheckCooldown, c.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
 
 	// add ports from container
 	c.setContainerPorts(dcontainer, dservice)
@@ -130,9 +130,9 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 	// Go map iteration order is non-deterministic, which makes c.ipAddress[0]
 	// unreliable for multi-network containers.
 	type networkEntry struct {
-		name string
 		ip   netip.Addr
 		gw   netip.Addr
+		name string
 	}
 	var entries []networkEntry
 

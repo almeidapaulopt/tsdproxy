@@ -18,7 +18,7 @@ func main() {
 	client := &http.Client{
 		Timeout: 5 * time.Second, //nolint:mnd
 	}
-	resp, err := client.Get("http://127.0.0.1:" + port + "/health/ready/")
+	resp, err := client.Get("http://127.0.0.1:" + port + "/health/ready/") //nolint:gosec // G704: port is from env, not user input
 	if err != nil {
 		os.Exit(1)
 	}

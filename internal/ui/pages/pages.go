@@ -2,3 +2,5 @@
 // SPDX-License-Identifier: MIT
 
 package pages
+
+//go:generate templ generate

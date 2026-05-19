@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	chanSizeSSEQueue    = 64
+	chanSizeSSEQueue        = 64
 	healthRefreshInterval = 10 * time.Second
 
 	EventNotify EventType = iota
@@ -291,19 +291,19 @@ func (dash *Dashboard) handleStatusEvent(event model.ProxyEvent) {
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ProxyCard(data),
 					Target: "#proxy-" + safeName,
-					Swap:   "outerHTML",
+				Swap:   swapOuterHTML,
 				},
 				{
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ActionsPanel(data),
 					Target: actionsTarget,
-					Swap:   "outerHTML",
+				Swap:   swapOuterHTML,
 				},
 				{
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ModalStatusBadge(data),
 					Target: "#modal-status-" + safeName,
-					Swap:   "outerHTML",
+				Swap:   swapOuterHTML,
 				},
 			},
 		})
@@ -337,11 +337,11 @@ func (dash *Dashboard) needsFullRender(clients []clientInfo, event model.ProxyEv
 	for _, ci := range clients {
 		prefs := dash.loadPrefs(ci.userID)
 
-		if prefs.Sort == "status" || prefs.Sort == "health" {
+		if prefs.Sort == sortStatus || prefs.Sort == sortHealth {
 			return true
 		}
 
-		if prefs.FilterStatus != "all" {
+		if prefs.FilterStatus != filterAll {
 			oldMatch := prefs.FilterStatus == event.OldStatus.String()
 			newMatch := prefs.FilterStatus == event.Status.String()
 			if oldMatch != newMatch {

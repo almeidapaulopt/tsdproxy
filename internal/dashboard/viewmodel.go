@@ -12,7 +12,15 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 )
 
-var healthOrder = map[string]int{"healthy": 0, "unknown": 1, "down": 2}
+const (
+	filterAll     = "all"
+	sortStatus    = "status"
+	sortHealth    = "health"
+	healthUnknown = "unknown"
+	swapOuterHTML = "outerHTML"
+)
+
+var healthOrder = map[string]int{"healthy": 0, healthUnknown: 1, "down": 2} //nolint:mnd
 
 func healthRank(h string) int {
 	if r, ok := healthOrder[h]; ok {
@@ -68,13 +76,13 @@ func BuildDashboardView(
 }
 
 func matchesFilter(data pages.ProxyData, prefs model.Preferences, search string) bool {
-	if prefs.FilterStatus != "all" {
+	if prefs.FilterStatus != filterAll {
 		if data.ProxyStatus.String() != prefs.FilterStatus {
 			return false
 		}
 	}
 
-	if prefs.FilterHealth != "all" {
+	if prefs.FilterHealth != filterAll {
 		h := healthValue(data.HealthStatus)
 		if h != prefs.FilterHealth {
 			return false
@@ -92,7 +100,7 @@ func matchesFilter(data pages.ProxyData, prefs model.Preferences, search string)
 
 func healthValue(h string) string {
 	if h == "" {
-		return "unknown"
+		return healthUnknown
 	}
 	return h
 }
@@ -106,11 +114,11 @@ func sortItems(items []pages.ProxyViewItem, sortKey string, pinned map[string]bo
 		}
 
 		switch sortKey {
-		case "status":
+		case sortStatus:
 			return items[i].Data.ProxyStatus.String() < items[j].Data.ProxyStatus.String()
 		case "provider":
 			return items[i].Data.TargetProvider < items[j].Data.TargetProvider
-		case "health":
+		case sortHealth:
 			ih := healthRank(healthValue(items[i].Data.HealthStatus))
 			jh := healthRank(healthValue(items[j].Data.HealthStatus))
 			if ih != jh {

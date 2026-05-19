@@ -6,6 +6,7 @@ package proxymanager
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 // HealthStatus represents the health of a proxy's backend target.
@@ -22,6 +25,9 @@ const (
 	HealthUnknown HealthStatus = iota
 	HealthHealthy
 	HealthDown
+
+	healthCheckMaxInterval = time.Hour
+	healthCheckMaxCooldown = 24 * time.Hour
 )
 
 func (s HealthStatus) String() string {
@@ -37,31 +43,33 @@ func (s HealthStatus) String() string {
 
 // HealthResult holds the latest health check result for a proxy target.
 type HealthResult struct {
+	CheckedAt time.Time
+	Error     string
 	Status    HealthStatus
 	Latency   time.Duration
-	Error     string
-	CheckedAt time.Time
 }
 
 type healthChecker struct {
 	log                 zerolog.Logger
-	target              atomic.Value // stores string — host:port for TCP, full URL for HTTP
-	scheme              string       // "http", "https", "tcp"
-	result              atomic.Pointer[HealthResult]
+	cooldownUntil       time.Time
+	target              atomic.Value
 	ctx                 context.Context
+	result              atomic.Pointer[HealthResult]
 	cancel              context.CancelFunc
+	onRedetect          func() error
+	scheme              string
 	interval            time.Duration
-	failThreshold       int
-	cooldown            time.Duration
-	tlsValidate         bool
 	consecutiveFailures int
 	retryAttempt        int
-	cooldownUntil       time.Time
-	onRedetect          func() error
+	cooldown            time.Duration
+	failThreshold       int
+	tlsValidate         bool
 }
 
-const healthCheckTimeout = 5 * time.Second //nolint:mnd
-const maxBackoff = 24 * time.Hour          //nolint:mnd
+const (
+	healthCheckTimeout = 5 * time.Second //nolint:mnd
+	maxBackoff         = 24 * time.Hour  //nolint:mnd
+)
 
 // maxBackoffShift is the maximum bit shift that stays within int64 positive range.
 const maxBackoffShift = 62 //nolint:mnd
@@ -75,14 +83,20 @@ func nextBackoff(interval time.Duration, attempt int) time.Duration {
 	if shift > 0 && interval > maxBackoff/shift {
 		return maxBackoff
 	}
-	d := interval * shift
+	d := time.Duration(int64(interval) * int64(shift))
 	if d > maxBackoff {
 		return maxBackoff
 	}
 	return d
 }
 
-func newHealthChecker(log zerolog.Logger, target, scheme string, interval time.Duration, failThreshold int, cooldown time.Duration, tlsValidate bool, onRedetect func() error) *healthChecker {
+func newHealthChecker(
+	log zerolog.Logger, target, scheme string,
+	interval time.Duration, failThreshold int,
+	cooldown time.Duration, tlsValidate bool,
+	onRedetect func() error,
+) *healthChecker {
+	//
 	ctx, cancel := context.WithCancel(context.Background())
 
 	hc := &healthChecker{
@@ -146,9 +160,9 @@ func (hc *healthChecker) check() {
 	result.CheckedAt = time.Now()
 
 	switch hc.scheme {
-	case "http", "https":
+	case model.ProtoHTTP, model.ProtoHTTPS:
 		result = hc.checkHTTP(ctx)
-	case "udp":
+	case model.ProtoUDP:
 		result = hc.checkUDP(ctx)
 	default:
 		result = hc.checkTCP(ctx)
@@ -207,7 +221,7 @@ func (hc *healthChecker) checkHTTP(ctx context.Context) HealthResult {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !hc.tlsValidate}, //nolint
 			DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
 		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			// Don't follow redirects — a 3xx still means the backend is up
 			return http.ErrUseLastResponse
 		},
@@ -303,7 +317,7 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		conn.SetReadDeadline(time.Now())
+		_ = conn.SetReadDeadline(time.Now())
 		<-done
 	}
 
@@ -322,7 +336,8 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 	}
 
 	// Timeout means no ICMP error arrived — likely reachable.
-	if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+	var netErr net.Error
+	if errors.As(readErr, &netErr) {
 		result.Status = HealthHealthy
 		return result
 	}

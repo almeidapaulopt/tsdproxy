@@ -32,22 +32,16 @@ type (
 
 	// ProxyManager struct stores data that is required to manage all proxies
 	ProxyManager struct {
-		Proxies ProxyList
-
-		log zerolog.Logger
-
-		TargetProviders TargetProviderList
-		ProxyProviders  ProxyProviderList
-
+		log               zerolog.Logger
+		Proxies           ProxyList
+		TargetProviders   TargetProviderList
+		ProxyProviders    ProxyProviderList
 		statusSubscribers map[chan model.ProxyEvent]struct{}
-
-		webhookSender *webhook.Sender
-
-		mtx      sync.RWMutex
-		targetMu sync.Map // map[string]*sync.Mutex — per-target-ID lock for serializing events
-		hostMu   sync.Map // map[string]*sync.Mutex — per-hostname lock for serializing proxy replacement
-
-		metrics *metrics.Metrics
+		webhookSender     *webhook.Sender
+		metrics           *metrics.Metrics
+		targetMu          sync.Map
+		hostMu            sync.Map
+		mtx               sync.RWMutex
 	}
 )
 
@@ -173,7 +167,7 @@ func (pm *ProxyManager) getTargetLock(targetID string) *sync.Mutex {
 // SubscribeStatusEvents return a channel of proxy events.
 // This events are sent by Proxies and Ports.
 func (pm *ProxyManager) SubscribeStatusEvents() <-chan model.ProxyEvent {
-	ch := make(chan model.ProxyEvent, 64)
+	ch := make(chan model.ProxyEvent, 64) //nolint:mnd
 
 	pm.mtx.Lock()
 	pm.statusSubscribers[ch] = struct{}{}

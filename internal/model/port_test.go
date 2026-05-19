@@ -405,19 +405,20 @@ func TestExpandPortRangeLabel_BothRanges(t *testing.T) {
 	}
 
 	expected := []struct {
-		proxyPort  int
 		targetHost string
+		proxyPort  int
 	}{
-		{56000, "0.0.0.0:56000"},
-		{56001, "0.0.0.0:56001"},
-		{56002, "0.0.0.0:56002"},
+		{"0.0.0.0:56000", 56000},
+		{"0.0.0.0:56001", 56001},
+		{"0.0.0.0:56002", 56002},
 	}
 
 	for i, exp := range expected {
 		key := "range_0"
-		if i == 1 {
+		switch i {
+		case 1:
 			key = "range_1"
-		} else if i == 2 {
+		case 2:
 			key = "range_2"
 		}
 		cfg, ok := result[key]

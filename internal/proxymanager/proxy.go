@@ -38,32 +38,31 @@ func clampDuration(seconds int, minVal, maxVal time.Duration) time.Duration {
 
 type (
 	StatusTransition struct {
-		Status    model.ProxyStatus
 		Timestamp time.Time
+		Status    model.ProxyStatus
 	}
 
 	// Proxy struct is a struct that contains all the information needed to run a proxy.
 	Proxy struct {
+		log             zerolog.Logger
+		startedAt       time.Time
+		providerProxy   proxyproviders.ProxyInterface
+		ctx             context.Context
+		ports           map[string]portHandler
+		health          *healthChecker
+		URL             *url.URL
+		cancel          context.CancelFunc
 		onUpdate        func(event model.ProxyEvent)
+		logBuffer       *LogRingBuffer
 		reResolveConfig func() (*model.Config, error)
-
-		log            zerolog.Logger
-		ctx            context.Context
-		providerProxy  proxyproviders.ProxyInterface
-		Config         *model.Config
-		URL            *url.URL
-		cancel         context.CancelFunc
-		ports          map[string]portHandler
-		mtx            sync.RWMutex
-		opMu           sync.Mutex
-		status         model.ProxyStatus
-		paused         bool
-		metrics        *metrics.Metrics
-		health         *healthChecker
-		healthPortName string
-		statusHistory  []StatusTransition
-		startedAt      time.Time
-		logBuffer      *LogRingBuffer
+		Config          *model.Config
+		metrics         *metrics.Metrics
+		healthPortName  string
+		statusHistory   []StatusTransition
+		status          model.ProxyStatus
+		mtx             sync.RWMutex
+		opMu            sync.Mutex
+		paused          bool
 	}
 )
 
@@ -203,7 +202,7 @@ func (proxy *Proxy) Resume() error {
 
 	var listenerErrors int
 	for k, pc := range portsConfig {
-		if pc.ProxyProtocol == "udp" {
+		if pc.ProxyProtocol == model.ProtoUDP {
 			packetConn, err := proxy.providerProxy.GetPacketConn(k)
 			if err != nil {
 				proxy.log.Error().Err(err).Str("port", k).Msg("error getting UDP packet conn for resume")
@@ -340,7 +339,7 @@ func (proxy *Proxy) startHealthChecker() {
 
 		scheme := pc.ProxyProtocol
 		var checkTarget string
-		if scheme == "http" || scheme == "https" {
+		if scheme == model.ProtoHTTP || scheme == model.ProtoHTTPS {
 			checkTarget = target.String()
 		} else {
 			checkTarget = target.Host
@@ -348,8 +347,8 @@ func (proxy *Proxy) startHealthChecker() {
 
 		// Clamp health check durations to safe ranges to prevent
 		// time.Duration overflow when converting from int seconds.
-		interval := clampDuration(proxy.Config.HealthCheckInterval, time.Second, time.Hour)
-		cooldown := clampDuration(proxy.Config.HealthCheckCooldown, 0, 24*time.Hour)
+		interval := clampDuration(proxy.Config.HealthCheckInterval, time.Second, healthCheckMaxInterval)
+		cooldown := clampDuration(proxy.Config.HealthCheckCooldown, 0, healthCheckMaxCooldown)
 
 		hc := newHealthChecker(proxy.log, checkTarget, scheme, interval, proxy.Config.HealthCheckFailures, cooldown, pc.TLSValidate, func() error {
 			return proxy.reResolveHealthTarget()
@@ -426,7 +425,7 @@ func (proxy *Proxy) reResolveHealthTarget() error {
 		if portName == proxy.healthPortName && proxy.health != nil {
 			scheme := oldPC.ProxyProtocol
 			var checkTarget string
-			if scheme == "http" || scheme == "https" {
+			if scheme == model.ProtoHTTP || scheme == model.ProtoHTTPS {
 				checkTarget = newTarget.String()
 			} else {
 				checkTarget = newTarget.Host
@@ -455,9 +454,17 @@ func (proxy *Proxy) initPorts() {
 		var ph portHandler
 		if v.IsRedirect {
 			ph = newPortRedirect(proxy.ctx, v, log)
-		} else if v.ProxyProtocol == "http" || v.ProxyProtocol == "https" {
-			ph = newPortProxy(proxy.ctx, v, log, proxy.Config.ProxyAccessLog, proxy.ProviderUserMiddleware, proxy.metrics, proxy.Config.Hostname, k, proxy.logBuffer, proxy.Config.IdentityHeaders)
-		} else if v.ProxyProtocol == "udp" {
+		} else if v.ProxyProtocol == model.ProtoHTTP || v.ProxyProtocol == model.ProtoHTTPS {
+			ph = newPortProxy(
+				proxy.ctx, v, log,
+				proxy.Config.ProxyAccessLog,
+				proxy.ProviderUserMiddleware,
+				proxy.metrics,
+				proxy.Config.Hostname,
+				k, proxy.logBuffer,
+				proxy.Config.IdentityHeaders,
+			)
+		} else if v.ProxyProtocol == model.ProtoUDP {
 			ph = newPortUDP(proxy.ctx, v, log)
 		} else {
 			ph = newPortTCP(proxy.ctx, v, log)
@@ -481,7 +488,7 @@ func (proxy *Proxy) start() error {
 	proxy.mtx.RUnlock()
 
 	if portsCount == 0 {
-		return fmt.Errorf("no ports configured")
+		return errors.New("no ports configured")
 	}
 
 	if err := proxy.providerProxy.Start(proxy.ctx); err != nil {
@@ -492,7 +499,7 @@ func (proxy *Proxy) start() error {
 	for k, pc := range portsConfig {
 		proxy.log.Debug().Str("port", k).Msg("Starting proxy port")
 
-		if pc.ProxyProtocol == "udp" {
+		if pc.ProxyProtocol == model.ProtoUDP {
 			packetConn, err := proxy.providerProxy.GetPacketConn(k)
 			if err != nil {
 				proxy.log.Error().Err(err).Str("port", k).Msg("Error getting UDP packet conn")

@@ -24,8 +24,15 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+
+var errRateLimited = errors.New("UDP packet rate limited")
+
+const (
+	dialTimeout     = 10 * time.Second
+	shutdownTimeout = 10 * time.Second
 )
 
 // portHandler is the interface implemented by all port types (HTTP proxy, HTTP redirect, TCP forward).
@@ -201,7 +208,7 @@ func (p *port) startWithListener(l net.Listener) error {
 func (p *port) close() error {
 	var errs error
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
 	if p.httpServer != nil {
@@ -275,7 +282,7 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 		return
 	}
 
-	dialer := net.Dialer{Timeout: 10 * time.Second}
+	dialer := net.Dialer{Timeout: 10 * time.Second} //nolint:mnd
 	backendConn, err := dialer.DialContext(p.ctx, "tcp", target.Host)
 	if err != nil {
 		p.log.Error().Err(err).Str("target", target.Host).Msg("error dialing backend")
@@ -283,7 +290,7 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}
 	defer backendConn.Close()
 
-	errChan := make(chan error, 2)
+	errChan := make(chan error, 2) //nolint:mnd
 	go func() {
 		_, err := io.Copy(backendConn, clientConn)
 		errChan <- err
@@ -314,9 +321,9 @@ func (p *tcpPort) close() error {
 type udpPort struct {
 	log     zerolog.Logger
 	ctx     context.Context
+	conn    net.PacketConn
 	cancel  context.CancelFunc
 	pconfig model.PortConfig
-	conn    net.PacketConn
 	mtx     sync.Mutex
 }
 
@@ -332,7 +339,7 @@ func newPortUDP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logge
 }
 
 func (p *udpPort) startWithListener(_ net.Listener) error {
-	return fmt.Errorf("UDP ports must use startWithPacketConn, not startWithListener")
+	return errors.New("UDP ports must use startWithPacketConn, not startWithListener")
 }
 
 func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
@@ -347,7 +354,7 @@ func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
 
 	target := p.pconfig.GetFirstTarget()
 	if target.Host == "" {
-		return fmt.Errorf("no target configured for UDP port")
+		return errors.New("no target configured for UDP port")
 	}
 
 	p.relayPackets(pc)
@@ -394,7 +401,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 			entry.lastSeen = time.Now()
 			if !entry.limiter.Allow() {
 				p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
-				return nil, nil
+				return nil, errRateLimited
 			}
 			return entry.conn, nil
 		}
@@ -407,7 +414,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 
 		if !entry.limiter.Allow() {
 			p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
-			return nil, nil
+			return nil, errRateLimited
 		}
 
 		if len(clientMap) >= udpMaxClients {
@@ -431,7 +438,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 		target := p.pconfig.GetFirstTarget()
 		if target.Host == "" {
 			delete(clientMap, key)
-			return nil, fmt.Errorf("no target configured for UDP port")
+			return nil, errors.New("no target configured for UDP port")
 		}
 
 		backendAddr, err := net.ResolveUDPAddr("udp", target.Host)
@@ -465,6 +472,9 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 
 		backend, err := getBackendConn(clientAddr)
 		if err != nil {
+			if errors.Is(err, errRateLimited) {
+				continue
+			}
 			p.log.Error().Err(err).Str("client", clientAddr.String()).Msg("error dialing backend")
 			continue
 		}
