@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -24,8 +25,8 @@ import (
 
 // Client struct implements proxyprovider for tailscale
 type Client struct {
-	log zerolog.Logger
-
+	log               zerolog.Logger
+	certSem           *semaphore.Weighted
 	Hostname          string
 	AuthKey           string
 	clientID          string
@@ -34,8 +35,6 @@ type Client struct {
 	datadir           string
 	tags              string
 	preventDuplicates bool
-
-	certSem *semaphore.Weighted
 }
 
 // stateMeta tracks the configuration used to create the current tsnet state,
@@ -281,7 +280,7 @@ func (c *Client) getOAuth(cfg *model.Config) (string, error) {
 	temptags := c.resolveTags(cfg)
 
 	if temptags == "" {
-		return "", fmt.Errorf("must define tags to use OAuth")
+		return "", errors.New("must define tags to use OAuth")
 	}
 
 	capabilities := tailscale.KeyCapabilities{}

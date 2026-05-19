@@ -38,32 +38,31 @@ func clampDuration(seconds int, minVal, maxVal time.Duration) time.Duration {
 
 type (
 	StatusTransition struct {
-		Status    model.ProxyStatus
 		Timestamp time.Time
+		Status    model.ProxyStatus
 	}
 
 	// Proxy struct is a struct that contains all the information needed to run a proxy.
 	Proxy struct {
+		log             zerolog.Logger
+		startedAt       time.Time
+		providerProxy   proxyproviders.ProxyInterface
+		ctx             context.Context
+		ports           map[string]portHandler
+		health          *healthChecker
+		URL             *url.URL
+		cancel          context.CancelFunc
 		onUpdate        func(event model.ProxyEvent)
+		logBuffer       *LogRingBuffer
 		reResolveConfig func() (*model.Config, error)
-
-		log            zerolog.Logger
-		ctx            context.Context
-		providerProxy  proxyproviders.ProxyInterface
-		Config         *model.Config
-		URL            *url.URL
-		cancel         context.CancelFunc
-		ports          map[string]portHandler
-		mtx            sync.RWMutex
-		opMu           sync.Mutex
-		status         model.ProxyStatus
-		paused         bool
-		metrics        *metrics.Metrics
-		health         *healthChecker
-		healthPortName string
-		statusHistory  []StatusTransition
-		startedAt      time.Time
-		logBuffer      *LogRingBuffer
+		Config          *model.Config
+		metrics         *metrics.Metrics
+		healthPortName  string
+		statusHistory   []StatusTransition
+		status          model.ProxyStatus
+		mtx             sync.RWMutex
+		opMu            sync.Mutex
+		paused          bool
 	}
 )
 
@@ -481,7 +480,7 @@ func (proxy *Proxy) start() error {
 	proxy.mtx.RUnlock()
 
 	if portsCount == 0 {
-		return fmt.Errorf("no ports configured")
+		return errors.New("no ports configured")
 	}
 
 	if err := proxy.providerProxy.Start(proxy.ctx); err != nil {

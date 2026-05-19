@@ -13,8 +13,8 @@ import (
 
 // Metrics holds Prometheus metrics for per-proxy request instrumentation.
 type Metrics struct {
-	RequestsTotal   *prometheus.CounterVec
-	RequestDuration *prometheus.HistogramVec
+	RequestsTotal    *prometheus.CounterVec
+	RequestDuration  *prometheus.HistogramVec
 	RequestsInFlight *prometheus.GaugeVec
 }
 

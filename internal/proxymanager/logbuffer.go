@@ -15,13 +15,13 @@ import (
 const DefaultLogBufferSize = 100
 
 type LogRingBuffer struct {
-	lines           []string
-	pos             int
-	full            bool
-	subscribers     map[chan string]*subscriberState
-	mu              sync.Mutex
-	log             zerolog.Logger
-	size            int
+	log         zerolog.Logger
+	subscribers map[chan string]*subscriberState
+	lines       []string
+	pos         int
+	size        int
+	mu          sync.Mutex
+	full        bool
 }
 
 type subscriberState struct {

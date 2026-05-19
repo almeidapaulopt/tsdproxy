@@ -14,9 +14,9 @@ import (
 
 type (
 	PortConfig struct {
-		name          string `validate:"string" yaml:"name"`
-		ProxyProtocol string `validate:"string" yaml:"proxyProtocol"`
 		targets       *targetState
+		name          string        `validate:"string" yaml:"name"`
+		ProxyProtocol string        `validate:"string" yaml:"proxyProtocol"`
 		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
 		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
 		NoAutoDetect  bool          `validate:"boolean" yaml:"noAutoDetect"`
@@ -29,8 +29,8 @@ type (
 	}
 
 	targetState struct {
-		mtx     sync.RWMutex
 		targets []*url.URL
+		mtx     sync.RWMutex
 	}
 )
 
@@ -378,7 +378,7 @@ func IsPortRangeLabel(s string) bool {
 func ExpandPortRangeLabel(s string) (map[string]PortConfig, error) {
 	separator := detectSeparator(s)
 	if separator == redirectSeparator {
-		return nil, fmt.Errorf("port ranges are not supported with redirect syntax")
+		return nil, errors.New("port ranges are not supported with redirect syntax")
 	}
 
 	parts := strings.Split(s, separator)

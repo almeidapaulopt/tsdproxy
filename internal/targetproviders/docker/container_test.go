@@ -192,8 +192,8 @@ func TestSetContainerNetwork_DeterministicOrderByNetworkName(t *testing.T) {
 	dcontainer := ctypes.InspectResponse{
 		NetworkSettings: &ctypes.NetworkSettings{
 			Networks: map[string]*network.EndpointSettings{
-				"network-bravo": {IPAddress: netip.MustParseAddr("10.0.2.5"), Gateway: netip.MustParseAddr("10.0.2.1")},
-				"network-alpha": {IPAddress: netip.MustParseAddr("10.0.1.5"), Gateway: netip.MustParseAddr("10.0.1.1")},
+				"network-bravo":   {IPAddress: netip.MustParseAddr("10.0.2.5"), Gateway: netip.MustParseAddr("10.0.2.1")},
+				"network-alpha":   {IPAddress: netip.MustParseAddr("10.0.1.5"), Gateway: netip.MustParseAddr("10.0.1.1")},
 				"network-charlie": {IPAddress: netip.MustParseAddr("10.0.3.5"), Gateway: netip.MustParseAddr("10.0.3.1")},
 			},
 		},
@@ -288,7 +288,7 @@ func TestSetContainerNetwork_EmptyIPsSkipped(t *testing.T) {
 	dcontainer := ctypes.InspectResponse{
 		NetworkSettings: &ctypes.NetworkSettings{
 			Networks: map[string]*network.EndpointSettings{
-				"network-no-ip": {IPAddress: netip.Addr{}, Gateway: netip.MustParseAddr("10.0.1.1")},
+				"network-no-ip":   {IPAddress: netip.Addr{}, Gateway: netip.MustParseAddr("10.0.1.1")},
 				"network-with-ip": {IPAddress: netip.MustParseAddr("10.0.2.5"), Gateway: netip.MustParseAddr("10.0.2.1")},
 			},
 		},

@@ -130,9 +130,9 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 	// Go map iteration order is non-deterministic, which makes c.ipAddress[0]
 	// unreliable for multi-network containers.
 	type networkEntry struct {
-		name string
 		ip   netip.Addr
 		gw   netip.Addr
+		name string
 	}
 	var entries []networkEntry
 

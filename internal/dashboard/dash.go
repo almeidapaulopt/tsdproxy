@@ -488,7 +488,7 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 		selector := "#log-lines-" + safeID
 		scrollSelector := selector
 		trimSelector := selector
-		maxLines := fmt.Sprintf("%d", proxymanager.DefaultLogBufferSize)
+		maxLines := strconv.Itoa(proxymanager.DefaultLogBufferSize)
 
 		writeAppend := func(cmp templ.Component) error {
 			return WriteSSEPartialComponent(w, selector, "beforeend", cmp)

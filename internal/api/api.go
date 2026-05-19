@@ -51,27 +51,27 @@ type (
 	}
 
 	apiProxy struct {
-		Name           string       `json:"name"`
-		Label          string       `json:"label"`
+		Category       string       `json:"category,omitempty"`
+		TargetID       string       `json:"targetId"`
 		Status         string       `json:"status"`
 		Health         string       `json:"health"`
 		HealthLatency  string       `json:"healthLatency,omitempty"`
 		URL            string       `json:"url"`
-		Category       string       `json:"category,omitempty"`
-		Uptime         string       `json:"uptime,omitempty"`
-		Ports          []apiPort    `json:"ports"`
-		Tailscale      apiTailscale `json:"tailscale"`
-		StatusHistory  []apiStatus  `json:"statusHistory,omitempty"`
-		TargetProvider string       `json:"targetProvider"`
-		TargetID       string       `json:"targetId"`
 		TargetImage    string       `json:"targetImage,omitempty"`
+		Name           string       `json:"name"`
+		Label          string       `json:"label"`
+		Uptime         string       `json:"uptime,omitempty"`
+		TargetProvider string       `json:"targetProvider"`
+		StatusHistory  []apiStatus  `json:"statusHistory,omitempty"`
+		Tailscale      apiTailscale `json:"tailscale"`
+		Ports          []apiPort    `json:"ports"`
 	}
 
 	apiPort struct {
 		Name          string `json:"name"`
 		ProxyProtocol string `json:"proxyProtocol"`
-		ProxyPort     int    `json:"proxyPort"`
 		TargetURL     string `json:"targetUrl"`
+		ProxyPort     int    `json:"proxyPort"`
 		TLSValidate   bool   `json:"tlsValidate"`
 		IsRedirect    bool   `json:"isRedirect"`
 		Funnel        bool   `json:"funnel"`

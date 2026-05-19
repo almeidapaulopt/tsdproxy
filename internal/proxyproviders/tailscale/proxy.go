@@ -28,24 +28,21 @@ import (
 
 // Proxy struct implements proxyconfig.Proxy.
 type Proxy struct {
-	log      zerolog.Logger
-	config   *model.Config
-	tsServer *tsnet.Server
-	lc       *local.Client
-	ctx      context.Context
-
-	events chan model.ProxyEvent
-
-	authURL string
-	url     string
-	status  model.ProxyStatus
-
-	mtx       sync.Mutex
+	log       zerolog.Logger
+	ctx       context.Context
+	watchDone chan struct{}
+	config    *model.Config
+	tsServer  *tsnet.Server
+	lc        *local.Client
+	events    chan model.ProxyEvent
+	certSem   *semaphore.Weighted
+	authURL   string
+	url       string
+	status    model.ProxyStatus
 	closeOnce sync.Once
 	watchOnce sync.Once
+	mtx       sync.Mutex
 	started   bool
-	watchDone chan struct{}
-	certSem   *semaphore.Weighted
 }
 
 var (

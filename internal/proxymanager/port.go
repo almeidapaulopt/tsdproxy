@@ -24,8 +24,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // portHandler is the interface implemented by all port types (HTTP proxy, HTTP redirect, TCP forward).
@@ -314,9 +314,9 @@ func (p *tcpPort) close() error {
 type udpPort struct {
 	log     zerolog.Logger
 	ctx     context.Context
+	conn    net.PacketConn
 	cancel  context.CancelFunc
 	pconfig model.PortConfig
-	conn    net.PacketConn
 	mtx     sync.Mutex
 }
 
@@ -332,7 +332,7 @@ func newPortUDP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logge
 }
 
 func (p *udpPort) startWithListener(_ net.Listener) error {
-	return fmt.Errorf("UDP ports must use startWithPacketConn, not startWithListener")
+	return errors.New("UDP ports must use startWithPacketConn, not startWithListener")
 }
 
 func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
@@ -347,7 +347,7 @@ func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
 
 	target := p.pconfig.GetFirstTarget()
 	if target.Host == "" {
-		return fmt.Errorf("no target configured for UDP port")
+		return errors.New("no target configured for UDP port")
 	}
 
 	p.relayPackets(pc)
@@ -431,7 +431,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 		target := p.pconfig.GetFirstTarget()
 		if target.Host == "" {
 			delete(clientMap, key)
-			return nil, fmt.Errorf("no target configured for UDP port")
+			return nil, errors.New("no target configured for UDP port")
 		}
 
 		backendAddr, err := net.ResolveUDPAddr("udp", target.Host)

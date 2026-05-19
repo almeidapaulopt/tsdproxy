@@ -27,11 +27,11 @@ const (
 	LabelAutoDetect   = LabelPrefix + "autodetect"
 	LabelTags         = LabelPrefix + "tags"
 	// Identity / auth header injection (default: enabled)
-	LabelIdentityHeaders      = LabelPrefix + "identity_headers"
-	LabelAutoRestart          = LabelPrefix + "auto_restart"
-	LabelHealthCheckInterval  = LabelPrefix + "health_check_interval"
-	LabelHealthCheckFailures  = LabelPrefix + "health_check_failures"
-	LabelHealthCheckCooldown  = LabelPrefix + "health_check_cooldown"
+	LabelIdentityHeaders     = LabelPrefix + "identity_headers"
+	LabelAutoRestart         = LabelPrefix + "auto_restart"
+	LabelHealthCheckInterval = LabelPrefix + "health_check_interval"
+	LabelHealthCheckFailures = LabelPrefix + "health_check_failures"
+	LabelHealthCheckCooldown = LabelPrefix + "health_check_cooldown"
 	// Legacy
 	LabelContainerPort = LabelPrefix + "container_port"
 	LabelScheme        = LabelPrefix + "scheme"
@@ -39,10 +39,10 @@ const (
 	// Legacy Tailscale
 	LabelFunnel = LabelPrefix + "funnel"
 	// Dashboard config labels
-	LabelDashboardPrefix  = LabelPrefix + "dash."
-	LabelDashboardVisible = LabelDashboardPrefix + "visible"
-	LabelDashboardLabel   = LabelDashboardPrefix + "label"
-	LabelDashboardIcon    = LabelDashboardPrefix + "icon"
+	LabelDashboardPrefix   = LabelPrefix + "dash."
+	LabelDashboardVisible  = LabelDashboardPrefix + "visible"
+	LabelDashboardLabel    = LabelDashboardPrefix + "label"
+	LabelDashboardIcon     = LabelDashboardPrefix + "icon"
 	LabelDashboardCategory = LabelDashboardPrefix + "category"
 
 	// docker only defaults

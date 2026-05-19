@@ -24,21 +24,20 @@ import (
 type (
 	// Client struct implements TargetProvider
 	Client struct {
-		docker                   *client.Client
 		log                      zerolog.Logger
-		containers               map[string]*container
-		name                     string
-		host                     string
-		defaultTargetHostname    string
-		defaultProxyProvider     string
 		defaultBridgeAddress     netip.Addr
-		tryDockerInternalNetwork bool
-		autoRestart              bool
+		docker                   *client.Client
+		containers               map[string]*container
+		defaultProxyProvider     string
+		defaultTargetHostname    string
+		host                     string
+		name                     string
 		healthCheckInterval      int
 		healthCheckFailures      int
 		healthCheckCooldown      int
-
-		mutex sync.Mutex
+		mutex                    sync.Mutex
+		tryDockerInternalNetwork bool
+		autoRestart              bool
 	}
 )
 
@@ -50,9 +49,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 	newlog.Trace().Msg("New Docker TargetProvider")
 	defer newlog.Trace().Msg("End New Docker TargetProvider")
 
-	docker, err := client.NewClientWithOpts(
-		client.WithHost(provider.Host),
-		client.WithAPIVersionNegotiation())
+	docker, err := client.New(client.WithHost(provider.Host), client.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Error().Err(err).Msg("Error creating Docker client")
 		return nil, err

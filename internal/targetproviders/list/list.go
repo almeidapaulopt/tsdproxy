@@ -61,8 +61,8 @@ type (
 	DashboardAPI struct {
 		Label    string `yaml:"label,omitempty"`
 		Icon     string `yaml:"icon,omitempty"`
-		Visible  bool   `yaml:"visible,omitempty"`
 		Category string `yaml:"category,omitempty"`
+		Visible  bool   `yaml:"visible,omitempty"`
 	}
 
 	TailscaleAPI struct {

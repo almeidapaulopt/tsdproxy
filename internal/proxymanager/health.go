@@ -6,6 +6,7 @@ package proxymanager
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -37,31 +38,33 @@ func (s HealthStatus) String() string {
 
 // HealthResult holds the latest health check result for a proxy target.
 type HealthResult struct {
+	CheckedAt time.Time
+	Error     string
 	Status    HealthStatus
 	Latency   time.Duration
-	Error     string
-	CheckedAt time.Time
 }
 
 type healthChecker struct {
 	log                 zerolog.Logger
-	target              atomic.Value // stores string — host:port for TCP, full URL for HTTP
-	scheme              string       // "http", "https", "tcp"
-	result              atomic.Pointer[HealthResult]
+	cooldownUntil       time.Time
+	target              atomic.Value
 	ctx                 context.Context
+	result              atomic.Pointer[HealthResult]
 	cancel              context.CancelFunc
+	onRedetect          func() error
+	scheme              string
 	interval            time.Duration
-	failThreshold       int
-	cooldown            time.Duration
-	tlsValidate         bool
 	consecutiveFailures int
 	retryAttempt        int
-	cooldownUntil       time.Time
-	onRedetect          func() error
+	cooldown            time.Duration
+	failThreshold       int
+	tlsValidate         bool
 }
 
-const healthCheckTimeout = 5 * time.Second //nolint:mnd
-const maxBackoff = 24 * time.Hour          //nolint:mnd
+const (
+	healthCheckTimeout = 5 * time.Second //nolint:mnd
+	maxBackoff         = 24 * time.Hour  //nolint:mnd
+)
 
 // maxBackoffShift is the maximum bit shift that stays within int64 positive range.
 const maxBackoffShift = 62 //nolint:mnd
@@ -322,7 +325,8 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 	}
 
 	// Timeout means no ICMP error arrived — likely reachable.
-	if netErr, ok := readErr.(net.Error); ok && netErr.Timeout() {
+	var netErr net.Error
+	if errors.As(readErr, &netErr) {
 		result.Status = HealthHealthy
 		return result
 	}

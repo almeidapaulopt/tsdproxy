@@ -38,20 +38,20 @@ type (
 	}
 
 	sendJob struct {
-		cfg   config.WebhookConfig
 		event WebhookEvent
+		cfg   config.WebhookConfig
 	}
 
 	Sender struct {
 		log     zerolog.Logger
-		client  *http.Client
-		configs []config.WebhookConfig
 		ctx     context.Context
+		client  *http.Client
 		cancel  context.CancelFunc
 		queue   chan sendJob
-		closed  atomic.Bool
-		closeMu sync.Mutex
+		configs []config.WebhookConfig
 		wg      sync.WaitGroup
+		closeMu sync.Mutex
+		closed  atomic.Bool
 	}
 )
 

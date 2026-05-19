@@ -5,6 +5,7 @@ package components
 
 import (
 	"github.com/a-h/templ"
+
 	"github.com/almeidapaulopt/tsdproxy/web"
 )
 

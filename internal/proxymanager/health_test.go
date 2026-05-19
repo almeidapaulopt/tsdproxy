@@ -98,7 +98,7 @@ func TestHealthChecker_CancelledContextNoFire(t *testing.T) {
 		hc.check()
 	}
 	if count := atomic.LoadInt32(&redetectCount); count != 0 {
-		t.Fatalf("onRedetect fired with cancelled context: %d", count)
+		t.Fatalf("onRedetect fired with canceled context: %d", count)
 	}
 }
 

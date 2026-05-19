@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -45,7 +46,7 @@ func InitializeApp() (*WebApp, error) {
 	}
 
 	// Expose HTTP port for healthcheck binary to read.
-	os.Setenv("TSDPROXY_HTTP_PORT", fmt.Sprintf("%d", config.Config.HTTP.Port))
+	os.Setenv("TSDPROXY_HTTP_PORT", strconv.FormatUint(uint64(config.Config.HTTP.Port), 10))
 
 	logger := core.NewLog()
 

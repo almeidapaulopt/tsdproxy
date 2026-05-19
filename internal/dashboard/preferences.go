@@ -11,8 +11,9 @@ import (
 	"regexp"
 	"sync"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/rs/zerolog"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 var safeUserID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
@@ -71,10 +72,10 @@ func validatePrefs(p *model.Preferences) {
 }
 
 type PreferencesStore struct {
-	dir   string
 	log   zerolog.Logger
-	mu    sync.RWMutex
 	cache map[string]model.Preferences
+	dir   string
+	mu    sync.RWMutex
 }
 
 func NewPreferencesStore(dir string, log zerolog.Logger) (*PreferencesStore, error) {
