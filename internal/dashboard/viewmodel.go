@@ -46,7 +46,6 @@ func BuildDashboardView(
 	prefs model.Preferences,
 	search string,
 ) pages.DashboardView {
-	//
 	pinned := pinnedSet(prefs)
 
 	var items []pages.ProxyViewItem

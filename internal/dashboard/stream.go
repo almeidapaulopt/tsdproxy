@@ -4,6 +4,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -18,7 +19,7 @@ import (
 )
 
 const (
-	chanSizeSSEQueue      = 64
+	chanSizeSSEQueue        = 64
 	healthRefreshInterval = 10 * time.Second
 
 	EventNotify EventType = iota
@@ -43,9 +44,9 @@ type (
 	SSEMessage struct {
 		Comp    templ.Component
 		Message string
+		Type    EventType
 		Target  string
 		Swap    string
-		Type    EventType
 	}
 )
 
@@ -290,19 +291,19 @@ func (dash *Dashboard) handleStatusEvent(event model.ProxyEvent) {
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ProxyCard(data),
 					Target: "#proxy-" + safeName,
-					Swap:   swapOuterHTML,
+				Swap:   swapOuterHTML,
 				},
 				{
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ActionsPanel(data),
 					Target: actionsTarget,
-					Swap:   swapOuterHTML,
+				Swap:   swapOuterHTML,
 				},
 				{
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ModalStatusBadge(data),
 					Target: "#modal-status-" + safeName,
-					Swap:   swapOuterHTML,
+				Swap:   swapOuterHTML,
 				},
 			},
 		})
@@ -356,16 +357,15 @@ func (dash *Dashboard) needsFullRender(clients []clientInfo, event model.ProxyEv
 }
 
 func (dash *Dashboard) sendStatusNotification(client *sseClient, event model.ProxyEvent) {
-	switch event.Status {
-	case model.ProxyStatusStopped:
+	if event.Status == model.ProxyStatusStopped {
 		client.send(SSEMessage{
 			Type:    EventNotify,
-			Message: event.ID + "\x00Stopped",
+			Message: fmt.Sprintf("%s\x00Stopped", event.ID),
 		})
-	case model.ProxyStatusError:
+	} else if event.Status == model.ProxyStatusError {
 		client.send(SSEMessage{
 			Type:    EventNotify,
-			Message: event.ID + "\x00Error",
+			Message: fmt.Sprintf("%s\x00Error", event.ID),
 		})
 	}
 }
