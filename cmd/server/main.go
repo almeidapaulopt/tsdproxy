@@ -124,7 +124,6 @@ func (app *WebApp) Start() {
 
 	adminMW := core.AdminMiddleware()
 	app.HTTP.Get("/metrics", adminMW(app.ProxyManager.MetricsHandler()))
-
 	// Setup proxy for existing containers
 	//
 	app.Log.Info().Msg("Setting up proxy proxies")
