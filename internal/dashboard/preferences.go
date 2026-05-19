@@ -90,15 +90,20 @@ func NewPreferencesStore(dir string, log zerolog.Logger) (*PreferencesStore, err
 }
 
 func (s *PreferencesStore) path(userID string) string {
+	return filepath.Join(s.dir, normalizeUserID(userID)+".json")
+}
+
+func normalizeUserID(userID string) string {
 	if !safeUserID.MatchString(userID) {
-		userID = "_invalid"
+		return "_invalid"
 	}
-	return filepath.Join(s.dir, userID+".json")
+	return userID
 }
 
 func (s *PreferencesStore) Load(userID string) (model.Preferences, error) {
+	key := normalizeUserID(userID)
 	s.mu.RLock()
-	if cached, ok := s.cache[userID]; ok {
+	if cached, ok := s.cache[key]; ok {
 		s.mu.RUnlock()
 		return cached, nil
 	}
@@ -108,7 +113,7 @@ func (s *PreferencesStore) Load(userID string) (model.Preferences, error) {
 	defer s.mu.Unlock()
 
 	// Double-check after acquiring write lock.
-	if cached, ok := s.cache[userID]; ok {
+	if cached, ok := s.cache[key]; ok {
 		return cached, nil
 	}
 
@@ -117,25 +122,26 @@ func (s *PreferencesStore) Load(userID string) (model.Preferences, error) {
 
 // Caller must hold s.mu write lock.
 func (s *PreferencesStore) loadFromDisk(userID string) (model.Preferences, error) {
+	key := normalizeUserID(userID)
 	p := defaultPreferences()
 
 	data, err := os.ReadFile(s.path(userID))
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.cache[userID] = p
+			s.cache[key] = p
 			return p, nil
 		}
 		return p, fmt.Errorf("read preferences: %w", err)
 	}
 
 	if err := json.Unmarshal(data, &p); err != nil {
-		s.log.Warn().Err(err).Str("user", userID).Msg("corrupt preferences file, using defaults")
+		s.log.Warn().Err(err).Str("user", key).Msg("corrupt preferences file, using defaults")
 		p = defaultPreferences()
 	}
 
 	validatePrefs(&p)
 
-	s.cache[userID] = p
+	s.cache[key] = p
 
 	return p, nil
 }
@@ -153,11 +159,24 @@ func (s *PreferencesStore) prepareSave(userID string, prefs model.Preferences) (
 		return "", fmt.Errorf("marshal preferences: %w", err)
 	}
 
-	dst := s.path(userID)
-	tmp := dst + ".tmp"
+	f, err := os.CreateTemp(s.dir, "*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("create temp preferences: %w", err)
+	}
+	tmp := f.Name()
 
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		_ = os.Remove(tmp)
 		return "", fmt.Errorf("write temp preferences: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("close temp preferences: %w", err)
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("chmod temp preferences: %w", err)
 	}
 
 	return tmp, nil
@@ -173,7 +192,7 @@ func (s *PreferencesStore) commitSave(userID, tmp string, prefs model.Preference
 		return fmt.Errorf("rename preferences: %w", err)
 	}
 
-	s.cache[userID] = prefs
+	s.cache[normalizeUserID(userID)] = prefs
 
 	return nil
 }

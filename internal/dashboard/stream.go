@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/dom"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -18,7 +19,8 @@ import (
 )
 
 const (
-	chanSizeSSEQueue = 64
+	chanSizeSSEQueue    = 64
+	healthRefreshInterval = 10 * time.Second
 
 	EventNotify EventType = iota
 	EventScrollLogs
@@ -54,6 +56,8 @@ func (c *sseClient) send(msg SSEMessage) bool {
 		return false
 	case c.channel <- msg:
 		return true
+	default:
+		return false
 	}
 }
 
@@ -134,12 +138,10 @@ func (dash *Dashboard) renderHTMXList(client *sseClient, proxies proxymanager.Pr
 	search := client.search
 	client.mtx.Unlock()
 
-	view := BuildDashboardView(proxies, prefs, search)
-
 	viewData := pages.DashboardData{
-		Prefs: prefs,
+		Prefs:   prefs,
+		Proxies: BuildDashboardView(proxies, prefs, search),
 	}
-	viewData.Proxies = convertView(view)
 
 	client.send(SSEMessage{
 		Type: EventHTMXListRefresh,
@@ -208,86 +210,126 @@ func (dash *Dashboard) snapshotClients() []clientInfo {
 }
 
 func (dash *Dashboard) streamProxyUpdates() {
-	for event := range dash.pm.SubscribeStatusEvents() {
-		clients := dash.snapshotClients()
-		if len(clients) == 0 {
-			continue
-		}
+	events := dash.pm.SubscribeStatusEvents()
 
-		needsFull := dash.needsFullRender(clients, event)
+	healthTicker := time.NewTicker(healthRefreshInterval)
+	defer healthTicker.Stop()
 
-		if needsFull {
-			proxies := dash.pm.GetProxies()
-			for _, ci := range clients {
-				dash.renderHTMXList(ci.client, proxies)
-				dash.sendStatusNotification(ci.client, event)
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				return
 			}
-			continue
+			dash.handleStatusEvent(event)
+
+		case <-healthTicker.C:
+			dash.refreshClientCards()
 		}
+	}
+}
 
-		proxy, ok := dash.pm.GetProxy(event.ID)
-		if !ok {
-			proxies := dash.pm.GetProxies()
-			for _, ci := range clients {
-				dash.renderHTMXList(ci.client, proxies)
-				dash.sendStatusNotification(ci.client, event)
-			}
-			continue
-		}
+func (dash *Dashboard) handleStatusEvent(event model.ProxyEvent) {
+	clients := dash.snapshotClients()
+	if len(clients) == 0 {
+		return
+	}
 
-		if !proxy.Config.Dashboard.Visible {
-			continue
-		}
+	needsFull := dash.needsFullRender(clients, event)
 
-		type cardSend struct {
-			client *sseClient
-			msgs   []SSEMessage
-		}
+	// New proxies broadcast ProxyStatusInitializing before the card
+	// element exists in the DOM, so outerHTML would be a no-op.
+	// Force a full list render to make new cards appear.
+	if !needsFull && event.Status == model.ProxyStatusInitializing {
+		needsFull = true
+	}
 
-		safeName := dom.SafeID(event.ID)
-		actionsTarget := "#actions-panel-" + safeName
-
-		var sends []cardSend
+	if needsFull {
+		proxies := dash.pm.GetProxies()
 		for _, ci := range clients {
-			prefs := dash.loadPrefs(ci.userID)
+			dash.renderHTMXList(ci.client, proxies)
+			dash.sendStatusNotification(ci.client, event)
+		}
+		return
+	}
 
-			item := ProxyViewItem{Name: event.ID, Category: proxy.Config.Dashboard.Category, Proxy: proxy}
-			if !matchesFilter(item, prefs, ci.search) {
-				continue
-			}
+	proxy, ok := dash.pm.GetProxy(event.ID)
+	if !ok {
+		proxies := dash.pm.GetProxies()
+		for _, ci := range clients {
+			dash.renderHTMXList(ci.client, proxies)
+			dash.sendStatusNotification(ci.client, event)
+		}
+		return
+	}
 
-			data := buildProxyDataFromProxy(event.ID, proxy)
-			sends = append(sends, cardSend{
-				client: ci.client,
-				msgs: []SSEMessage{
-					{
-						Type:   EventHTMXCardUpdate,
-						Comp:   pages.ProxyCard(data),
-						Target: "#proxy-" + safeName,
-						Swap:   "outerHTML",
-					},
-					{
-						Type:   EventHTMXCardUpdate,
-						Comp:   pages.ActionsPanel(data),
-						Target: actionsTarget,
-						Swap:   "outerHTML",
-					},
-					{
-						Type:   EventHTMXCardUpdate,
-						Comp:   pages.ModalStatusBadge(data),
-						Target: "#modal-status-" + safeName,
-						Swap:   "outerHTML",
-					},
+	if !proxy.Config.Dashboard.Visible {
+		return
+	}
+
+	type cardSend struct {
+		client *sseClient
+		msgs   []SSEMessage
+	}
+
+	safeName := dom.SafeID(event.ID)
+	actionsTarget := "#actions-panel-" + safeName
+
+	var sends []cardSend
+	for _, ci := range clients {
+		prefs := dash.loadPrefs(ci.userID)
+
+		data := buildProxyDataFromProxy(event.ID, proxy, pinnedSet(prefs))
+		if !matchesFilter(data, prefs, ci.search) {
+			continue
+		}
+
+		sends = append(sends, cardSend{
+			client: ci.client,
+			msgs: []SSEMessage{
+				{
+					Type:   EventHTMXCardUpdate,
+					Comp:   pages.ProxyCard(data),
+					Target: "#proxy-" + safeName,
+					Swap:   "outerHTML",
 				},
-			})
-		}
+				{
+					Type:   EventHTMXCardUpdate,
+					Comp:   pages.ActionsPanel(data),
+					Target: actionsTarget,
+					Swap:   "outerHTML",
+				},
+				{
+					Type:   EventHTMXCardUpdate,
+					Comp:   pages.ModalStatusBadge(data),
+					Target: "#modal-status-" + safeName,
+					Swap:   "outerHTML",
+				},
+			},
+		})
+	}
 
-		for _, s := range sends {
-			for _, msg := range s.msgs {
-				s.client.send(msg)
-			}
-			dash.sendStatusNotification(s.client, event)
+	for _, s := range sends {
+		for _, msg := range s.msgs {
+			s.client.send(msg)
 		}
+		dash.sendStatusNotification(s.client, event)
+	}
+}
+
+// refreshClientCards pushes updated cards to all connected SSE clients
+// so that health changes (which happen independently of status events)
+// are reflected in the dashboard.
+func (dash *Dashboard) refreshClientCards() {
+	clients := dash.snapshotClients()
+	if len(clients) == 0 {
+		return
+	}
+
+	proxies := dash.pm.GetProxies()
+
+	for _, ci := range clients {
+		dash.renderHTMXList(ci.client, proxies)
 	}
 }
 
