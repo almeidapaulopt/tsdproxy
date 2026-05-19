@@ -28,7 +28,7 @@ var proxyAuthToken string
 // identity headers forwarded by the internal reverse proxy. Must be
 // called once during startup, before any HTTP handlers are registered.
 func InitProxyAuth(log zerolog.Logger) {
-	b := make([]byte, 32)
+	b := make([]byte, 32) //nolint:mnd
 	if _, err := rand.Read(b); err != nil {
 		log.Fatal().Err(err).Msg("failed to generate proxy auth token")
 	}

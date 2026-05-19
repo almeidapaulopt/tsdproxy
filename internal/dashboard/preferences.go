@@ -24,14 +24,14 @@ func defaultPreferences() model.Preferences {
 		View:         "card",
 		Sort:         "name",
 		Grouped:      false,
-		FilterStatus: "all",
-		FilterHealth: "all",
+		FilterStatus: filterAll,
+		FilterHealth: filterAll,
 		Pinned:       []string{},
 	}
 }
 
 var validSortKeys = map[string]bool{
-	"name": true, "status": true, "provider": true, "health": true,
+	"name": true, sortStatus: true, "provider": true, sortHealth: true,
 }
 
 var validViewValues = map[string]bool{
@@ -39,11 +39,11 @@ var validViewValues = map[string]bool{
 }
 
 var validFilterStatusValues = map[string]bool{
-	"all": true, "Running": true, "Stopped": true, "Error": true, "Paused": true, "Authenticating": true,
+	filterAll: true, "Running": true, "Stopped": true, "Error": true, "Paused": true, "Authenticating": true,
 }
 
 var validFilterHealthValues = map[string]bool{
-	"all": true, "healthy": true, "down": true, "unknown": true,
+	filterAll: true, "healthy": true, "down": true, healthUnknown: true,
 }
 
 func validatePrefs(p *model.Preferences) {
@@ -80,7 +80,7 @@ type PreferencesStore struct {
 
 func NewPreferencesStore(dir string, log zerolog.Logger) (*PreferencesStore, error) {
 	prefDir := filepath.Join(dir, "dashboard", "preferences")
-	if err := os.MkdirAll(prefDir, 0o755); err != nil {
+	if err := os.MkdirAll(prefDir, 0o755); err != nil { //nolint:mnd
 		return nil, fmt.Errorf("create preferences dir: %w", err)
 	}
 	return &PreferencesStore{
@@ -152,7 +152,7 @@ func (s *PreferencesStore) Save(userID string, prefs model.Preferences) error {
 }
 
 // prepareSave validates, marshals, and writes the temp file — no lock held.
-func (s *PreferencesStore) prepareSave(userID string, prefs model.Preferences) (string, error) {
+func (s *PreferencesStore) prepareSave(prefs model.Preferences) (string, error) {
 	validatePrefs(&prefs)
 
 	data, err := json.Marshal(prefs)
@@ -175,7 +175,7 @@ func (s *PreferencesStore) prepareSave(userID string, prefs model.Preferences) (
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("close temp preferences: %w", err)
 	}
-	if err := os.Chmod(tmp, 0o600); err != nil {
+	if err := os.Chmod(tmp, 0o600); err != nil { //nolint:mnd
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("chmod temp preferences: %w", err)
 	}
@@ -200,7 +200,7 @@ func (s *PreferencesStore) commitSave(userID, tmp string, prefs model.Preference
 
 // save validates, writes temp file (unlocked), then commits under the write lock.
 func (s *PreferencesStore) save(userID string, prefs model.Preferences) error {
-	tmp, err := s.prepareSave(userID, prefs)
+	tmp, err := s.prepareSave(prefs)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func (s *PreferencesStore) save(userID string, prefs model.Preferences) error {
 
 // Caller must hold s.mu write lock.
 func (s *PreferencesStore) saveLocked(userID string, prefs model.Preferences) error {
-	tmp, err := s.prepareSave(userID, prefs)
+	tmp, err := s.prepareSave(prefs)
 	if err != nil {
 		return err
 	}

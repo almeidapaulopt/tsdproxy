@@ -53,6 +53,11 @@ const (
 	autoDetectTries = 5
 	autoDetectSleep = 5 * time.Second
 
+	// health check label bounds
+	healthCheckMaxIntervalSeconds = 86400
+	healthCheckMaxFailures        = 100
+	healthCheckMaxCooldownSeconds = 86400
+
 	// Port options
 	PortOptionNoTLSValidate   = "no_tlsvalidate"
 	PortOptionTailscaleFunnel = "tailscale_funnel"

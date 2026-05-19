@@ -18,6 +18,11 @@ type Metrics struct {
 	RequestsInFlight *prometheus.GaugeVec
 }
 
+const (
+	labelProxy = "proxy"
+	labelPort  = "port"
+)
+
 // New creates and registers Prometheus metrics with the default registerer.
 func New() *Metrics {
 	m := &Metrics{
@@ -26,7 +31,7 @@ func New() *Metrics {
 				Name: "tsdproxy_proxy_requests_total",
 				Help: "Total number of requests proxied per proxy and port.",
 			},
-			[]string{"proxy", "port"},
+			[]string{labelProxy, labelPort},
 		),
 		RequestDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -34,14 +39,14 @@ func New() *Metrics {
 				Help:    "Histogram of request latencies per proxy and port.",
 				Buckets: prometheus.DefBuckets,
 			},
-			[]string{"proxy", "port", "code"},
+			[]string{labelProxy, labelPort, "code"},
 		),
 		RequestsInFlight: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "tsdproxy_proxy_requests_in_flight",
 				Help: "Current number of in-flight requests per proxy and port.",
 			},
-			[]string{"proxy", "port"},
+			[]string{labelProxy, labelPort},
 		),
 	}
 
@@ -59,7 +64,7 @@ func New() *Metrics {
 func (m *Metrics) Middleware(proxyName, portName string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			labels := prometheus.Labels{"proxy": proxyName, "port": portName}
+			labels := prometheus.Labels{labelProxy: proxyName, labelPort: portName}
 
 			m.RequestsTotal.With(labels).Inc()
 			m.RequestsInFlight.With(labels).Inc()
@@ -71,9 +76,9 @@ func (m *Metrics) Middleware(proxyName, portName string) func(http.Handler) http
 
 			duration := time.Since(start).Seconds()
 			m.RequestDuration.With(prometheus.Labels{
-				"proxy": proxyName,
-				"port":  portName,
-				"code":  "200",
+				labelProxy: proxyName,
+				labelPort:  portName,
+				"code":     "200",
 			}).Observe(duration)
 		})
 	}

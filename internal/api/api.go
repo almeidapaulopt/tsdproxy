@@ -277,7 +277,7 @@ func (a *API) testWebhookHandler() http.HandlerFunc {
 		sender := webhook.NewSender(a.Log, config.Config.Webhooks)
 		defer sender.Close()
 
-		if err := sender.SendSync(webhook.WebhookEvent{
+		if err := sender.SendSync(webhook.Event{
 			ProxyName: "test-proxy",
 			Status:    running.String(),
 			OldStatus: stopped.String(),
@@ -302,9 +302,9 @@ func formatDuration(d time.Duration) string {
 	if d == 0 {
 		return ""
 	}
-	days := int(d.Hours() / 24)
-	hours := int(math.Mod(d.Hours(), 24))
-	minutes := int(math.Mod(d.Minutes(), 60))
+	days := int(d.Hours() / 24)               //nolint:mnd
+	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
+	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
 
 	var parts []string
 	if days > 0 {

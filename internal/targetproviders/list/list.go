@@ -24,7 +24,7 @@ type (
 	// Client struct implements TargetProvider
 	Client struct {
 		log           zerolog.Logger
-		file          *config.ConfigFile
+		file          *config.File
 		configProxies configProxyList
 		proxies       configProxyList
 		eventsChan    chan targetproviders.TargetEvent

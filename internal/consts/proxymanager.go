@@ -8,7 +8,7 @@ const (
 	HeaderUsername      = "x-tsdproxy-username"
 	HeaderDisplayName   = "x-tsdproxy-displayname"
 	HeaderProfilePicURL = "x-tsdproxy-profilepicurl"
-	HeaderAuthToken     = "x-tsdproxy-auth-token"
+	HeaderAuthToken     = "x-tsdproxy-auth-token" //nolint:gosec // G101: header name, not a credential
 
 	HeaderRemoteUser                  = "Remote-User"
 	HeaderXForwardedUser              = "X-Forwarded-User"

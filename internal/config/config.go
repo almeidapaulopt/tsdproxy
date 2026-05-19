@@ -209,7 +209,7 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(resolved)
+	data, err := os.ReadFile(resolved) //nolint:gosec // G703: path is validated by ValidateKeyFilePath
 	if err != nil {
 		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}

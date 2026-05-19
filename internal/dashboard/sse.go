@@ -20,7 +20,7 @@ func WriteSSE(w http.ResponseWriter, event string, data string) error {
 		return fmt.Errorf("write sse event: %w", err)
 	}
 	for _, line := range strings.Split(data, "\n") {
-		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil { //nolint:gosec // G705: data is templ-rendered
 			return fmt.Errorf("write sse data: %w", err)
 		}
 	}
@@ -42,7 +42,7 @@ func WriteSSEPartialComponent(w http.ResponseWriter, target string, swap string,
 		return fmt.Errorf("render sse partial: %w", err)
 	}
 	for _, line := range strings.Split(buf.String(), "\n") {
-		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil { //nolint:gosec // G705: line is templ-rendered
 			return fmt.Errorf("write sse partial: %w", err)
 		}
 	}

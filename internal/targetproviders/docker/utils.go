@@ -40,20 +40,22 @@ func (c *container) getLabelString(label string, defaultValue string) string {
 
 func (c *container) getLabelInt(label string, defaultValue, minVal, maxVal int) int {
 	value := defaultValue
-	if valueString, ok := c.labels[label]; ok {
-		if v, err := strconv.Atoi(valueString); err == nil {
-			if v >= minVal && v <= maxVal {
-				value = v
-			} else {
-				c.log.Debug().Str("label", label).Int("value", v).Int("min", minVal).Int("max", maxVal).
-					Msg("label value out of range, using default")
-			}
-		} else {
-			c.log.Debug().Str("label", label).Str("value", valueString).
-				Msg("invalid label value, using default")
-		}
+	valueString, ok := c.labels[label]
+	if !ok {
+		return value
 	}
-	return value
+	v, err := strconv.Atoi(valueString)
+	if err != nil {
+		c.log.Debug().Str("label", label).Str("value", valueString).
+			Msg("invalid label value, using default")
+		return value
+	}
+	if v < minVal || v > maxVal {
+		c.log.Debug().Str("label", label).Int("value", v).Int("min", minVal).Int("max", maxVal).
+			Msg("label value out of range, using default")
+		return value
+	}
+	return v
 }
 
 // getAuthKeyFromAuthFile method returns a auth key from a file.

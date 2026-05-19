@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 // HealthStatus represents the health of a proxy's backend target.
@@ -23,6 +25,9 @@ const (
 	HealthUnknown HealthStatus = iota
 	HealthHealthy
 	HealthDown
+
+	healthCheckMaxInterval = time.Hour
+	healthCheckMaxCooldown = 24 * time.Hour
 )
 
 func (s HealthStatus) String() string {
@@ -78,14 +83,20 @@ func nextBackoff(interval time.Duration, attempt int) time.Duration {
 	if shift > 0 && interval > maxBackoff/shift {
 		return maxBackoff
 	}
-	d := interval * shift
+	d := time.Duration(int64(interval) * int64(shift))
 	if d > maxBackoff {
 		return maxBackoff
 	}
 	return d
 }
 
-func newHealthChecker(log zerolog.Logger, target, scheme string, interval time.Duration, failThreshold int, cooldown time.Duration, tlsValidate bool, onRedetect func() error) *healthChecker {
+func newHealthChecker(
+	log zerolog.Logger, target, scheme string,
+	interval time.Duration, failThreshold int,
+	cooldown time.Duration, tlsValidate bool,
+	onRedetect func() error,
+) *healthChecker {
+	//
 	ctx, cancel := context.WithCancel(context.Background())
 
 	hc := &healthChecker{
@@ -149,9 +160,9 @@ func (hc *healthChecker) check() {
 	result.CheckedAt = time.Now()
 
 	switch hc.scheme {
-	case "http", "https":
+	case model.ProtoHTTP, model.ProtoHTTPS:
 		result = hc.checkHTTP(ctx)
-	case "udp":
+	case model.ProtoUDP:
 		result = hc.checkUDP(ctx)
 	default:
 		result = hc.checkTCP(ctx)
@@ -210,7 +221,7 @@ func (hc *healthChecker) checkHTTP(ctx context.Context) HealthResult {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: !hc.tlsValidate}, //nolint
 			DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
 		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			// Don't follow redirects — a 3xx still means the backend is up
 			return http.ErrUseLastResponse
 		},
@@ -306,7 +317,7 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		conn.SetReadDeadline(time.Now())
+		_ = conn.SetReadDeadline(time.Now())
 		<-done
 	}
 

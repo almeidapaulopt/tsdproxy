@@ -217,65 +217,60 @@ func TestSetContainerNetwork_DeterministicOrderByNetworkName(t *testing.T) {
 	}
 }
 
-func TestSetContainerNetwork_PrefersGatewayMatch(t *testing.T) {
-	c := &container{
-		log:                  zerolog.Nop(),
-		defaultBridgeAddress: netip.MustParseAddr("10.0.1.1"),
-	}
-
-	dcontainer := ctypes.InspectResponse{
-		NetworkSettings: &ctypes.NetworkSettings{
-			Networks: map[string]*network.EndpointSettings{
+func TestSetContainerNetwork_GatewayPriority(t *testing.T) {
+	tests := []struct {
+		name                  string
+		defaultBridge         string
+		networks              map[string]*network.EndpointSettings
+		wantFirst, wantSecond string
+	}{
+		{
+			name:          "PrefersGatewayMatch",
+			defaultBridge: "10.0.1.1",
+			networks: map[string]*network.EndpointSettings{
 				"network-bravo": {IPAddress: netip.MustParseAddr("10.0.2.5"), Gateway: netip.MustParseAddr("10.0.2.1")},
 				"network-alpha": {IPAddress: netip.MustParseAddr("10.0.1.5"), Gateway: netip.MustParseAddr("10.0.1.1")},
 			},
+			wantFirst:  "10.0.1.5",
+			wantSecond: "10.0.2.5",
 		},
-	}
-
-	c.setContainerNetwork(dcontainer)
-
-	if len(c.ipAddress) != 2 {
-		t.Fatalf("expected 2 IPs, got %d", len(c.ipAddress))
-	}
-
-	// network-alpha's gateway (10.0.1.1) matches defaultBridgeAddress,
-	// so it should be promoted to [0] despite both being sorted alphabetically.
-	if c.ipAddress[0].String() != "10.0.1.5" {
-		t.Errorf("ipAddress[0]: got %q, want \"10.0.1.5\" (gateway-matched network)", c.ipAddress[0])
-	}
-	if c.ipAddress[1].String() != "10.0.2.5" {
-		t.Errorf("ipAddress[1]: got %q, want \"10.0.2.5\" (non-matching network)", c.ipAddress[1])
-	}
-}
-
-func TestSetContainerNetwork_GatewayMatchOverridesAlphaSort(t *testing.T) {
-	c := &container{
-		log:                  zerolog.Nop(),
-		defaultBridgeAddress: netip.MustParseAddr("172.18.0.1"),
-	}
-
-	dcontainer := ctypes.InspectResponse{
-		NetworkSettings: &ctypes.NetworkSettings{
-			Networks: map[string]*network.EndpointSettings{
+		{
+			name:          "GatewayMatchOverridesAlphaSort",
+			defaultBridge: "172.18.0.1",
+			networks: map[string]*network.EndpointSettings{
 				"aaa-network": {IPAddress: netip.MustParseAddr("10.0.1.5"), Gateway: netip.MustParseAddr("10.0.1.1")},
 				"zzz-network": {IPAddress: netip.MustParseAddr("172.18.0.42"), Gateway: netip.MustParseAddr("172.18.0.1")},
 			},
+			wantFirst:  "172.18.0.42",
+			wantSecond: "10.0.1.5",
 		},
 	}
 
-	c.setContainerNetwork(dcontainer)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &container{
+				log:                  zerolog.Nop(),
+				defaultBridgeAddress: netip.MustParseAddr(tc.defaultBridge),
+			}
 
-	if len(c.ipAddress) != 2 {
-		t.Fatalf("expected 2 IPs, got %d", len(c.ipAddress))
-	}
+			dcontainer := ctypes.InspectResponse{
+				NetworkSettings: &ctypes.NetworkSettings{
+					Networks: tc.networks,
+				},
+			}
 
-	// zzz-network's gateway matches defaultBridgeAddress, so it should be [0]
-	if c.ipAddress[0].String() != "172.18.0.42" {
-		t.Errorf("ipAddress[0]: got %q, want \"172.18.0.42\" (gateway-matched network)", c.ipAddress[0])
-	}
-	// aaa-network is the non-matching fallback
-	if c.ipAddress[1].String() != "10.0.1.5" {
-		t.Errorf("ipAddress[1]: got %q, want \"10.0.1.5\" (non-matching network)", c.ipAddress[1])
+			c.setContainerNetwork(dcontainer)
+
+			if len(c.ipAddress) != 2 {
+				t.Fatalf("expected 2 IPs, got %d", len(c.ipAddress))
+			}
+			if c.ipAddress[0].String() != tc.wantFirst {
+				t.Errorf("ipAddress[0]: got %q, want %q", c.ipAddress[0], tc.wantFirst)
+			}
+			if c.ipAddress[1].String() != tc.wantSecond {
+				t.Errorf("ipAddress[1]: got %q, want %q", c.ipAddress[1], tc.wantSecond)
+			}
+		})
 	}
 }
 

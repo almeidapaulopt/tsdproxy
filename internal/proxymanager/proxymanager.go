@@ -167,7 +167,7 @@ func (pm *ProxyManager) getTargetLock(targetID string) *sync.Mutex {
 // SubscribeStatusEvents return a channel of proxy events.
 // This events are sent by Proxies and Ports.
 func (pm *ProxyManager) SubscribeStatusEvents() <-chan model.ProxyEvent {
-	ch := make(chan model.ProxyEvent, 64)
+	ch := make(chan model.ProxyEvent, 64) //nolint:mnd
 
 	pm.mtx.Lock()
 	pm.statusSubscribers[ch] = struct{}{}

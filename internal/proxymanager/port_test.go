@@ -88,13 +88,13 @@ func TestTCPPortForward(t *testing.T) {
 	defer clientConn.Close()
 
 	message := []byte("hello tcp proxy")
-	if _, err := clientConn.Write(message); err != nil {
-		t.Fatalf("failed to write: %v", err)
+	if _, writeErr := clientConn.Write(message); writeErr != nil {
+		t.Fatalf("failed to write: %v", writeErr)
 	}
 
 	buf := make([]byte, len(message))
-	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		t.Fatalf("failed to set deadline: %v", err)
+	if dlErr := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); dlErr != nil {
+		t.Fatalf("failed to set deadline: %v", dlErr)
 	}
 	n, err := clientConn.Read(buf)
 	if err != nil {
@@ -104,8 +104,8 @@ func TestTCPPortForward(t *testing.T) {
 		t.Fatalf("expected %q, got %q", message, buf[:n])
 	}
 
-	if err := clientConn.Close(); err != nil {
-		t.Fatalf("failed to close client: %v", err)
+	if closeErr := clientConn.Close(); closeErr != nil {
+		t.Fatalf("failed to close client: %v", closeErr)
 	}
 
 	tp.close()
@@ -129,7 +129,7 @@ func TestTCPPortMultipleConnections(t *testing.T) {
 		t.Fatalf("failed to create frontend listener: %v", err)
 	}
 
-	go tp.startWithListener(frontLn)
+	go func() { _ = tp.startWithListener(frontLn) }()
 
 	for i := range 5 {
 		clientConn, err := net.DialTimeout("tcp", frontLn.Addr().String(), 2*time.Second)
@@ -138,13 +138,13 @@ func TestTCPPortMultipleConnections(t *testing.T) {
 		}
 
 		message := []byte("message " + string(rune('A'+i)))
-		if _, err := clientConn.Write(message); err != nil {
-			t.Fatalf("connection %d: failed to write: %v", i, err)
+		if _, writeErr := clientConn.Write(message); writeErr != nil {
+			t.Fatalf("connection %d: failed to write: %v", i, writeErr)
 		}
 
 		buf := make([]byte, len(message))
-		if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-			t.Fatalf("connection %d: failed to set deadline: %v", i, err)
+		if dlErr := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); dlErr != nil {
+			t.Fatalf("connection %d: failed to set deadline: %v", i, dlErr)
 		}
 		n, err := clientConn.Read(buf)
 		if err != nil {
@@ -177,14 +177,14 @@ func TestTCPPortClose(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if err := tp.close(); err != nil {
-		t.Fatalf("close returned error: %v", err)
+	if closeErr := tp.close(); closeErr != nil {
+		t.Fatalf("close returned error: %v", closeErr)
 	}
 
 	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("startWithListener returned error after close: %v", err)
+	case startErr := <-errCh:
+		if startErr != nil {
+			t.Fatalf("startWithListener returned error after close: %v", startErr)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("startWithListener did not return after close")
@@ -205,7 +205,7 @@ func TestTCPPortEmptyTarget(t *testing.T) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 
-	go tp.startWithListener(ln)
+	go func() { _ = tp.startWithListener(ln) }()
 
 	clientConn, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
 	if err != nil {
@@ -213,8 +213,8 @@ func TestTCPPortEmptyTarget(t *testing.T) {
 	}
 	defer clientConn.Close()
 
-	if err := clientConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
-		t.Fatalf("failed to set deadline: %v", err)
+	if dlErr := clientConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); dlErr != nil {
+		t.Fatalf("failed to set deadline: %v", dlErr)
 	}
 	buf := make([]byte, 1024)
 	n, err := clientConn.Read(buf)
@@ -284,7 +284,7 @@ func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
 	if err != nil {
 		t.Fatalf("frontend listen: %v", err)
 	}
-	go p.startWithListener(frontLn)
+	go func() { _ = p.startWithListener(frontLn) }()
 	defer p.close()
 
 	resp, err := http.Get("http://" + frontLn.Addr().String() + "/")
@@ -381,7 +381,7 @@ func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("frontend listen: %v", err)
 	}
-	go p.startWithListener(frontLn)
+	go func() { _ = p.startWithListener(frontLn) }()
 	defer p.close()
 
 	req, err := http.NewRequest(http.MethodGet, "http://"+frontLn.Addr().String()+"/", nil)

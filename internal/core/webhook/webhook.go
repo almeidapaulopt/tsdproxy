@@ -26,10 +26,23 @@ const (
 	maxRetries       = 3
 	webhookWorkers   = 8
 	webhookQueueSize = 256
+
+	contentTypeJSON = "application/json"
+	fieldInline     = "inline"
+	fieldText       = "text"
+	fieldName       = "name"
+	fieldValue      = "value"
+
+	webhookTimeout    = 10 * time.Second
+	webhookMaxBody    = 512
+	webhookMaxStatus  = 300
+	discordColorGreen = 5763719
+	discordColorRed   = 15548997
+	discordColorGrey  = 5766978
 )
 
 type (
-	WebhookEvent struct {
+	Event struct {
 		ProxyName string `json:"proxy"`
 		Status    string `json:"status"`
 		OldStatus string `json:"previousStatus"`
@@ -38,7 +51,7 @@ type (
 	}
 
 	sendJob struct {
-		event WebhookEvent
+		event Event
 		cfg   config.WebhookConfig
 	}
 
@@ -59,7 +72,7 @@ func NewSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sender{
 		log:     log.With().Str("module", "webhook").Logger(),
-		client:  &http.Client{Timeout: 10 * time.Second},
+		client:  &http.Client{Timeout: webhookTimeout},
 		configs: configs,
 		ctx:     ctx,
 		cancel:  cancel,
@@ -85,11 +98,11 @@ func (s *Sender) Close() {
 func (s *Sender) worker() {
 	defer s.wg.Done()
 	for job := range s.queue {
-		s.sendWithRetry(job.cfg, job.event)
+		_ = s.sendWithRetry(job.cfg, job.event)
 	}
 }
 
-func (s *Sender) Send(event WebhookEvent) {
+func (s *Sender) Send(event Event) {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 
@@ -108,7 +121,7 @@ func (s *Sender) Send(event WebhookEvent) {
 	}
 }
 
-func (s *Sender) SendSync(event WebhookEvent) error {
+func (s *Sender) SendSync(event Event) error {
 	var firstErr error
 	for _, cfg := range s.configs {
 		if !eventMatchesFilter(event, cfg.Events) {
@@ -121,7 +134,7 @@ func (s *Sender) SendSync(event WebhookEvent) error {
 	return firstErr
 }
 
-func eventMatchesFilter(event WebhookEvent, filter []string) bool {
+func eventMatchesFilter(event Event, filter []string) bool {
 	if len(filter) == 0 {
 		return true
 	}
@@ -133,7 +146,7 @@ func eventMatchesFilter(event WebhookEvent, filter []string) bool {
 	return false
 }
 
-func (s *Sender) sendWithRetry(cfg config.WebhookConfig, event WebhookEvent) error {
+func (s *Sender) sendWithRetry(cfg config.WebhookConfig, event Event) error {
 	safeURL := redactURL(cfg.URL)
 
 	backoff := time.Second
@@ -175,7 +188,7 @@ func (s *Sender) sendWithRetry(cfg config.WebhookConfig, event WebhookEvent) err
 	return err
 }
 
-func (s *Sender) sendOne(cfg config.WebhookConfig, event WebhookEvent) error {
+func (s *Sender) sendOne(cfg config.WebhookConfig, event Event) error {
 	var body []byte
 	var contentType string
 
@@ -206,24 +219,24 @@ func (s *Sender) sendOne(cfg config.WebhookConfig, event WebhookEvent) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	if resp.StatusCode >= webhookMaxStatus {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, webhookMaxBody))
 		return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil
 }
 
-func (s *Sender) formatGeneric(event WebhookEvent) ([]byte, string) {
+func (s *Sender) formatGeneric(event Event) ([]byte, string) {
 	b, _ := json.Marshal(event)
-	return b, "application/json"
+	return b, contentTypeJSON
 }
 
 func sanitizeWebhookField(s string) string {
 	return strings.ReplaceAll(s, "@", "@\u200b")
 }
 
-func (s *Sender) formatDiscord(event WebhookEvent) ([]byte, string) {
+func (s *Sender) formatDiscord(event Event) ([]byte, string) {
 	name := sanitizeWebhookField(event.ProxyName)
 	color := discordColor(event.Status)
 	payload := map[string]any{
@@ -231,9 +244,9 @@ func (s *Sender) formatDiscord(event WebhookEvent) ([]byte, string) {
 			{
 				"title": "TSDProxy Status Update",
 				"fields": []map[string]any{
-					{"name": "Proxy", "value": name, "inline": true},
-					{"name": "Status", "value": event.Status, "inline": true},
-					{"name": "Previous", "value": event.OldStatus, "inline": true},
+					{fieldName: "Proxy", fieldValue: name, fieldInline: true},
+					{fieldName: "Status", fieldValue: event.Status, fieldInline: true},
+					{fieldName: "Previous", fieldValue: event.OldStatus, fieldInline: true},
 				},
 				"timestamp": event.Timestamp,
 				"color":     color,
@@ -241,48 +254,48 @@ func (s *Sender) formatDiscord(event WebhookEvent) ([]byte, string) {
 		},
 	}
 	b, _ := json.Marshal(payload)
-	return b, "application/json"
+	return b, contentTypeJSON
 }
 
 func discordColor(status string) int {
 	switch strings.ToLower(status) {
 	case "running":
-		return 5763719
+		return discordColorGreen
 	case "error", "stopped":
-		return 15548997
+		return discordColorRed
 	default:
-		return 5766978
+		return discordColorGrey
 	}
 }
 
-func (s *Sender) formatSlack(event WebhookEvent) ([]byte, string) {
+func (s *Sender) formatSlack(event Event) ([]byte, string) {
 	name := sanitizeWebhookField(event.ProxyName)
 	payload := map[string]any{
-		"text": fmt.Sprintf("TSDProxy: Proxy `%s` status changed to `%s`", name, event.Status),
+		fieldText: fmt.Sprintf("TSDProxy: Proxy `%s` status changed to `%s`", name, event.Status),
 		"blocks": []map[string]any{
 			{
 				"type": "section",
-				"text": map[string]string{
+				fieldText: map[string]string{
 					"type": "mrkdwn",
-					"text": fmt.Sprintf("*TSDProxy Status Update*\nProxy: `%s`\nStatus: `%s`\nPrevious: `%s`",
+					fieldText: fmt.Sprintf("*TSDProxy Status Update*\nProxy: `%s`\nStatus: `%s`\nPrevious: `%s`",
 						name, event.Status, event.OldStatus),
 				},
 			},
 		},
 	}
 	b, _ := json.Marshal(payload)
-	return b, "application/json"
+	return b, contentTypeJSON
 }
 
-func (s *Sender) formatNtfy(event WebhookEvent) ([]byte, string) {
+func (s *Sender) formatNtfy(event Event) ([]byte, string) {
 	name := sanitizeWebhookField(event.ProxyName)
 	payload := fmt.Sprintf("Proxy: %s\nStatus: %s\nPrevious: %s",
 		name, event.Status, event.OldStatus)
 	return []byte(payload), "text/plain"
 }
 
-func NewEvent(proxyName string, oldStatus, newStatus model.ProxyStatus) WebhookEvent {
-	return WebhookEvent{
+func NewEvent(proxyName string, oldStatus, newStatus model.ProxyStatus) Event {
+	return Event{
 		ProxyName: proxyName,
 		Status:    newStatus.String(),
 		OldStatus: oldStatus.String(),
