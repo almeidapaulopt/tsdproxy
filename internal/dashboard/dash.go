@@ -20,6 +20,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/ui"
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 
+	"github.com/a-h/templ"
 	"github.com/rs/zerolog"
 )
 
@@ -489,20 +490,16 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 		trimSelector := selector
 		maxLines := fmt.Sprintf("%d", proxymanager.DefaultLogBufferSize)
 
-		writeAppend := func(cmp any) error {
-			html, err := renderHTML(cmp)
-			if err != nil {
-				return err
-			}
-			return writeSSEPartial(w, selector, "beforeend", html)
+		writeAppend := func(cmp templ.Component) error {
+			return WriteSSEPartialComponent(w, selector, "beforeend", cmp)
 		}
 
 		writeRemove := func(sel string) error {
-			return writeSSEPartial(w, sel, "delete", "")
+			return WriteSSEPartialComponent(w, sel, "delete", nil)
 		}
 
 		writeClear := func(sel string) error {
-			return writeSSEPartial(w, sel, "innerHTML", "")
+			return WriteSSEPartialComponent(w, sel, "innerHTML", nil)
 		}
 
 		if err := writeClear(selector); err != nil {

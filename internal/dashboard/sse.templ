@@ -3,8 +3,10 @@
 
 package dashboard
 
-templ ssePartialElement(target string, swap string, innerHTML string) {
+templ ssePartialElement(target string, swap string, cmp templ.Component) {
 	<hx-partial hx-target={ target } hx-swap={ swap }>
-		@templ.Raw(innerHTML)
+		if cmp != nil {
+			@cmp
+		}
 	</hx-partial>
 }

@@ -31,13 +31,12 @@ func WriteSSE(w http.ResponseWriter, event string, data string) error {
 	return nil
 }
 
-// writeSSEPartial sends an SSE data message containing an <hx-partial>
-// element for htmx 4. The htmlContent is embedded via templ.Raw — callers
-// MUST only pass pre-rendered templ output (e.g. from renderHTML) or other
-// trusted/sanitized HTML. For type-safe usage prefer WriteSSEPartialComponent.
-func writeSSEPartial(w http.ResponseWriter, target string, swap string, htmlContent string) error {
+// WriteSSEPartialComponent renders a templ component inside an <hx-partial>
+// element and sends it as an SSE data message. Pass nil cmp for swap-only
+// operations (e.g. delete, outerHTML clear).
+func WriteSSEPartialComponent(w http.ResponseWriter, target string, swap string, cmp templ.Component) error {
 	var buf bytes.Buffer
-	if err := ssePartialElement(target, swap, htmlContent).Render(context.Background(), &buf); err != nil {
+	if err := ssePartialElement(target, swap, cmp).Render(context.Background(), &buf); err != nil {
 		return fmt.Errorf("render sse partial: %w", err)
 	}
 	for _, line := range strings.Split(buf.String(), "\n") {
@@ -52,28 +51,4 @@ func writeSSEPartial(w http.ResponseWriter, target string, swap string, htmlCont
 		flusher.Flush()
 	}
 	return nil
-}
-
-// WriteSSEPartialComponent renders a templ component and sends it as an hx-partial.
-func WriteSSEPartialComponent(w http.ResponseWriter, target string, swap string, cmp templ.Component) error {
-	htmlContent, err := renderHTML(cmp)
-	if err != nil {
-		return err
-	}
-	return writeSSEPartial(w, target, swap, htmlContent)
-}
-
-func renderHTML(v any) (string, error) {
-	switch val := v.(type) {
-	case string:
-		return val, nil
-	case templ.Component:
-		var buf bytes.Buffer
-		if err := val.Render(context.Background(), &buf); err != nil {
-			return "", fmt.Errorf("render template: %w", err)
-		}
-		return buf.String(), nil
-	default:
-		return fmt.Sprintf("%v", val), nil
-	}
 }
