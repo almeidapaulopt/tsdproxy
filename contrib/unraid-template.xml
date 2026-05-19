@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>TSDProxy</Name>
+  <Repository>almeidapaulopt/tsdproxy:2</Repository>
+  <Registry>https://hub.docker.com/r/almeidapaulopt/tsdproxy</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/almeidapaulopt/tsdproxy/issues</Support>
+  <Project>https://github.com/almeidapaulopt/tsdproxy</Project>
+  <Overview>TSDProxy automatically creates Tailscale machines for your Docker containers without requiring sidecar containers. Add tsdproxy.enable=true to any container label, and TSDProxy handles the rest — automatic HTTPS via Tailscale, dynamic lifecycle management, and a real-time dashboard.</Overview>
+  <Description>
+    <![CDATA[
+      <h2>TSDProxy — Automatic Tailscale reverse proxy for Docker</h2>
+      <p>Zero sidecars. Label-based config. Automatic HTTPS.</p>
+      <h3>Quick Start</h3>
+      <ol>
+        <li>Start TSDProxy (this container), then open the WebUI at <code>http://[IP]:8080</code>.</li>
+        <li>Open the dashboard, click the proxy card, and authenticate with Tailscale.</li>
+        <li>Add <code>tsdproxy.enable=true</code> label to any other container — TSDProxy automatically creates a Tailscale machine for it.</li>
+      </ol>
+      <p>For automated (headless) setup, set the <code>authKey</code> or <code>authKeyFile</code> in <code>/config/tsdproxy.yaml</code> after the first run.</p>
+      <p><strong>Note:</strong> On first boot TSDProxy auto-generates a default config at <code>/config/tsdproxy.yaml</code>. Do NOT pre-create this file — let TSDProxy generate it.</p>
+      <p>See <a href="https://almeidapaulopt.github.io/tsdproxy/">full documentation</a> for details.</p>
+    ]]>
+  </Description>
+  <Category>Network:Tools:Productivity</Category>
+  <WebUI>http://[IP]:[PORT:8080]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/almeidapaulopt/tsdproxy/main/contrib/unraid-template.xml</TemplateURL>
+  <!-- Icon: place a 512x512 PNG in the repo at docs/assets/icon.png and update the URL below -->
+  <!-- <Icon>https://raw.githubusercontent.com/almeidapaulopt/tsdproxy/main/docs/assets/icon.png</Icon> -->
+  <ExtraParams>--add-host host.docker.internal:host-gateway</ExtraParams>
+
+  <Config Name="Config path" Target="/config" Default="/mnt/user/appdata/tsdproxy/config" Mode="rw" Description="Directory for tsdproxy.yaml configuration file (auto-generated on first boot)" Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Data path" Target="/data" Default="/mnt/user/appdata/tsdproxy/data" Mode="rw" Description="Directory for Tailscale state data" Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Docker socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="rw" Description="Docker daemon socket — required for container auto-discovery" Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="WebUI port" Target="8080" Default="8080" Mode="tcp" Description="Web dashboard port (HTTP)" Type="Port" Display="always" Required="true" Mask="false"/>
+</Container>

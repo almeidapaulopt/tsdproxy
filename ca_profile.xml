@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>Automatic Tailscale reverse proxy for Docker containers. Zero sidecars. Label-based config. Automatic HTTPS. TSDProxy watches your Docker daemon for containers tagged with tsdproxy.enable=true and automatically creates per-container Tailscale machines with HTTPS certificates.</Profile>
+  <Icon>https://raw.githubusercontent.com/almeidapaulopt/tsdproxy/main/web/public/icons/icon-512x512.png</Icon>
+  <WebPage>https://github.com/almeidapaulopt/tsdproxy</WebPage>
+  <Forum>https://github.com/almeidapaulopt/tsdproxy/issues</Forum>
+  <DonateLink>https://github.com/sponsors/almeidapaulopt</DonateLink>
+  <DonateText>Support TSDProxy development</DonateText>
+</CommunityApplications>
