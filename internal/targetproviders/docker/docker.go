@@ -49,7 +49,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 	newlog.Trace().Msg("New Docker TargetProvider")
 	defer newlog.Trace().Msg("End New Docker TargetProvider")
 
-	docker, err := client.New(client.WithHost(provider.Host), client.WithAPIVersionNegotiation())
+	docker, err := client.New(client.WithHost(provider.Host))
 	if err != nil {
 		log.Error().Err(err).Msg("Error creating Docker client")
 		return nil, err
@@ -288,7 +288,6 @@ func (c *Client) getStopEvent(id string) targetproviders.TargetEvent {
 	}
 }
 
-// addContainer method addContainer the containers map
 func (c *Client) addContainer(cont *container, name string) {
 	c.log.Trace().Msgf("addContainer %s", name)
 	defer c.log.Trace().Msgf("End addContainer %s", name)
@@ -297,17 +296,6 @@ func (c *Client) addContainer(cont *container, name string) {
 	defer c.mutex.Unlock()
 
 	c.containers[name] = cont
-}
-
-// deleteContainer method deletes a container from the containers map
-func (c *Client) deleteContainer(name string) {
-	c.log.Trace().Msgf("deleteContainer %s", name)
-	defer c.log.Trace().Msgf("End deleteContainer %s", name)
-
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	delete(c.containers, name)
 }
 
 // setDefaultBridgeAddress method returns the default bridge network address

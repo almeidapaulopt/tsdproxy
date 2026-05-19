@@ -32,7 +32,7 @@ type (
 	WebhookEvent struct {
 		ProxyName string `json:"proxy"`
 		Status    string `json:"status"`
-		OldStatus string `json:"previous_status"`
+		OldStatus string `json:"previousStatus"`
 		Timestamp string `json:"timestamp"`
 		Message   string `json:"message"`
 	}

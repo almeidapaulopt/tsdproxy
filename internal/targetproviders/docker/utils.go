@@ -38,14 +38,14 @@ func (c *container) getLabelString(label string, defaultValue string) string {
 	return value
 }
 
-func (c *container) getLabelInt(label string, defaultValue, min, max int) int {
+func (c *container) getLabelInt(label string, defaultValue, minVal, maxVal int) int {
 	value := defaultValue
 	if valueString, ok := c.labels[label]; ok {
 		if v, err := strconv.Atoi(valueString); err == nil {
-			if v >= min && v <= max {
+			if v >= minVal && v <= maxVal {
 				value = v
 			} else {
-				c.log.Debug().Str("label", label).Int("value", v).Int("min", min).Int("max", max).
+				c.log.Debug().Str("label", label).Int("value", v).Int("min", minVal).Int("max", maxVal).
 					Msg("label value out of range, using default")
 			}
 		} else {

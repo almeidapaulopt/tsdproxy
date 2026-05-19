@@ -133,13 +133,13 @@ func LoggerMiddleware(l zerolog.Logger, next http.Handler, opts ...LoggerMiddlew
 		msg := "request"
 		var event *zerolog.Event
 		if lw.status >= http.StatusBadRequest {
-			event = l.Error()
+			event = l.Error() //nolint:zerologlint
 			if lw.err != nil {
 				event = event.Err(lw.err)
 			}
 			msg = "error"
 		} else {
-			event = l.Info()
+			event = l.Info() //nolint:zerologlint
 		}
 		event.
 			Int("status", lw.status).
