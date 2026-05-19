@@ -41,6 +41,7 @@ type ProxyData struct {
 	Category              string
 	StatusHistory         []StatusHistoryEntry
 	Uptime                string
+	Pinned                bool
 }
 
 type StatusHistoryEntry struct {
@@ -255,7 +256,7 @@ templ ProxyCard(item ProxyData) {
 templ ProxyCardInner(item ProxyData) {
 	<div class="proxy-icon-col">
 		<button
-			class="pin-btn"
+			class={ "pin-btn", templ.KV("pinned", item.Pinned) }
 			hx-post={ "/api/dashboard/pin/" + url.PathEscape(item.Name) }
 			hx-target="#proxy-list"
 			hx-swap="innerHTML"
@@ -342,63 +343,43 @@ templ ProxyModalContent(item ProxyData) {
 			<span id={ "modal-status-" + dom.SafeID(item.Name) } class={ "badge badge-sm shrink-0 ml-auto font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
 		</div>
 
+		@modalTabs(item)
+	</div>
+}
+
+templ modalTabs(item ProxyData) {
+	<div class="tabs tabs-border mb-4">
+		<input
+			id={ "log-info-tab-" + dom.SafeID(item.Name) }
+			type="radio"
+			name={ modalname(item.Name) + "_tabs" }
+			class="tab"
+			aria-label="Info"
+			checked
+		/>
+		<div class="tab-content pt-4">
+			@infoPanel(item)
+		</div>
+		<input
+			id={ "log-actions-tab-" + dom.SafeID(item.Name) }
+			type="radio"
+			name={ modalname(item.Name) + "_tabs" }
+			class="tab"
+			aria-label="Actions"
+		/>
+		<div class="tab-content pt-4">
+			@ActionsPanel(item)
+		</div>
 		if item.ProxyAccessLog {
-			<div class="tabs tabs-border mb-4">
-				<input
-					id={ "log-info-tab-" + dom.SafeID(item.Name) }
-					type="radio"
-					name={ modalname(item.Name) + "_tabs" }
-					class="tab"
-					aria-label="Info"
-					checked
-				/>
-				<div class="tab-content pt-4">
-					@infoPanel(item)
-				</div>
-				<input
-					id={ "log-actions-tab-" + dom.SafeID(item.Name) }
-					type="radio"
-					name={ modalname(item.Name) + "_tabs" }
-					class="tab"
-					aria-label="Actions"
-				/>
-				<div class="tab-content pt-4">
-					@ActionsPanel(item)
-				</div>
-				<input
-					id={ "log-logs-tab-" + dom.SafeID(item.Name) }
-					type="radio"
-					name={ modalname(item.Name) + "_tabs" }
-					class="tab"
-					aria-label="Logs"
-				/>
-				<div class="tab-content pt-4">
-					@logsPanel(item)
-				</div>
-			</div>
-		} else {
-			<div class="tabs tabs-border mb-4">
-				<input
-					id={ "log-info-tab-" + dom.SafeID(item.Name) }
-					type="radio"
-					name={ modalname(item.Name) + "_tabs" }
-					class="tab"
-					aria-label="Info"
-					checked
-				/>
-				<div class="tab-content pt-4">
-					@infoPanel(item)
-				</div>
-				<input
-					id={ "log-actions-tab-" + dom.SafeID(item.Name) }
-					type="radio"
-					name={ modalname(item.Name) + "_tabs" }
-					class="tab"
-					aria-label="Actions"
-				/>
-				<div class="tab-content pt-4">
-					@ActionsPanel(item)
-				</div>
+			<input
+				id={ "log-logs-tab-" + dom.SafeID(item.Name) }
+				type="radio"
+				name={ modalname(item.Name) + "_tabs" }
+				class="tab"
+				aria-label="Logs"
+			/>
+			<div class="tab-content pt-4">
+				@logsPanel(item)
 			</div>
 		}
 	</div>

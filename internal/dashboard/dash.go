@@ -57,7 +57,10 @@ func (dash *Dashboard) dashboardSubject(r *http.Request) string {
 	if who.ID != "" {
 		return who.ID
 	}
-	return "__localhost__"
+	if core.IsLocalhost(r.RemoteAddr) {
+		return "__localhost__"
+	}
+	return "__remote__"
 }
 
 // AddRoutes method add dashboard related routes to the http server
@@ -136,18 +139,20 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 			return
 		}
 
+		proxy, ok := dash.pm.GetProxy(name)
+		if !ok || !proxy.Config.Dashboard.Visible {
+			dash.writeJSONError(w, "proxy not found", http.StatusNotFound)
+			return
+		}
+
 		if err := action(name); err != nil {
 			dash.writeJSONError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		if r.Header.Get("HX-Request") == "true" {
-			proxy, ok := dash.pm.GetProxy(name)
-			if !ok {
-				_ = ui.RenderTempl(w, r, pages.ToastPartial("action succeeded", true))
-				return
-			}
-			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy)))
+			pinned := pinnedSet(dash.loadPrefs(dash.dashboardSubject(r)))
+			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned)))
 			return
 		}
 		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"})
@@ -217,11 +222,13 @@ func (dash *Dashboard) proxyModalHandler() http.HandlerFunc {
 			return
 		}
 
-		data, ok := dash.buildProxyData(name)
-		if !ok {
+		proxy, ok := dash.pm.GetProxy(name)
+		if !ok || !proxy.Config.Dashboard.Visible {
 			http.Error(w, "proxy not found", http.StatusNotFound)
 			return
 		}
+
+		data := buildProxyDataFromProxy(name, proxy, pinnedSet(dash.loadPrefs(dash.dashboardSubject(r))))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyModal(data)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -239,9 +246,13 @@ func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 			return
 		}
 
+		if userID == "__remote__" {
+			dash.writeJSONError(w, "preferences require authentication", http.StatusForbidden)
+			return
+		}
+
 		search := r.FormValue("search")
 
-		var prefs model.Preferences
 		if dash.prefs != nil {
 			if err := dash.prefs.Update(userID, func(p *model.Preferences) {
 				if v := r.FormValue("dark"); v != "" {
@@ -262,21 +273,19 @@ func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 				if v := r.FormValue("filterHealth"); v != "" {
 					p.FilterHealth = v
 				}
-				prefs = *p
 			}); err != nil {
 				dash.Log.Error().Err(err).Msg("failed to save preferences")
 			}
-		} else {
-			prefs = dash.loadPrefs(userID)
 		}
 
-		viewData := dash.buildDashboardViewData(prefs, search)
-
-		if r.FormValue("dark") != "" {
+		if r.FormValue("dark") != "" || r.FormValue("view") != "" {
 			w.Header().Set("HX-Refresh", "true")
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+
+		prefs := dash.loadPrefs(userID)
+		viewData := dash.buildDashboardViewData(prefs, search)
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -293,7 +302,17 @@ func (dash *Dashboard) togglePinHandler() http.HandlerFunc {
 			return
 		}
 
+		proxy, ok := dash.pm.GetProxy(name)
+		if !ok || !proxy.Config.Dashboard.Visible {
+			dash.writeJSONError(w, "proxy not found", http.StatusNotFound)
+			return
+		}
+
 		userID := dash.dashboardSubject(r)
+		if userID == "__remote__" {
+			dash.writeJSONError(w, "preferences require authentication", http.StatusForbidden)
+			return
+		}
 		if dash.prefs != nil {
 			if _, err := dash.prefs.TogglePin(userID, name); err != nil {
 				dash.Log.Error().Err(err).Msg("failed to toggle pin")
@@ -325,51 +344,13 @@ func (dash *Dashboard) loadPrefs(userID string) model.Preferences {
 
 func (dash *Dashboard) buildDashboardViewData(prefs model.Preferences, search string) pages.DashboardData {
 	proxies := dash.pm.GetProxies()
-	view := BuildDashboardView(proxies, prefs, search)
-	viewData := pages.DashboardData{Prefs: prefs}
-	viewData.Proxies = convertView(view)
-	return viewData
-}
-
-func (dash *Dashboard) buildProxyData(name string) (pages.ProxyData, bool) {
-	p, ok := dash.pm.GetProxy(name)
-	if !ok {
-		return pages.ProxyData{}, false
-	}
-	return buildProxyDataFromProxy(name, p), true
-}
-
-func convertView(view DashboardView) pages.DashboardView {
-	var result pages.DashboardView
-
-	for _, item := range view.Proxies {
-		result.Items = append(result.Items, buildProxyDataFromView(item))
-	}
-
-	for _, g := range view.Groups {
-		var groupItems []pages.ProxyViewItem
-		for _, item := range g.Items {
-			groupItems = append(groupItems, buildProxyDataFromView(item))
-		}
-		result.Groups = append(result.Groups, pages.DashboardGroup{
-			Name:  g.Name,
-			Items: groupItems,
-		})
-	}
-
-	return result
-}
-
-func buildProxyDataFromView(item ProxyViewItem) pages.ProxyViewItem {
-	data := buildProxyDataFromProxy(item.Name, item.Proxy)
-	return pages.ProxyViewItem{
-		Name:     item.Name,
-		Category: item.Category,
-		Data:     data,
+	return pages.DashboardData{
+		Prefs:   prefs,
+		Proxies: BuildDashboardView(proxies, prefs, search),
 	}
 }
 
-func buildProxyDataFromProxy(name string, p *proxymanager.Proxy) pages.ProxyData {
+func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool) pages.ProxyData {
 	status := p.GetStatus()
 	proxyURL := p.GetURL()
 	if status == model.ProxyStatusAuthenticating {
@@ -391,13 +372,19 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy) pages.ProxyData
 
 	ports := make([]pages.PortEntry, 0, len(p.Config.Ports))
 	for _, target := range p.Config.Ports {
-		scheme := "https"
-		if target.ProxyProtocol == "http" {
-			scheme = "http"
-		}
-
+		scheme := target.ProxyProtocol
 		portURL := scheme + "://" + hostname
-		if (scheme == "https" && target.ProxyPort != 443) || (scheme == "http" && target.ProxyPort != 80) {
+
+		switch scheme {
+		case "https":
+			if target.ProxyPort != 443 {
+				portURL += ":" + strconv.Itoa(target.ProxyPort)
+			}
+		case "http":
+			if target.ProxyPort != 80 {
+				portURL += ":" + strconv.Itoa(target.ProxyPort)
+			}
+		default:
 			portURL += ":" + strconv.Itoa(target.ProxyPort)
 		}
 
@@ -458,6 +445,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy) pages.ProxyData
 		Category:              p.Config.Dashboard.Category,
 		StatusHistory:         history,
 		Uptime:                formatDuration(p.GetUptime()),
+		Pinned:                pinned[name],
 	}
 }
 
@@ -506,15 +494,15 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 			if err != nil {
 				return err
 			}
-			return WriteSSEPartial(w, selector, "beforeend", html)
+			return writeSSEPartial(w, selector, "beforeend", html)
 		}
 
 		writeRemove := func(sel string) error {
-			return WriteSSEPartial(w, sel, "delete", "")
+			return writeSSEPartial(w, sel, "delete", "")
 		}
 
 		writeClear := func(sel string) error {
-			return WriteSSEPartial(w, sel, "innerHTML", "")
+			return writeSSEPartial(w, sel, "innerHTML", "")
 		}
 
 		if err := writeClear(selector); err != nil {

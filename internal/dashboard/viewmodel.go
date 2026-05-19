@@ -9,6 +9,7 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
+	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 )
 
 var healthOrder = map[string]int{"healthy": 0, "unknown": 1, "down": 2}
@@ -20,51 +21,44 @@ func healthRank(h string) int {
 	return len(healthOrder)
 }
 
-type DashboardView struct {
-	Proxies []ProxyViewItem
-	Groups  []ProxyGroup
+func pinnedSet(prefs model.Preferences) map[string]bool {
+	m := make(map[string]bool, len(prefs.Pinned))
+	for _, p := range prefs.Pinned {
+		m[p] = true
+	}
+	return m
 }
 
-type ProxyViewItem struct {
-	Name     string
-	Category string
-	Proxy    *proxymanager.Proxy
-}
-
-type ProxyGroup struct {
-	Name  string
-	Items []ProxyViewItem
-}
-
+// BuildDashboardView builds a fully-rendered dashboard view from proxy state.
+// It produces pages.DashboardView directly, eliminating the need for a separate
+// conversion layer — filtering, sorting, grouping, and ProxyData rendering
+// all happen in a single pass.
 func BuildDashboardView(
 	proxies proxymanager.ProxyList,
 	prefs model.Preferences,
 	search string,
-) DashboardView {
-	pinnedSet := make(map[string]bool, len(prefs.Pinned))
-	for _, p := range prefs.Pinned {
-		pinnedSet[p] = true
-	}
+) pages.DashboardView {
+	pinned := pinnedSet(prefs)
 
-	var items []ProxyViewItem
+	var items []pages.ProxyViewItem
 	for name, p := range proxies {
 		if !p.Config.Dashboard.Visible {
 			continue
 		}
-		item := ProxyViewItem{
-			Name:     name,
-			Category: p.Config.Dashboard.Category,
-			Proxy:    p,
-		}
-		if !matchesFilter(item, prefs, search) {
+		data := buildProxyDataFromProxy(name, p, pinned)
+		if !matchesFilter(data, prefs, search) {
 			continue
 		}
-		items = append(items, item)
+		items = append(items, pages.ProxyViewItem{
+			Name:     name,
+			Category: p.Config.Dashboard.Category,
+			Data:     data,
+		})
 	}
 
-	sortItems(items, prefs.Sort, pinnedSet)
+	sortItems(items, prefs.Sort, pinned)
 
-	view := DashboardView{Proxies: items}
+	view := pages.DashboardView{Items: items}
 
 	if prefs.Grouped {
 		view.Groups = groupItems(items)
@@ -73,27 +67,22 @@ func BuildDashboardView(
 	return view
 }
 
-func matchesFilter(item ProxyViewItem, prefs model.Preferences, search string) bool {
+func matchesFilter(data pages.ProxyData, prefs model.Preferences, search string) bool {
 	if prefs.FilterStatus != "all" {
-		status := item.Proxy.GetStatus()
-		if status.String() != prefs.FilterStatus {
+		if data.ProxyStatus.String() != prefs.FilterStatus {
 			return false
 		}
 	}
 
 	if prefs.FilterHealth != "all" {
-		health := healthValue(item.Proxy.GetHealth().Status.String())
-		if health != prefs.FilterHealth {
+		h := healthValue(data.HealthStatus)
+		if h != prefs.FilterHealth {
 			return false
 		}
 	}
 
 	if search != "" {
-		label := item.Proxy.Config.Dashboard.Label
-		if label == "" {
-			label = item.Name
-		}
-		if !strings.Contains(strings.ToLower(label), strings.ToLower(search)) {
+		if !strings.Contains(strings.ToLower(data.Label), strings.ToLower(search)) {
 			return false
 		}
 	}
@@ -108,7 +97,7 @@ func healthValue(h string) string {
 	return h
 }
 
-func sortItems(items []ProxyViewItem, sortKey string, pinned map[string]bool) {
+func sortItems(items []pages.ProxyViewItem, sortKey string, pinned map[string]bool) {
 	sort.SliceStable(items, func(i, j int) bool {
 		iPinned := pinned[items[i].Name]
 		jPinned := pinned[items[j].Name]
@@ -118,16 +107,12 @@ func sortItems(items []ProxyViewItem, sortKey string, pinned map[string]bool) {
 
 		switch sortKey {
 		case "status":
-			si := items[i].Proxy.GetStatus()
-			sj := items[j].Proxy.GetStatus()
-			return si.String() < sj.String()
+			return items[i].Data.ProxyStatus.String() < items[j].Data.ProxyStatus.String()
 		case "provider":
-			return items[i].Proxy.Config.TargetProvider < items[j].Proxy.Config.TargetProvider
+			return items[i].Data.TargetProvider < items[j].Data.TargetProvider
 		case "health":
-			hi := items[i].Proxy.GetHealth()
-			hj := items[j].Proxy.GetHealth()
-			ih := healthRank(healthValue(hi.Status.String()))
-			jh := healthRank(healthValue(hj.Status.String()))
+			ih := healthRank(healthValue(items[i].Data.HealthStatus))
+			jh := healthRank(healthValue(items[j].Data.HealthStatus))
 			if ih != jh {
 				return ih < jh
 			}
@@ -138,8 +123,8 @@ func sortItems(items []ProxyViewItem, sortKey string, pinned map[string]bool) {
 	})
 }
 
-func groupItems(items []ProxyViewItem) []ProxyGroup {
-	groups := make(map[string][]ProxyViewItem)
+func groupItems(items []pages.ProxyViewItem) []pages.DashboardGroup {
+	groups := make(map[string][]pages.ProxyViewItem)
 	order := make([]string, 0)
 
 	for _, item := range items {
@@ -153,9 +138,9 @@ func groupItems(items []ProxyViewItem) []ProxyGroup {
 		groups[cat] = append(groups[cat], item)
 	}
 
-	result := make([]ProxyGroup, 0, len(order))
+	result := make([]pages.DashboardGroup, 0, len(order))
 	for _, cat := range order {
-		result = append(result, ProxyGroup{
+		result = append(result, pages.DashboardGroup{
 			Name:  cat,
 			Items: groups[cat],
 		})
