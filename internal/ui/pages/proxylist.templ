@@ -491,9 +491,16 @@ templ ProxyListRow(item ProxyData) {
 					<span class="health-label">{ item.HealthStatus }</span>
 				</div>
 			}
-			if item.Pinned {
-				@components.InlineIcon("mdi/star", "size-3.5 row-pinned")
-			}
+		<button
+			class={ "row-pin-btn", templ.KV("pinned", item.Pinned) }
+			hx-post={ "/api/dashboard/pin/" + url.PathEscape(item.Name) }
+			hx-target="#proxy-list"
+			hx-swap="innerHTML"
+			hx-include="#searchInput,#sseConnId"
+			aria-label="pin proxy"
+		>
+			@components.InlineIcon("mdi/star", "size-3.5")
+		</button>
 		</div>
 
 		<div class="row-actions">

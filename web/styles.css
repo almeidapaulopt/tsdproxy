@@ -448,11 +448,27 @@
     color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
   }
 
-  #proxy-list.list .row-pinned {
-    color: var(--color-warning);
-    flex-shrink: 0;
-    margin-left: auto;
-  }
+	#proxy-list.list .row-pin-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.125rem;
+		border: none;
+		background: none;
+		cursor: pointer;
+		color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+		flex-shrink: 0;
+		margin-left: auto;
+		transition: color 0.15s ease;
+	}
+
+	#proxy-list.list .row-pin-btn:hover {
+		color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+	}
+
+	#proxy-list.list .row-pin-btn.pinned {
+		color: var(--color-warning);
+	}
 
   /* ── Actions column ── */
   #proxy-list.list .row-actions {
