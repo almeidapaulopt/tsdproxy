@@ -3,6 +3,8 @@
 
 package dashboard
 
+//go:generate templ generate
+
 import (
 	"bytes"
 	"context"
