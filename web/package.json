@@ -12,7 +12,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
     "@vite-pwa/assets-generator": "^1.0.2",
-    "daisyui": "^5.5.19",
+    "daisyui": "^5.5.20",
     "tailwindcss": "^4.3.0",
     "tar": "^7.5.15",
     "vite": "^8.0.13",
