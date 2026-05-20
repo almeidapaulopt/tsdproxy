@@ -12,7 +12,7 @@ import (
 var (
 	version     string
 	realVersion *string
-	isDirty     *bool
+	dirtyFlag   bool
 	versionOnce sync.Once
 
 	AppNameVersion = AppName + "-" + GetVersion()
@@ -25,8 +25,9 @@ const (
 
 func GetVersion() string {
 	versionOnce.Do(func() {
+		dirtyFlag = resolveDirty()
 		tempVersion := strings.TrimSpace(version)
-		if GetIsDirty() {
+		if dirtyFlag {
 			tempVersion += "-dirty"
 		}
 		if tempVersion == "" {
@@ -38,25 +39,19 @@ func GetVersion() string {
 }
 
 func GetIsDirty() bool {
-	if isDirty != nil {
-		return *isDirty
-	}
+	GetVersion()
+	return dirtyFlag
+}
 
+func resolveDirty() bool {
 	bi, ok := debug.ReadBuildInfo()
-	if ok {
-		modified := false
-
-		for _, v := range bi.Settings {
-			if v.Key == "vcs.modified" {
-				if v.Value == "true" {
-					modified = true
-				}
-			}
-		}
-		isDirty = &modified
-	}
-	if isDirty == nil {
+	if !ok {
 		return false
 	}
-	return *isDirty
+	for _, v := range bi.Settings {
+		if v.Key == "vcs.modified" && v.Value == "true" {
+			return true
+		}
+	}
+	return false
 }
