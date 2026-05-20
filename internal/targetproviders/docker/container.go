@@ -4,10 +4,12 @@
 package docker
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,10 +23,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var rfc1123Hostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
 // container struct stores the data from the docker container.
 type (
 	container struct {
 		log                    zerolog.Logger
+		ctx                    context.Context
 		ports                  map[string]string
 		labels                 map[string]string
 		image                  string
@@ -61,14 +66,15 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	defer newlog.Trace().Msg("End New Container")
 
 	c := &container{
-		log:         newlog,
-		id:          dcontainer.ID,
-		name:        dcontainer.Name,
-		hostname:    dcontainer.Config.Hostname,
-		networkMode: dcontainer.HostConfig.NetworkMode,
-		image:       dcontainer.Config.Image,
-		labels:      dcontainer.Config.Labels,
-		ports:       make(map[string]string),
+		ctx:          context.Background(),
+		log:          newlog,
+		id:           dcontainer.ID,
+		name:         dcontainer.Name,
+		hostname:     dcontainer.Config.Hostname,
+		networkMode:  dcontainer.HostConfig.NetworkMode,
+		image:        dcontainer.Config.Image,
+		labels:       dcontainer.Config.Labels,
+		ports:        make(map[string]string),
 	}
 
 	for _, opt := range opts {
@@ -247,20 +253,7 @@ func (c *container) getPorts() model.PortConfigList {
 			}
 
 			for rangeKey, port := range expanded {
-				for _, opt := range parts[1:] {
-					opt = strings.TrimSpace(opt)
-					switch opt {
-					case PortOptionNoTLSValidate:
-						port.TLSValidate = false
-					case PortOptionTailscaleFunnel:
-						port.Tailscale.Funnel = true
-					case PortOptionNoAutoDetect:
-						port.NoAutoDetect = true
-					default:
-						c.log.Warn().Str("option", opt).Str("port", k).
-							Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect)")
-					}
-				}
+				c.applyPortOptions(k, &port, parts[1:])
 
 				if !port.IsRedirect {
 					port, err = c.generateTargetFromFirstTarget(port)
@@ -282,20 +275,7 @@ func (c *container) getPorts() model.PortConfigList {
 			continue
 		}
 
-		for _, v := range parts[1:] {
-			v = strings.TrimSpace(v)
-			switch v {
-			case PortOptionNoTLSValidate:
-				port.TLSValidate = false
-			case PortOptionTailscaleFunnel:
-				port.Tailscale.Funnel = true
-			case PortOptionNoAutoDetect:
-				port.NoAutoDetect = true
-			default:
-				c.log.Warn().Str("option", v).Str("port", k).
-					Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect)")
-			}
-		}
+		c.applyPortOptions(k, &port, parts[1:])
 
 		if !port.IsRedirect {
 			port, err = c.generateTargetFromFirstTarget(port)
@@ -309,6 +289,23 @@ func (c *container) getPorts() model.PortConfigList {
 	}
 
 	return ports
+}
+
+func (c *container) applyPortOptions(labelKey string, port *model.PortConfig, options []string) {
+	for _, opt := range options {
+		opt = strings.TrimSpace(opt)
+		switch opt {
+		case PortOptionNoTLSValidate:
+			port.TLSValidate = false
+		case PortOptionTailscaleFunnel:
+			port.Tailscale.Funnel = true
+		case PortOptionNoAutoDetect:
+			port.NoAutoDetect = true
+		default:
+			c.log.Warn().Str("option", opt).Str("port", labelKey).
+				Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect)")
+		}
+	}
 }
 
 func (c *container) generateTargetFromFirstTarget(port model.PortConfig) (model.PortConfig, error) {
@@ -420,7 +417,11 @@ func (c *container) resolveByProbing(scheme, internalPort, publishedPort string,
 		if port, err := c.tryConnectContainer(scheme, internalPort, publishedPort); err == nil {
 			return port, true
 		}
-		time.Sleep(autoDetectSleep)
+		select {
+		case <-c.ctx.Done():
+			return nil, false
+		case <-time.After(autoDetectSleep):
+		}
 	}
 	return nil, false
 }
@@ -505,11 +506,9 @@ func (c *container) getProxyHostname() (string, error) {
 	c.log.Trace().Msg("getProxyHostname")
 	defer c.log.Trace().Msg("End getProxyHostname")
 
-	// Set custom proxy URL if present the Label in the container
 	if customName, ok := c.labels[LabelName]; ok {
-		// validate url
-		if _, err := url.Parse("https://" + customName); err != nil {
-			return "", err
+		if !rfc1123Hostname.MatchString(customName) {
+			return "", fmt.Errorf("invalid hostname %q: must match RFC 1123 (lowercase alphanumeric, hyphens, 1-63 chars)", customName)
 		}
 		return customName, nil
 	}
@@ -520,6 +519,12 @@ func (c *container) getProxyHostname() (string, error) {
 func withTargetProviderName(name string) ContainerOption {
 	return func(c *container) {
 		c.targetProviderName = name
+	}
+}
+
+func withContext(ctx context.Context) ContainerOption {
+	return func(c *container) {
+		c.ctx = ctx
 	}
 }
 
