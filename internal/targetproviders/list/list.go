@@ -163,13 +163,30 @@ func (c *Client) GetDefaultProxyProviderName() string {
 	return c.config.DefaultProxyProvider
 }
 
+func (c *Client) trySendEvent(id string, action targetproviders.ActionType) bool {
+	select {
+	case c.eventsChan <- targetproviders.TargetEvent{
+		ID:             id,
+		TargetProvider: c,
+		Action:         action,
+	}:
+		return true
+	default:
+		c.log.Warn().Str("name", id).Int("action", int(action)).Msg("dropped event: channel full")
+		return false
+	}
+}
+
 func (c *Client) Close() {
+	c.mtx.RLock()
+	names := make([]string, 0, len(c.proxies))
 	for name := range c.proxies {
-		c.eventsChan <- targetproviders.TargetEvent{
-			ID:             name,
-			TargetProvider: c,
-			Action:         targetproviders.ActionStopProxy,
-		}
+		names = append(names, name)
+	}
+	c.mtx.RUnlock()
+
+	for _, name := range names {
+		c.trySendEvent(name, targetproviders.ActionStopProxy)
 	}
 }
 
@@ -298,27 +315,15 @@ func (c *Client) onFileChange(_ fsnotify.Event) {
 	c.mtx.Unlock()
 
 	for _, name := range stops {
-		c.eventsChan <- targetproviders.TargetEvent{
-			ID:             name,
-			TargetProvider: c,
-			Action:         targetproviders.ActionStopProxy,
-		}
+		c.trySendEvent(name, targetproviders.ActionStopProxy)
 	}
 
 	for _, name := range starts {
-		c.eventsChan <- targetproviders.TargetEvent{
-			ID:             name,
-			TargetProvider: c,
-			Action:         targetproviders.ActionStartProxy,
-		}
+		c.trySendEvent(name, targetproviders.ActionStartProxy)
 	}
 
 	for _, name := range restarts {
-		c.eventsChan <- targetproviders.TargetEvent{
-			ID:             name,
-			TargetProvider: c,
-			Action:         targetproviders.ActionRestartProxy,
-		}
+		c.trySendEvent(name, targetproviders.ActionRestartProxy)
 	}
 }
 
