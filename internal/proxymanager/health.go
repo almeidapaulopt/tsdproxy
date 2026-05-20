@@ -64,6 +64,7 @@ type healthChecker struct {
 	cooldown            time.Duration
 	failThreshold       int
 	tlsValidate         bool
+	httpClient          *http.Client
 }
 
 const (
@@ -109,6 +110,16 @@ func newHealthChecker(
 		cooldown:      cooldown,
 		tlsValidate:   tlsValidate,
 		onRedetect:    onRedetect,
+		httpClient: &http.Client{
+			Timeout: healthCheckTimeout,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsValidate}, //nolint
+				DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
+			},
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 
 	hc.target.Store(target)
@@ -215,18 +226,6 @@ func (hc *healthChecker) checkHTTP(ctx context.Context) HealthResult {
 	var result HealthResult
 	result.CheckedAt = time.Now()
 
-	client := &http.Client{
-		Timeout: healthCheckTimeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !hc.tlsValidate}, //nolint
-			DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
-		},
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			// Don't follow redirects — a 3xx still means the backend is up
-			return http.ErrUseLastResponse
-		},
-	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, hc.getTarget(), nil)
 	if err != nil {
 		result.Status = HealthDown
@@ -235,7 +234,7 @@ func (hc *healthChecker) checkHTTP(ctx context.Context) HealthResult {
 	}
 
 	start := time.Now()
-	resp, err := client.Do(req)
+	resp, err := hc.httpClient.Do(req)
 	result.Latency = time.Since(start)
 
 	if err != nil {
