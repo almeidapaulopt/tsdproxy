@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -45,8 +46,12 @@ func InitializeApp() (*WebApp, error) {
 		return nil, err
 	}
 
-	// Expose HTTP port for healthcheck binary to read.
-	os.Setenv("TSDPROXY_HTTP_PORT", strconv.FormatUint(uint64(config.Config.HTTP.Port), 10))
+	// Write HTTP port to data dir for the healthcheck binary to read.
+	portFile := filepath.Join(config.Config.Tailscale.DataDir, ".http-port")
+	os.MkdirAll(config.Config.Tailscale.DataDir, 0o700)
+	if err := os.WriteFile(portFile, []byte(strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to write healthcheck port file: %v\n", err)
+	}
 
 	logger := core.NewLog()
 
@@ -177,6 +182,9 @@ func (app *WebApp) Stop() {
 
 	// Shutdown things here
 	//
+	if app.Dashboard != nil {
+		app.Dashboard.Close()
+	}
 	app.ProxyManager.StopAllProxies()
 
 	if app.tracerProvider != nil {
