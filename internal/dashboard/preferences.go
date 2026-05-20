@@ -84,7 +84,7 @@ type PreferencesStore struct {
 
 func NewPreferencesStore(dir string, log zerolog.Logger) (*PreferencesStore, error) {
 	prefDir := filepath.Join(dir, "dashboard", "preferences")
-	if err := os.MkdirAll(prefDir, 0o755); err != nil { //nolint:mnd
+	if err := os.MkdirAll(prefDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create preferences dir: %w", err)
 	}
 	return &PreferencesStore{

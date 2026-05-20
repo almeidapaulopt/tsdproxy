@@ -35,6 +35,7 @@ type Dashboard struct {
 	pm         *proxymanager.ProxyManager
 	prefs      *PreferencesStore
 	sseClients map[string]*sseClient
+	stopCh     chan struct{}
 	mtx        sync.RWMutex
 }
 
@@ -50,11 +51,16 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 		pm:         pm,
 		prefs:      prefs,
 		sseClients: make(map[string]*sseClient),
+		stopCh:     make(chan struct{}),
 	}
 
 	go dash.streamProxyUpdates()
 
 	return dash
+}
+
+func (dash *Dashboard) Close() {
+	close(dash.stopCh)
 }
 
 // dashboardSubject returns the user identity key for preferences.
@@ -141,18 +147,19 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			dash.writeJSONError(w, "invalid proxy name", http.StatusBadRequest)
+			dash.writeJSONError(w, r, "invalid proxy name", http.StatusBadRequest)
 			return
 		}
 
 		proxy, ok := dash.pm.GetProxy(name)
 		if !ok || !proxy.Config.Dashboard.Visible {
-			dash.writeJSONError(w, "proxy not found", http.StatusNotFound)
+			dash.writeJSONError(w, r, "proxy not found", http.StatusNotFound)
 			return
 		}
 
 		if err := action(name); err != nil {
-			dash.writeJSONError(w, err.Error(), http.StatusBadRequest)
+			dash.Log.Error().Err(err).Str("proxy", name).Msg("proxy action failed")
+			dash.writeJSONError(w, r, "operation failed", http.StatusInternalServerError)
 			return
 		}
 
@@ -177,12 +184,14 @@ func (dash *Dashboard) resumeHandler() http.HandlerFunc {
 	return dash.proxyActionHandler(dash.pm.ResumeProxy)
 }
 
+// reauthHandler triggers re-authentication by restarting the proxy.
+// Tailscale re-auth requires a tsnet node restart, so this delegates to RestartProxy.
 func (dash *Dashboard) reauthHandler() http.HandlerFunc {
 	return dash.proxyActionHandler(dash.pm.RestartProxy)
 }
 
-func (dash *Dashboard) writeJSONError(w http.ResponseWriter, message string, code int) {
-	dash.HTTP.JSONResponseCode(w, nil, map[string]any{"message": message, "code": code}, code)
+func (dash *Dashboard) writeJSONError(w http.ResponseWriter, r *http.Request, message string, code int) {
+	dash.HTTP.JSONResponseCode(w, r, map[string]any{"message": message, "code": code}, code)
 }
 
 func (dash *Dashboard) dashboardHandler() http.HandlerFunc {
@@ -248,12 +257,12 @@ func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 		userID := dash.dashboardSubject(r)
 
 		if err := r.ParseForm(); err != nil {
-			dash.writeJSONError(w, "invalid form data", http.StatusBadRequest)
+			dash.writeJSONError(w, r, "invalid form data", http.StatusBadRequest)
 			return
 		}
 
 		if userID == "__remote__" {
-			dash.writeJSONError(w, "preferences require authentication", http.StatusForbidden)
+			dash.writeJSONError(w, r, "preferences require authentication", http.StatusForbidden)
 			return
 		}
 
@@ -304,19 +313,19 @@ func (dash *Dashboard) togglePinHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			dash.writeJSONError(w, "invalid proxy name", http.StatusBadRequest)
+			dash.writeJSONError(w, r, "invalid proxy name", http.StatusBadRequest)
 			return
 		}
 
 		proxy, ok := dash.pm.GetProxy(name)
 		if !ok || !proxy.Config.Dashboard.Visible {
-			dash.writeJSONError(w, "proxy not found", http.StatusNotFound)
+			dash.writeJSONError(w, r, "proxy not found", http.StatusNotFound)
 			return
 		}
 
 		userID := dash.dashboardSubject(r)
 		if userID == "__remote__" {
-			dash.writeJSONError(w, "preferences require authentication", http.StatusForbidden)
+			dash.writeJSONError(w, r, "preferences require authentication", http.StatusForbidden)
 			return
 		}
 		if dash.prefs != nil {

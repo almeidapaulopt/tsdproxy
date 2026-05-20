@@ -20,6 +20,7 @@ import (
 
 const (
 	chanSizeSSEQueue        = 64
+	maxSSEClients           = 256
 	healthRefreshInterval = 10 * time.Second
 
 	EventNotify EventType = iota
@@ -84,6 +85,11 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 		}
 
 		dash.mtx.Lock()
+		if len(dash.sseClients) >= maxSSEClients {
+			dash.mtx.Unlock()
+			http.Error(w, "too many SSE connections", http.StatusServiceUnavailable)
+			return
+		}
 		dash.sseClients[connID] = client
 		dash.mtx.Unlock()
 
@@ -217,6 +223,8 @@ func (dash *Dashboard) streamProxyUpdates() {
 
 	for {
 		select {
+		case <-dash.stopCh:
+			return
 		case event, ok := <-events:
 			if !ok {
 				return
