@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const sessionMaxAge = 86400
+
 func SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("session_id")
@@ -17,16 +19,29 @@ func SessionMiddleware(next http.Handler) http.Handler {
 
 		if errors.Is(err, http.ErrNoCookie) {
 			sessionID = uuid.New().String()
-			http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure is conditional on TLS
+			http.SetCookie(w, &http.Cookie{
 				Name:     "session_id",
 				Value:    sessionID,
 				Path:     "/",
+				MaxAge:   sessionMaxAge,
 				HttpOnly: true,
-				Secure:   r.TLS != nil,
+				Secure:   true,
 				SameSite: http.SameSiteStrictMode,
 			})
 		} else {
 			sessionID = cookie.Value
+			if _, parseErr := uuid.Parse(sessionID); parseErr != nil {
+				sessionID = uuid.New().String()
+				http.SetCookie(w, &http.Cookie{
+					Name:     "session_id",
+					Value:    sessionID,
+					Path:     "/",
+					MaxAge:   sessionMaxAge,
+					HttpOnly: true,
+					Secure:   true,
+					SameSite: http.SameSiteStrictMode,
+				})
+			}
 		}
 
 		r.Header.Set("X-Session-ID", sessionID)

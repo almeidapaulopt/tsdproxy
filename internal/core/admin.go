@@ -183,9 +183,12 @@ func validProxyAuthToken(r *http.Request) bool {
 // always stripped to prevent leakage.
 func StripProxyIdentityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Header.Del(consts.HeaderAuthToken)
+		valid := validProxyAuthToken(r)
+		// Always strip the auth token immediately so downstream handlers
+		// never see the secret, even if they log or reflect headers.
+		r.Header.Del(consts.HeaderAuthToken)
 
-		if validProxyAuthToken(r) {
+		if valid {
 			next.ServeHTTP(w, r)
 			return
 		}
