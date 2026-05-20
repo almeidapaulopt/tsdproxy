@@ -90,8 +90,16 @@ func (p *Proxy) GetURL() string {
 	p.mtx.Lock()
 	url := p.url
 	p.mtx.Unlock()
-	// TODO: should be configurable and not force to https
-	return "https://" + url
+
+	scheme := p.primaryScheme()
+	return scheme + "://" + url
+}
+
+func (p *Proxy) primaryScheme() string {
+	for _, port := range p.config.Ports {
+		return port.ProxyProtocol
+	}
+	return model.ProtoHTTPS
 }
 
 func (p *Proxy) getStatus() model.ProxyStatus {
