@@ -118,6 +118,9 @@ func NewProxy(log zerolog.Logger,
 }
 
 func (proxy *Proxy) Start() error {
+	proxy.opMu.Lock()
+	defer proxy.opMu.Unlock()
+
 	proxy.startHealthChecker()
 
 	go func() {
@@ -573,9 +576,17 @@ func (proxy *Proxy) close() {
 	var errs error
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("stopping proxy")
 
+	proxy.mtx.RLock()
+	handlers := make([]portHandler, 0, len(proxy.ports))
 	for _, p := range proxy.ports {
+		handlers = append(handlers, p)
+	}
+	proxy.mtx.RUnlock()
+
+	for _, p := range handlers {
 		errs = errors.Join(errs, p.close())
 	}
+
 	if proxy.providerProxy != nil {
 		errs = errors.Join(errs, proxy.providerProxy.Close())
 	}

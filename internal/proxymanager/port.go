@@ -215,9 +215,8 @@ func (p *port) close() error {
 		errs = errors.Join(errs, p.httpServer.Shutdown(shutdownCtx))
 	}
 
-	if p.listener != nil {
-		errs = errors.Join(errs, p.listener.Close())
-	}
+	// http.Server.Shutdown closes the listener; skip explicit Close() to
+	// avoid "use of closed network connection" double-close errors.
 
 	if p.transport != nil {
 		p.transport.CloseIdleConnections()
