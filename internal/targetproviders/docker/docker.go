@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/netip"
 	"sync"
+	"time"
 
 	devents "github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/api/types/swarm"
@@ -114,7 +115,8 @@ func (c *Client) ReResolve(id string) (*model.Config, error) {
 }
 
 func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	dcontainerResult, err := c.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 	if err != nil {
@@ -138,6 +140,7 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 	}
 
 	ctn := newContainer(c.log, dcontainer, dservice, c.tryDockerInternalNetwork,
+		withContext(ctx),
 		withDefaultBridgeAddress(c.defaultBridgeAddress),
 		withDefaultTargetHostname(c.defaultTargetHostname),
 		withTargetProviderName(c.name),

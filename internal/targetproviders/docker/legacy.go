@@ -3,13 +3,17 @@
 
 package docker
 
-import "github.com/almeidapaulopt/tsdproxy/internal/model"
+import (
+	"sort"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
+)
 
 func (c *container) getLegacyPort() (model.PortConfig, error) {
 	c.log.Trace().Msg("getLegacyPort")
 	defer c.log.Trace().Msg("end getLegacyPort")
 
-	cPort := c.getIntenalPortLegacy()
+	cPort := c.getInternalPortLegacy()
 
 	cProtocol, hasProtocol := c.labels[LabelScheme]
 	if !hasProtocol {
@@ -31,18 +35,21 @@ func (c *container) getLegacyPort() (model.PortConfig, error) {
 	return port, nil
 }
 
-// getIntenalPortLegacy method returns the container internal port
-func (c *container) getIntenalPortLegacy() string {
-	c.log.Trace().Msg("getIntenalPortLegacy")
-	defer c.log.Trace().Msg("end getIntenalPortLegacy")
+func (c *container) getInternalPortLegacy() string {
+	c.log.Trace().Msg("getInternalPortLegacy")
+	defer c.log.Trace().Msg("end getInternalPortLegacy")
 
-	// If Label is defined, get the container port
 	if customContainerPort, ok := c.labels[LabelContainerPort]; ok {
 		return customContainerPort
 	}
 
-	for p := range c.ports {
-		return p
+	keys := make([]string, 0, len(c.ports))
+	for k := range c.ports {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > 0 {
+		return keys[0]
 	}
 
 	return ""
