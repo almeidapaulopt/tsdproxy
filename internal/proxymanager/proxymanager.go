@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -113,30 +114,54 @@ func (pm *ProxyManager) StopAllProxies() {
 func (pm *ProxyManager) WatchEvents() {
 	for _, provider := range pm.TargetProviders {
 		go func(provider targetproviders.TargetProvider) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			eventsChan := make(chan targetproviders.TargetEvent)
-			errChan := make(chan error)
-
-			go provider.WatchEvents(ctx, eventsChan, errChan)
+			backoff := time.Second
 
 			for {
-				select {
-				case event, ok := <-eventsChan:
-					if !ok {
-						return
+				ctx, cancel := context.WithCancel(context.Background())
+
+				eventsChan := make(chan targetproviders.TargetEvent)
+				errChan := make(chan error, 1)
+
+				go provider.WatchEvents(ctx, eventsChan, errChan)
+
+			streamLoop:
+				for {
+					select {
+					case event, ok := <-eventsChan:
+						if !ok {
+							cancel()
+							backoff = pm.reconnectBackoff(provider, backoff, "event stream closed")
+							break streamLoop
+						}
+						go pm.HandleProxyEvent(event)
+						backoff = time.Second
+					case err, ok := <-errChan:
+						cancel()
+						msg := "event stream error"
+						if ok && err != nil {
+							pm.log.Err(err).Str("provider", provider.GetDefaultProxyProviderName()).Msg(msg)
+						}
+						backoff = pm.reconnectBackoff(provider, backoff, msg)
+						break streamLoop
 					}
-					go pm.HandleProxyEvent(event)
-				case err, ok := <-errChan:
-					if ok {
-						pm.log.Err(err).Msg("Error watching events")
-					}
-					return
 				}
 			}
 		}(provider)
 	}
+}
+
+const maxWatchBackoff = 5 * time.Minute
+
+func (pm *ProxyManager) reconnectBackoff(provider targetproviders.TargetProvider, current time.Duration, reason string) time.Duration {
+	pm.log.Warn().Str("provider", provider.GetDefaultProxyProviderName()).
+		Dur("retry_after", current).
+		Msg(reason + ", reconnecting")
+	time.Sleep(current)
+	next := current * 2
+	if next > maxWatchBackoff {
+		return maxWatchBackoff
+	}
+	return next
 }
 
 // HandleProxyEvent method handles events from a targetprovider.
@@ -152,6 +177,7 @@ func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
 		pm.eventStart(event)
 	case targetproviders.ActionStopProxy:
 		pm.eventStop(event)
+		pm.targetMu.Delete(event.ID)
 	case targetproviders.ActionRestartProxy:
 		pm.eventStop(event)
 		pm.eventStart(event)
@@ -352,6 +378,7 @@ func (pm *ProxyManager) removeProxy(hostname string) {
 	pm.mtx.Unlock()
 
 	proxy.Close()
+	pm.hostMu.Delete(hostname)
 
 	pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
 }
