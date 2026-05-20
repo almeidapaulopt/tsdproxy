@@ -37,10 +37,6 @@ func (c *config) validate() error {
 		}
 	}
 
-	// TODO: add validation for each provider
-	// TODO: add default proxy provider to each proxy if not defined
-	//
-
 	// Set default Proxy Provider if not set.
 	//
 	if c.DefaultProxyProvider != "" {
