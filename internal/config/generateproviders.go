@@ -45,7 +45,7 @@ func (c *config) generateDockerConfig() {
 
 	// Check whether the hostname host.docker.internal can be resolved. This allows avoiding updates to the TargetHostname field in the configuration file.
 	ip, err := net.LookupIP("host.docker.internal")
-	if err == nil || len(ip) > 0 {
+	if err == nil && len(ip) > 0 {
 		docker.TargetHostname = "host.docker.internal"
 	}
 

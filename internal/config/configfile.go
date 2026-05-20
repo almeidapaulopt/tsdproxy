@@ -66,7 +66,7 @@ func (f *File) Save() error {
 		return err
 	}
 
-	err = os.WriteFile(f.filename, yaml, consts.PermOwnerRead+consts.PermOwnerWrite)
+	err = os.WriteFile(f.filename, yaml, consts.PermOwnerRead|consts.PermOwnerWrite)
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,11 @@ func (f *File) Watch() error {
 }
 
 func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
-	realFile, _ := filepath.EvalSymlinks(f.filename)
+	realFile, err := filepath.EvalSymlinks(f.filename)
+	if err != nil {
+		f.log.Warn().Err(err).Msg("failed to resolve symlinks, using raw path")
+		realFile = file
+	}
 	for {
 		select {
 		case event, ok := <-watcher.Events:
@@ -138,7 +142,10 @@ func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
 }
 
 func (f *File) handleEvent(event fsnotify.Event, file string, realFile *string) {
-	currentFile, _ := filepath.EvalSymlinks(f.filename)
+	currentFile, err := filepath.EvalSymlinks(f.filename)
+	if err != nil {
+		currentFile = file
+	}
 	if (filepath.Clean(event.Name) == file &&
 		(event.Has(fsnotify.Write) || event.Has(fsnotify.Create))) ||
 		(currentFile != "" && currentFile != *realFile) {
