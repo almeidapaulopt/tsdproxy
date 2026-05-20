@@ -234,7 +234,7 @@ func (c *Client) newAPIClient() *tailscale.Client {
 		HTTP: tailscale.OAuthConfig{
 			ClientID:     c.clientID,
 			ClientSecret: c.clientSecret,
-			Scopes:       []string{"all:write"},
+			Scopes:       []string{"devices:core", "auth_keys"},
 		}.HTTPClient(),
 	}
 }
