@@ -37,7 +37,7 @@ type (
 		Proxies           ProxyList
 		TargetProviders   TargetProviderList
 		ProxyProviders    ProxyProviderList
-		statusSubscribers map[chan model.ProxyEvent]struct{}
+		statusSubscribers map[*statusSubscription]struct{}
 		webhookSender     *webhook.Sender
 		metrics           *metrics.Metrics
 		targetMu          sync.Map
@@ -57,7 +57,7 @@ func NewProxyManager(logger zerolog.Logger) *ProxyManager {
 		Proxies:           make(ProxyList),
 		TargetProviders:   make(TargetProviderList),
 		ProxyProviders:    make(ProxyProviderList),
-		statusSubscribers: make(map[chan model.ProxyEvent]struct{}),
+		statusSubscribers: make(map[*statusSubscription]struct{}),
 		log:               logger.With().Str("module", "proxymanager").Logger(),
 		metrics:           metrics.New(),
 		webhookSender:     webhook.NewSender(logger, config.Config.Webhooks),
@@ -190,24 +190,29 @@ func (pm *ProxyManager) getTargetLock(targetID string) *sync.Mutex {
 	return v.(*sync.Mutex)
 }
 
-// SubscribeStatusEvents return a channel of proxy events.
-// This events are sent by Proxies and Ports.
-func (pm *ProxyManager) SubscribeStatusEvents() <-chan model.ProxyEvent {
-	ch := make(chan model.ProxyEvent, 64) //nolint:mnd
-
-	pm.mtx.Lock()
-	pm.statusSubscribers[ch] = struct{}{}
-	pm.mtx.Unlock()
-
-	return ch
+type statusSubscription struct {
+	ch   chan model.ProxyEvent
+	once sync.Once
 }
 
-// UnsubscribeStatusEvents remove the channel subscrived in SubscribeStatusEvents
-func (pm *ProxyManager) UnsubscribeStatusEvents(ch chan model.ProxyEvent) {
+// SubscribeStatusEvents returns a channel of proxy events and a cancel function.
+func (pm *ProxyManager) SubscribeStatusEvents() (<-chan model.ProxyEvent, func()) {
+	sub := &statusSubscription{ch: make(chan model.ProxyEvent, 64)} //nolint:mnd
+
 	pm.mtx.Lock()
-	delete(pm.statusSubscribers, ch)
-	close(ch)
+	pm.statusSubscribers[sub] = struct{}{}
 	pm.mtx.Unlock()
+
+	cancel := func() {
+		sub.once.Do(func() {
+			pm.mtx.Lock()
+			delete(pm.statusSubscribers, sub)
+			close(sub.ch)
+			pm.mtx.Unlock()
+		})
+	}
+
+	return sub.ch, cancel
 }
 
 func (pm *ProxyManager) GetProxies() ProxyList {
@@ -283,9 +288,9 @@ func (pm *ProxyManager) broadcastStatusEvents(event model.ProxyEvent) {
 	}
 
 	pm.mtx.RLock()
-	for ch := range pm.statusSubscribers {
+	for sub := range pm.statusSubscribers {
 		select {
-		case ch <- event:
+		case sub.ch <- event:
 		default:
 		}
 	}
@@ -355,6 +360,7 @@ func (pm *ProxyManager) closeAndRemoveProxy(hostname string) {
 
 	if old != nil {
 		old.Close()
+		pm.cleanupProxyMetrics(hostname)
 		pm.log.Debug().Str("proxy", hostname).Msg("Closed existing proxy for replacement")
 	}
 }
@@ -379,6 +385,7 @@ func (pm *ProxyManager) removeProxy(hostname string) {
 
 	proxy.Close()
 	pm.hostMu.Delete(hostname)
+	pm.cleanupProxyMetrics(hostname)
 
 	pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
 }
@@ -421,20 +428,19 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 
 	if proxy != nil {
 		proxy.Close()
+		pm.cleanupProxyMetrics(proxy.Config.Hostname)
 		pm.log.Debug().Str("proxy", proxy.Config.Hostname).Msg("Removed proxy")
 	}
 }
 
 // newAndStartProxy method creates a new proxy and starts it.
-// The replacement is fully started before the old proxy is closed,
-// so a start failure never destroys a working proxy.
+// Order: resolve auth → close old → NewProxy → Start → insert-map → metrics.
+// Auth resolution runs before close so transient OAuth/network failures
+// don't tear down a working proxy. The old proxy must still be closed
+// before NewProxy() because both share the same tsnet state directory.
 func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config) error {
 	pm.log.Debug().Str("proxy", name).Msg("Creating proxy")
 
-	// Serialize per-hostname so that concurrent starts for the same hostname
-	// (from different target IDs) cannot race. The lock covers
-	// create → start → close-old → install, guaranteeing exactly one live
-	// proxy per hostname and preventing an evicted proxy from starting.
 	hmu := pm.getHostLock(proxyConfig.Hostname)
 	hmu.Lock()
 	defer hmu.Unlock()
@@ -443,6 +449,19 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	if err != nil {
 		return fmt.Errorf("error getting ProxyProvider: %w", err)
 	}
+
+	// Resolve auth key before closing the old proxy. OAuth token exchange
+	// is side-effect-free — if this fails, the existing proxy stays up.
+	authKey, err := proxyProvider.ResolveAuthKey(proxyConfig)
+	if err != nil {
+		return fmt.Errorf("error resolving auth key: %w", err)
+	}
+	proxyConfig.Tailscale.ResolvedAuthKey = authKey
+
+	// Close old proxy before NewProxy() — the provider's NewProxy() mutates
+	// the shared state dir (cleanStaleState, saveStateMeta). The old tsnet
+	// server must be fully stopped before those filesystem operations run.
+	pm.closeAndRemoveProxy(proxyConfig.Hostname)
 
 	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics)
 	if err != nil {
@@ -453,8 +472,6 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		pm.broadcastStatusEvents(event)
 	}
 
-	// Wire re-resolution: health checker will call this to get a fresh config
-	// when the target goes down after being healthy.
 	targetID := proxyConfig.TargetID
 	targetProviderName := proxyConfig.TargetProvider
 	p.reResolveConfig = func() (*model.Config, error) {
@@ -465,28 +482,23 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		return tp.ReResolve(targetID)
 	}
 
-	pm.closeAndRemoveProxy(proxyConfig.Hostname)
+	if err := p.Start(); err != nil {
+		p.Close()
+		pm.cleanupProxyMetrics(proxyConfig.Hostname)
+		return fmt.Errorf("proxy start failed: %w", err)
+	}
 
 	pm.mtx.Lock()
 	pm.Proxies[proxyConfig.Hostname] = p
 	pm.mtx.Unlock()
 
+	p.setMetricsReady(true)
+	pm.updateProxyCount()
+
 	pm.broadcastStatusEvents(model.ProxyEvent{
 		ID:     p.Config.Hostname,
-		Status: model.ProxyStatusInitializing,
+		Status: p.GetStatus(),
 	})
-
-	if err := p.Start(); err != nil {
-		pm.broadcastStatusEvents(model.ProxyEvent{
-			ID:     p.Config.Hostname,
-			Status: model.ProxyStatusStopped,
-		})
-		pm.mtx.Lock()
-		delete(pm.Proxies, proxyConfig.Hostname)
-		pm.mtx.Unlock()
-		p.Close()
-		return fmt.Errorf("proxy start failed: %w", err)
-	}
 
 	return nil
 }
@@ -525,4 +537,23 @@ func (pm *ProxyManager) getTargetProvider(name string) (targetproviders.TargetPr
 
 	tp, ok := pm.TargetProviders[name]
 	return tp, ok
+}
+
+// updateProxyCount sets the proxy count metric to the current number of proxies.
+func (pm *ProxyManager) updateProxyCount() {
+	if pm.metrics == nil {
+		return
+	}
+	pm.mtx.RLock()
+	count := len(pm.Proxies)
+	pm.mtx.RUnlock()
+	pm.metrics.SetProxyCount(count)
+}
+
+// cleanupProxyMetrics removes Prometheus metrics and updates the proxy count.
+func (pm *ProxyManager) cleanupProxyMetrics(hostname string) {
+	if pm.metrics != nil {
+		pm.metrics.DeleteProxyMetrics(hostname)
+	}
+	pm.updateProxyCount()
 }

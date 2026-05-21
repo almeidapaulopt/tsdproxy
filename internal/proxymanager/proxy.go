@@ -57,6 +57,7 @@ type (
 		reResolveConfig func() (*model.Config, error)
 		Config          *model.Config
 		metrics         *metrics.Metrics
+		metricsReady    bool
 		healthPortName  string
 		statusHistory   []StatusTransition
 		status          model.ProxyStatus
@@ -239,6 +240,18 @@ func (proxy *Proxy) Resume() error {
 		proxy.log.Info().Msg("proxy resumed")
 	}
 	return nil
+}
+
+func (proxy *Proxy) setMetricsReady(ready bool) {
+	proxy.mtx.Lock()
+	proxy.metricsReady = ready
+	currentStatus := proxy.status
+	m := proxy.metrics
+	proxy.mtx.Unlock()
+
+	if ready && m != nil {
+		m.SetProxyStatus(proxy.Config.Hostname, currentStatus.String())
+	}
 }
 
 // closePorts closes all port handlers without closing the providerProxy.
@@ -624,11 +637,19 @@ func (proxy *Proxy) setStatus(status model.ProxyStatus) {
 		proxy.statusHistory = proxy.statusHistory[len(proxy.statusHistory)-maxStatusHistory:]
 	}
 
+	hostname := proxy.Config.Hostname
+	m := proxy.metrics
+	ready := proxy.metricsReady
+
 	proxy.mtx.Unlock()
+
+	if m != nil && ready {
+		m.SetProxyStatus(hostname, status.String())
+	}
 
 	if proxy.onUpdate != nil {
 		proxy.onUpdate(model.ProxyEvent{
-			ID:        proxy.Config.Hostname,
+			ID:        hostname,
 			Status:    status,
 			OldStatus: oldStatus,
 		})
