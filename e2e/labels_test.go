@@ -227,8 +227,9 @@ func TestDashboardVisibleFalse(t *testing.T) {
 	defer cancel()
 
 	proxy := StartTSDProxy(t, TSDProxyConfig{
-  AuthKey: authKey,
-})
+		AuthKey:             authKey,
+		AdminAllowLocalhost: true,
+	})
 
 	// Start hidden container (visible=false)
 	suffix := time.Now().UnixNano()
@@ -283,8 +284,9 @@ func TestDashboardCustomLabel(t *testing.T) {
 	defer cancel()
 
 	proxy := StartTSDProxy(t, TSDProxyConfig{
-  AuthKey: authKey,
-})
+		AuthKey:             authKey,
+		AdminAllowLocalhost: true,
+	})
 
 	hostname := fmt.Sprintf("dash-label-%d", time.Now().UnixNano())
 
@@ -295,7 +297,7 @@ func TestDashboardCustomLabel(t *testing.T) {
 			"tsdproxy.name":           hostname,
 			"tsdproxy.container_port": "80",
 			"tsdproxy.dash.label":     "My Test Service",
-			"tsdproxy.dash.icon":      "nginx",
+			"tsdproxy.dash.icon":      "si/nginx",
 			"tsdproxy.port.http":      "80/http:80/http",
 		},
 	})
@@ -309,10 +311,10 @@ func TestDashboardCustomLabel(t *testing.T) {
 
 	assert.Contains(t, sseBody, "My Test Service",
 		"custom dashboard label should appear in dashboard SSE stream")
-	assert.Contains(t, sseBody, "/icons/nginx.svg",
-		"custom dashboard icon should appear in dashboard SSE stream")
 	assert.Contains(t, sseBody, hostname,
 		"hostname should appear as element ID in dashboard SSE stream")
+	assert.Contains(t, sseBody, "<title>NGINX</title>",
+		"custom icon should appear as inline SVG in dashboard SSE stream")
 
 	logContent := proxy.ReadLogFile(t)
 	assert.Contains(t, logContent, hostname,

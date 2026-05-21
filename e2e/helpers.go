@@ -56,14 +56,17 @@ type TSDProxyInstance struct {
 }
 
 type TSDProxyConfig struct {
-	AuthKey        string
-	AuthKeyFile    string
-	Tags           string
-	HTTPPort       int
-	DataDir        string
-	DockerHost     string
-	TargetHostname string
-	ControlURL     string
+	AuthKey             string
+	AuthKeyFile         string
+	Tags                string
+	HTTPPort            int
+	DataDir             string
+	DockerHost          string
+	TargetHostname      string
+	ControlURL          string
+	AdminAllowLocalhost bool
+	ClientID            string
+	ClientSecret        string
 }
 
 func defaultTSDProxyConfig() TSDProxyConfig {
@@ -94,14 +97,15 @@ func StartTSDProxy(t *testing.T, cfg TSDProxyConfig) *TSDProxyInstance {
 	}
 
 	configContent := generateConfig(configParams{
-		HTTPPort:       cfg.HTTPPort,
-		AuthKey:        authKey,
-		AuthKeyFile:    cfg.AuthKeyFile,
-		Tags:           cfg.Tags,
-		DataDir:        dataDir,
-		DockerHost:     cfg.DockerHost,
-		TargetHostname: cfg.TargetHostname,
-		ControlURL:     cfg.ControlURL,
+		HTTPPort:            cfg.HTTPPort,
+		AuthKey:             authKey,
+		AuthKeyFile:         cfg.AuthKeyFile,
+		Tags:                cfg.Tags,
+		DataDir:             dataDir,
+		DockerHost:          cfg.DockerHost,
+		TargetHostname:      cfg.TargetHostname,
+		ControlURL:          cfg.ControlURL,
+		AdminAllowLocalhost: cfg.AdminAllowLocalhost,
 	})
 	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
 
@@ -232,6 +236,11 @@ func StartContainer(t *testing.T, cfg ContainerConfig) testcontainers.Container 
 	if cfg.Image == "" {
 		cfg.Image = testContainerImage
 	}
+
+	if cfg.Labels == nil {
+		cfg.Labels = map[string]string{}
+	}
+	cfg.Labels["tsdproxy.e2e"] = "true"
 
 	cr := testcontainers.ContainerRequest{
 		Image: cfg.Image,
@@ -634,17 +643,18 @@ func VerifyHTTPResponse(t *testing.T, ctx context.Context, client *TSNetClient, 
 // --- Config Generation ---
 
 type configParams struct {
-	HTTPPort       int
-	AuthKey        string
-	AuthKeyFile    string
-	Tags           string
-	DataDir        string
-	DockerHost     string
-	TargetHostname string
-	Ephemeral      bool
-	ControlURL     string
-	ClientID       string
-	ClientSecret   string
+	HTTPPort            int
+	AuthKey             string
+	AuthKeyFile         string
+	Tags                string
+	DataDir             string
+	DockerHost          string
+	TargetHostname      string
+	Ephemeral           bool
+	ControlURL          string
+	ClientID            string
+	ClientSecret        string
+	AdminAllowLocalhost bool
 }
 
 func generateConfig(p configParams) string {
@@ -686,6 +696,11 @@ func generateConfig(p configParams) string {
 		dockerHostLine = fmt.Sprintf("    host: %q\n", p.DockerHost)
 	}
 
+	adminAllowLocalhostLine := ""
+	if p.AdminAllowLocalhost {
+		adminAllowLocalhostLine = "adminAllowLocalhost: true\n"
+	}
+
 	return fmt.Sprintf(`defaultProxyProvider: default
 docker:
   local:
@@ -698,7 +713,7 @@ tailscale:
 http:
   hostname: "0.0.0.0"
   port: %d
-log:
+%slog:
   level: debug
   json: false
 proxyAccessLog: true
@@ -711,6 +726,7 @@ proxyAccessLog: true
 		clientLines,
 		p.DataDir,
 		p.HTTPPort,
+		adminAllowLocalhostLine,
 	)
 }
 

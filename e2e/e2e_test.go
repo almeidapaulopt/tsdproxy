@@ -31,6 +31,8 @@ const (
 
 	// e2eBaseDir is the base directory for all e2e test data.
 	e2eBaseDir = "/tmp/tsdproxy-e2e"
+
+	e2eTestLabel = "tsdproxy.e2e=true"
 )
 
 var (
@@ -88,6 +90,10 @@ func TestMain(m *testing.M) {
 	}
 	fmt.Println("tsdproxy binary built successfully")
 
+	// Clean up leftover e2e test containers to avoid ACME rate-limit
+	// interference from previous runs.
+	cleanupTestContainers(ctx)
+
 	code := m.Run()
 	os.Remove(tsdproxyBinPath)
 	os.Exit(code)
@@ -135,4 +141,19 @@ func resolveProjectRoot() (string, error) {
 		}
 		dir = parent
 	}
+}
+
+func cleanupTestContainers(ctx context.Context) {
+	listCmd := exec.CommandContext(ctx, "docker", "ps", "-aq", "--filter", "label="+e2eTestLabel)
+	out, err := listCmd.Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+	ids := strings.Fields(strings.TrimSpace(string(out)))
+	if len(ids) == 0 {
+		return
+	}
+	args := append([]string{"rm", "-f"}, ids...)
+	cleanupCmd := exec.CommandContext(ctx, "docker", args...)
+	cleanupCmd.Run()
 }
