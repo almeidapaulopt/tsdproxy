@@ -64,6 +64,7 @@ type healthChecker struct {
 	cooldown            time.Duration
 	failThreshold       int
 	tlsValidate         bool
+	transport           *http.Transport
 	httpClient          *http.Client
 }
 
@@ -100,6 +101,11 @@ func newHealthChecker(
 	//
 	ctx, cancel := context.WithCancel(context.Background())
 
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsValidate}, //nolint
+		DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
+	}
+
 	hc := &healthChecker{
 		log:           log.With().Str("component", "health").Logger(),
 		scheme:        scheme,
@@ -110,12 +116,10 @@ func newHealthChecker(
 		cooldown:      cooldown,
 		tlsValidate:   tlsValidate,
 		onRedetect:    onRedetect,
+		transport:     transport,
 		httpClient: &http.Client{
-			Timeout: healthCheckTimeout,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsValidate}, //nolint
-				DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
-			},
+			Timeout:   healthCheckTimeout,
+			Transport: transport,
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -145,6 +149,9 @@ func (hc *healthChecker) start() {
 
 func (hc *healthChecker) stop() {
 	hc.cancel()
+	if hc.transport != nil {
+		hc.transport.CloseIdleConnections()
+	}
 }
 
 func (hc *healthChecker) run() {
