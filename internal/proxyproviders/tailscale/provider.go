@@ -67,7 +67,19 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	}, nil
 }
 
-// NewProxy method implements proxyprovider NewProxy method
+// ResolveAuthKey resolves the authentication key for the given config.
+// Performs OAuth token exchange if configured. Side-effect-free with
+// respect to local tsnet state.
+func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
+	authKey, err := c.getAuthkey(cfg)
+	if err != nil {
+		return "", fmt.Errorf("ResolveAuthKey: %w", err)
+	}
+	return authKey, nil
+}
+
+// NewProxy method implements proxyprovider NewProxy method.
+// If resolvedAuthKey is empty, auth key resolution is performed internally.
 func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, error) {
 	c.log.Debug().
 		Str("hostname", config.Hostname).
@@ -248,6 +260,10 @@ func (c *Client) getControlURL() string {
 }
 
 func (c *Client) getAuthkey(config *model.Config) (string, error) {
+	if config.Tailscale.ResolvedAuthKey != "" {
+		return config.Tailscale.ResolvedAuthKey, nil
+	}
+
 	authKey := config.Tailscale.AuthKey
 
 	if c.clientID != "" && c.clientSecret != "" {
