@@ -30,13 +30,14 @@ const (
 )
 
 type Dashboard struct {
-	Log        zerolog.Logger
-	HTTP       *core.HTTPServer
-	pm         *proxymanager.ProxyManager
-	prefs      *PreferencesStore
-	sseClients map[string]*sseClient
-	stopCh     chan struct{}
-	mtx        sync.RWMutex
+	Log             zerolog.Logger
+	HTTP            *core.HTTPServer
+	pm              *proxymanager.ProxyManager
+	prefs           *PreferencesStore
+	sseClients      map[string]*sseClient
+	stopCh          chan struct{}
+	mtx             sync.RWMutex
+	lastHealthState map[string]string
 }
 
 func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.ProxyManager) *Dashboard {
@@ -46,12 +47,13 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 	}
 
 	dash := &Dashboard{
-		Log:        log.With().Str("module", "dashboard").Logger(),
-		HTTP:       http,
-		pm:         pm,
-		prefs:      prefs,
-		sseClients: make(map[string]*sseClient),
-		stopCh:     make(chan struct{}),
+		Log:             log.With().Str("module", "dashboard").Logger(),
+		HTTP:            http,
+		pm:              pm,
+		prefs:           prefs,
+		sseClients:      make(map[string]*sseClient),
+		stopCh:          make(chan struct{}),
+		lastHealthState: make(map[string]string),
 	}
 
 	go dash.streamProxyUpdates()

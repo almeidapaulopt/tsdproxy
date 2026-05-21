@@ -221,7 +221,8 @@ func (dash *Dashboard) snapshotClients() []clientInfo {
 }
 
 func (dash *Dashboard) streamProxyUpdates() {
-	events := dash.pm.SubscribeStatusEvents()
+	events, cancelEvents := dash.pm.SubscribeStatusEvents()
+	defer cancelEvents()
 
 	healthTicker := time.NewTicker(healthRefreshInterval)
 	defer healthTicker.Stop()
@@ -340,6 +341,39 @@ func (dash *Dashboard) refreshClientCards() {
 	}
 
 	proxies := dash.pm.GetProxies()
+
+	newHealth := make(map[string]string, len(proxies))
+	for name, proxy := range proxies {
+		h := proxy.GetHealth()
+		key := fmt.Sprintf("%s:%s:%d", h.Status.String(), h.Error, h.Latency.Milliseconds())
+		newHealth[name] = key
+	}
+
+	dash.mtx.Lock()
+	changed := false
+
+	for name, key := range newHealth {
+		if last, ok := dash.lastHealthState[name]; !ok || last != key {
+			changed = true
+			break
+		}
+	}
+
+	if !changed {
+		for name := range dash.lastHealthState {
+			if _, ok := newHealth[name]; !ok {
+				changed = true
+				break
+			}
+		}
+	}
+
+	dash.lastHealthState = newHealth
+	dash.mtx.Unlock()
+
+	if !changed {
+		return
+	}
 
 	for _, ci := range clients {
 		dash.renderHTMXList(ci.client, proxies)
