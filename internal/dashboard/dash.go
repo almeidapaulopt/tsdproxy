@@ -72,25 +72,29 @@ func (dash *Dashboard) dashboardSubject(r *http.Request) string {
 	if core.IsLocalhost(r.RemoteAddr) {
 		return "__localhost__"
 	}
+	if core.ValidAPIKey(r) {
+		return "__apikey__"
+	}
 	return subjectRemote
 }
 
-// AddRoutes method add dashboard related routes to the http server
 func (dash *Dashboard) AddRoutes() {
-	authMW := core.AdminMiddleware()
+	viewMW := core.ViewerMiddleware()
+	adminMW := core.AdminMiddleware()
 
-	dash.HTTP.Get("/{$}", authMW(dash.dashboardHandler()))
-	dash.HTTP.Get("/dashboard/list", authMW(dash.listFragmentHandler()))
-	dash.HTTP.Get("/dashboard/proxy/{name}/modal", authMW(dash.proxyModalHandler()))
-	dash.HTTP.Get("/stream", authMW(dash.streamHandler()))
-	dash.HTTP.Get("/stream/{name}/logs", authMW(dash.streamProxyLogsHandler()))
+	dash.HTTP.Get("/{$}", viewMW(dash.dashboardHandler()))
+	dash.HTTP.Get("/dashboard/list", viewMW(dash.listFragmentHandler()))
+	dash.HTTP.Get("/dashboard/proxy/{name}/modal", viewMW(dash.proxyModalHandler()))
+	dash.HTTP.Get("/stream", viewMW(dash.streamHandler()))
 
-	dash.HTTP.Put("/api/dashboard/preferences", authMW(dash.updatePreferencesHandler()))
-	dash.HTTP.Post("/api/dashboard/pin/{name}", authMW(dash.togglePinHandler()))
-	dash.HTTP.Post("/api/proxy/{name}/restart", authMW(dash.restartHandler()))
-	dash.HTTP.Post("/api/proxy/{name}/pause", authMW(dash.pauseHandler()))
-	dash.HTTP.Post("/api/proxy/{name}/resume", authMW(dash.resumeHandler()))
-	dash.HTTP.Post("/api/proxy/{name}/reauth", authMW(dash.reauthHandler()))
+	dash.HTTP.Put("/api/dashboard/preferences", viewMW(dash.updatePreferencesHandler()))
+	dash.HTTP.Post("/api/dashboard/pin/{name}", viewMW(dash.togglePinHandler()))
+
+	dash.HTTP.Get("/stream/{name}/logs", adminMW(dash.streamProxyLogsHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/restart", adminMW(dash.restartHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/pause", adminMW(dash.pauseHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/resume", adminMW(dash.resumeHandler()))
+	dash.HTTP.Post("/api/proxy/{name}/reauth", adminMW(dash.reauthHandler()))
 }
 
 func formatAgo(t time.Time) string {
@@ -165,7 +169,7 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 
 		if r.Header.Get("HX-Request") == hxRequestHeader {
 			pinned := pinnedSet(dash.loadPrefs(dash.dashboardSubject(r)))
-			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned)))
+			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned, true)))
 			return
 		}
 		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"})
@@ -200,7 +204,7 @@ func (dash *Dashboard) dashboardHandler() http.HandlerFunc {
 		prefs := dash.loadPrefs(userID)
 		who := core.ResolveWhois(r)
 
-		viewData := dash.buildDashboardViewData(prefs, "")
+		viewData := dash.buildDashboardViewData(prefs, "", core.IsAdmin(r))
 		viewData.User = who
 		viewData.Version = core.GetVersion()
 
@@ -220,7 +224,7 @@ func (dash *Dashboard) listFragmentHandler() http.HandlerFunc {
 
 		dash.updateClientSearch(userID, connID, search)
 
-		viewData := dash.buildDashboardViewData(prefs, search)
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -243,7 +247,7 @@ func (dash *Dashboard) proxyModalHandler() http.HandlerFunc {
 			return
 		}
 
-		data := buildProxyDataFromProxy(name, proxy, pinnedSet(dash.loadPrefs(dash.dashboardSubject(r))))
+		data := buildProxyDataFromProxy(name, proxy, pinnedSet(dash.loadPrefs(dash.dashboardSubject(r))), core.IsAdmin(r))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyModal(data)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -261,7 +265,7 @@ func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 			return
 		}
 
-		if userID == "__remote__" {
+		if userID == subjectRemote {
 			dash.writeJSONError(w, r, "preferences require authentication", http.StatusForbidden)
 			return
 		}
@@ -300,7 +304,7 @@ func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 		}
 
 		prefs := dash.loadPrefs(userID)
-		viewData := dash.buildDashboardViewData(prefs, search)
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -324,7 +328,7 @@ func (dash *Dashboard) togglePinHandler() http.HandlerFunc {
 		}
 
 		userID := dash.dashboardSubject(r)
-		if userID == "__remote__" {
+		if userID == subjectRemote {
 			dash.writeJSONError(w, r, "preferences require authentication", http.StatusForbidden)
 			return
 		}
@@ -336,7 +340,7 @@ func (dash *Dashboard) togglePinHandler() http.HandlerFunc {
 
 		prefs := dash.loadPrefs(userID)
 		search := r.FormValue("search")
-		viewData := dash.buildDashboardViewData(prefs, search)
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -357,15 +361,16 @@ func (dash *Dashboard) loadPrefs(userID string) model.Preferences {
 	return prefs
 }
 
-func (dash *Dashboard) buildDashboardViewData(prefs model.Preferences, search string) pages.DashboardData {
+func (dash *Dashboard) buildDashboardViewData(prefs model.Preferences, search string, isAdmin bool) pages.DashboardData {
 	proxies := dash.pm.GetProxies()
 	return pages.DashboardData{
 		Prefs:   prefs,
-		Proxies: BuildDashboardView(proxies, prefs, search),
+		Proxies: BuildDashboardView(proxies, prefs, search, isAdmin),
+		IsAdmin: isAdmin,
 	}
 }
 
-func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool) pages.ProxyData {
+func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool, isAdmin bool) pages.ProxyData {
 	status := p.GetStatus()
 	proxyURL := p.GetURL()
 	if status == model.ProxyStatusAuthenticating {
@@ -463,6 +468,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		StatusHistory:         history,
 		Uptime:                formatDuration(p.GetUptime()),
 		Pinned:                pinned[name],
+		IsAdmin:               isAdmin,
 	}
 }
 

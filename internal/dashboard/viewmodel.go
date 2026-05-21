@@ -45,6 +45,7 @@ func BuildDashboardView(
 	proxies proxymanager.ProxyList,
 	prefs model.Preferences,
 	search string,
+	isAdmin bool,
 ) pages.DashboardView {
 	pinned := pinnedSet(prefs)
 
@@ -53,7 +54,7 @@ func BuildDashboardView(
 		if !p.Config.Dashboard.Visible {
 			continue
 		}
-		data := buildProxyDataFromProxy(name, p, pinned)
+		data := buildProxyDataFromProxy(name, p, pinned, isAdmin)
 		if !matchesFilter(data, prefs, search) {
 			continue
 		}

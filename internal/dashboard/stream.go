@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/dom"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
@@ -37,6 +38,7 @@ type (
 		channel chan SSEMessage
 		done    chan struct{}
 		userID  string
+		isAdmin bool
 		connID  string
 		search  string
 		mtx     sync.Mutex
@@ -81,6 +83,7 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 			channel: make(chan SSEMessage, chanSizeSSEQueue),
 			done:    make(chan struct{}),
 			userID:  userID,
+			isAdmin: core.IsAdmin(r),
 			connID:  connID,
 		}
 
@@ -146,7 +149,8 @@ func (dash *Dashboard) renderHTMXList(client *sseClient, proxies proxymanager.Pr
 
 	viewData := pages.DashboardData{
 		Prefs:   prefs,
-		Proxies: BuildDashboardView(proxies, prefs, search),
+		Proxies: BuildDashboardView(proxies, prefs, search, client.isAdmin),
+		IsAdmin: client.isAdmin,
 	}
 
 	client.send(SSEMessage{
@@ -196,9 +200,10 @@ func (dash *Dashboard) updateClientSearch(userID, connID, search string) {
 }
 
 type clientInfo struct {
-	client *sseClient
-	userID string
-	search string
+	client  *sseClient
+	userID  string
+	isAdmin bool
+	search  string
 }
 
 func (dash *Dashboard) snapshotClients() []clientInfo {
@@ -210,7 +215,7 @@ func (dash *Dashboard) snapshotClients() []clientInfo {
 		c.mtx.Lock()
 		search := c.search
 		c.mtx.Unlock()
-		snapshot = append(snapshot, clientInfo{client: c, userID: c.userID, search: search})
+		snapshot = append(snapshot, clientInfo{client: c, userID: c.userID, isAdmin: c.isAdmin, search: search})
 	}
 	return snapshot
 }
@@ -287,7 +292,7 @@ func (dash *Dashboard) handleStatusEvent(event model.ProxyEvent) {
 	for _, ci := range clients {
 		prefs := dash.loadPrefs(ci.userID)
 
-		data := buildProxyDataFromProxy(event.ID, proxy, pinnedSet(prefs))
+		data := buildProxyDataFromProxy(event.ID, proxy, pinnedSet(prefs), ci.isAdmin)
 		if !matchesFilter(data, prefs, ci.search) {
 			continue
 		}

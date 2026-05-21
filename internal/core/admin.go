@@ -38,19 +38,20 @@ func InitProxyAuth(log zerolog.Logger) {
 // ProxyAuthToken returns the per-process secret set by InitProxyAuth.
 func ProxyAuthToken() string { return proxyAuthToken }
 
-// AdminMiddleware authenticates requests to API and dashboard endpoints.
+// AdminMiddleware authenticates requests to admin-only endpoints.
 //
 // Access is granted in priority order:
 //  1. Valid API key via Authorization: Bearer <token>
-//  2. Tailscale identity (context or forwarded headers)
+//  2. Tailscale identity in config.Config.Admins list
 //  3. Localhost + AdminAllowLocalhost
 //
-// When config.Config.Admins is non-empty, Tailscale users must appear in
-// the list. A valid API key bypasses the allowlist entirely.
+// When config.Config.Admins is empty, any authenticated Tailscale user
+// is considered an admin. Use ViewerMiddleware for read-only access
+// that allows all Tailscale users regardless of the admins list.
 func AdminMiddleware() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if validAPIKey(r) {
+			if ValidAPIKey(r) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -64,7 +65,7 @@ func AdminMiddleware() Middleware {
 					return
 				}
 				if id != "" {
-					writeForbidden(w, r, "access denied")
+					writeForbidden(w, r, "admin access required")
 					return
 				}
 
@@ -92,7 +93,59 @@ func AdminMiddleware() Middleware {
 	}
 }
 
-func validAPIKey(r *http.Request) bool {
+// ViewerMiddleware authenticates requests to read-only dashboard endpoints.
+// Any authenticated Tailscale user is allowed, regardless of the admins list.
+// Use AdminMiddleware for endpoints that require admin privileges.
+func ViewerMiddleware() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if ValidAPIKey(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			id := ResolveWhois(r).ID
+			if id != "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			writeForbidden(w, r, "dashboard access requires a Tailscale connection")
+		})
+	}
+}
+
+// IsAdmin checks whether the authenticated user for the given request
+// has admin privileges. Returns true when config.Config.Admins is empty
+// (all users are admins) or when the user's Tailscale ID is in the list.
+func IsAdmin(r *http.Request) bool {
+	if ValidAPIKey(r) {
+		return true
+	}
+	id := ResolveWhois(r).ID
+	if id != "" {
+		return UserIDIsAdmin(id)
+	}
+	return IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost
+}
+
+func UserIDIsAdmin(id string) bool {
+	admins := config.Config.Admins
+	if len(admins) == 0 {
+		return true
+	}
+	if id == "__localhost__" {
+		return config.Config.AdminAllowLocalhost
+	}
+	return slices.Contains(admins, id)
+}
+
+func ValidAPIKey(r *http.Request) bool {
 	key := config.Config.APIKey
 	if key == "" {
 		return false
