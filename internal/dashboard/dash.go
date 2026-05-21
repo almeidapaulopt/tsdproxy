@@ -384,6 +384,8 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 
 	hostname := strings.TrimPrefix(proxyURL, "https://")
 	hostname = strings.TrimPrefix(hostname, "http://")
+	hostname = strings.TrimPrefix(hostname, "tcp://")
+	hostname = strings.TrimPrefix(hostname, "udp://")
 
 	ports := make([]pages.PortEntry, 0, len(p.Config.Ports))
 	for _, target := range p.Config.Ports {

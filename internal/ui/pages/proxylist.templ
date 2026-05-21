@@ -19,6 +19,10 @@ func LogLineClasses() string      { return logLineClasses }
 func LogPlaceholderExtra() string { return logPlaceholderExtra }
 func LogPlaceholderText() string  { return logPlaceholderText }
 
+func isBrowserURL(rawURL string) bool {
+	return strings.HasPrefix(rawURL, "http://") || strings.HasPrefix(rawURL, "https://")
+}
+
 type ProxyData struct {
 	Enabled               bool
 	Name                  string
@@ -137,8 +141,12 @@ templ infoPanel(item ProxyData) {
 				for _, port := range item.Ports {
 					<div class="bg-base-200/70 rounded-lg px-3 py-2.5">
 						<div class="flex items-center justify-between gap-2 mb-1">
+						if isBrowserURL(port.URL) {
 							<a href={ templ.URL(port.URL) } target="_blank" rel="noopener noreferrer"
 								class="link link-primary font-mono text-xs truncate">{ port.URL }</a>
+						} else {
+							<span class="font-mono text-xs truncate text-base-content/60">{ port.URL }</span>
+						}
 							if port.PortConfig.Tailscale.Funnel {
 								<span class="badge badge-warning badge-xs shrink-0">funnel</span>
 							}
@@ -295,18 +303,20 @@ templ ProxyCardInner(item ProxyData) {
 		</div>
 
 		<div class="openbtn">
-			<a
-				href={ templ.URL(item.URL) }
-				class={ templ.KV("btn-disabled", !item.Enabled) }
-				target="_blank"
-				rel="noopener noreferrer"
-			>
-				if item.ProxyStatus == model.ProxyStatusAuthenticating {
-					Authenticate
-				} else {
-					Open
-				}
-			</a>
+			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating {
+				<a
+					href={ templ.URL(item.URL) }
+					class={ templ.KV("btn-disabled", !item.Enabled) }
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					if item.ProxyStatus == model.ProxyStatusAuthenticating {
+						Authenticate
+					} else {
+						Open
+					}
+				</a>
+			}
 		</div>
 	</div>
 }
@@ -514,18 +524,20 @@ templ ProxyListRow(item ProxyData) {
 			>
 				@components.InlineIcon("mdi/information-variant", "size-3.5")
 			</button>
-			<a
-				href={ templ.URL(item.URL) }
-				class={ "row-open-btn", templ.KV("btn-disabled", !item.Enabled) }
-				target="_blank"
-				rel="noopener noreferrer"
-			>
-				if item.ProxyStatus == model.ProxyStatusAuthenticating {
-					Auth
-				} else {
-					Open
-				}
-			</a>
+			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating {
+				<a
+					href={ templ.URL(item.URL) }
+					class={ "row-open-btn", templ.KV("btn-disabled", !item.Enabled) }
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					if item.ProxyStatus == model.ProxyStatusAuthenticating {
+						Auth
+					} else {
+						Open
+					}
+				</a>
+			}
 		</div>
 	</div>
 }
