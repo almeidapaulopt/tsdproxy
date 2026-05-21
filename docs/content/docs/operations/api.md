@@ -9,9 +9,18 @@ by default). All endpoints return JSON.
 
 ## Authentication
 
-Endpoints that modify state (restart, pause, resume, reauth, webhook test)
-require admin authorization when an [admin allowlist]({{< ref "/docs/security/admin-allowlist" >}})
-is configured. Read-only endpoints are always accessible.
+All API endpoints require authentication. There are three authentication methods:
+
+1. **Tailscale identity** — automatic for connections through a Tailscale proxy.
+   Tailnet users have viewer-level access (read endpoints); admin access requires
+   the user's ID to be in the `admins` list.
+2. **API key** — include `Authorization: Bearer <key>` header. API keys grant
+   full admin access. Configure via `apiKey` or `apiKeyFile` in `tsdproxy.yaml`.
+3. **Localhost** — requests from `127.0.0.0/8` or `::1` are permitted when
+   `adminAllowLocalhost: true` is set (for bootstrapping only).
+
+See [Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) for full
+authentication details.
 
 Errors return:
 
@@ -160,8 +169,8 @@ bootstrapping the [admin allowlist]({{< ref "/docs/security/admin-allowlist" >}}
 
 ## Admin Actions
 
-All admin endpoints require authorization when an admin allowlist is
-configured. Returns `{"status": "ok"}` on success.
+All admin endpoints require admin authorization (user in `admins` list or
+API key authentication). Returns `{"status": "ok"}` on success.
 
 ### Restart proxy
 
@@ -217,5 +226,5 @@ API but are available for custom integrations.
 
 | Endpoint | Description |
 |---|---|
-| `GET /stream` | Proxy status stream (Datastar SSE, merges into dashboard DOM) |
+| `GET /stream` | Proxy status stream (htmx SSE with `hx-partial` updates) |
 | `GET /stream/{name}/logs` | Per-proxy access log stream |

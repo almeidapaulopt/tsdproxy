@@ -59,12 +59,14 @@ tailscale:
       maxCertConcurrency: 2 # Max parallel TLS cert generation requests (default: 2)
   dataDir: /data/ # Tailscale data directory
 http:
-  hostname: 0.0.0.0 # HTTP server hostname
+  hostname: 127.0.0.1 # HTTP server hostname (changed from 0.0.0.0 — see breaking changes)
   port: 8080 # HTTP server port
 log:
   level: info # Logging level (debug, info, warn, error, fatal, panic, trace)
   json: false # Enable JSON logging (true/false)
 proxyAccessLog: true # Enable container access logs (true/false)
+apiKey: "" # API key for non-Tailscale authentication (optional)
+apiKeyFile: "" # Path to a file containing the API key (optional)
 admins: [] # Tailscale UserProfile.IDs authorized for admin actions (optional)
             # Example: admins: ["12345" # alice@github, "67890" # bob@example.com]
 adminAllowLocalhost: false # Permit localhost to bypass admin allowlist (for bootstrapping)
@@ -212,7 +214,12 @@ Configures the built-in HTTP server that serves the dashboard and health endpoin
 
 ##### hostname
 
-The bind address for the HTTP server. Defaults to `0.0.0.0` (all interfaces).
+The bind address for the HTTP server. Defaults to `127.0.0.1` (localhost only).
+
+> [!WARNING]
+> The default changed from `0.0.0.0` to `127.0.0.1` in the latest release for security.
+> If you need the dashboard accessible on all interfaces (e.g. via Docker port mapping),
+> set `hostname: 0.0.0.0` explicitly.
 
 ##### port
 
@@ -234,6 +241,41 @@ Enables JSON-formatted logging when set to `true`. Defaults to `false`.
 Enables access logging for proxied requests. Defaults to `true`. Can be
 overridden per-container with the `tsdproxy.containeraccesslog` label or
 per-list with `defaultProxyAccessLog`.
+
+#### API Key Authentication
+
+In addition to Tailscale identity, TSDProxy supports API key authentication
+for non-Tailscale clients (scripts, CI pipelines, monitoring tools).
+
+```yaml {filename="/config/tsdproxy.yaml"}
+apiKey: "your-secret-api-key"
+```
+
+Or via a file:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+apiKeyFile: "/run/secrets/tsdproxy-api-key"
+```
+
+When configured, include the key in API requests:
+
+```bash
+curl -H "Authorization: Bearer your-secret-api-key" http://localhost:8080/api/v1/proxies
+```
+
+> [!NOTE]
+> API keys grant full admin access to all endpoints. Treat them like passwords —
+> store in secrets managers, use `apiKeyFile` with Docker secrets, and rotate regularly.
+
+##### apiKey
+
+A static API key for authenticating non-Tailscale clients. If both `apiKey` and
+`apiKeyFile` are set, `apiKeyFile` takes precedence.
+
+##### apiKeyFile
+
+Path to a file containing the API key. The file is read at startup and must
+contain exactly one line with the key.
 
 #### webhooks Section
 
@@ -301,8 +343,9 @@ adminAllowLocalhost: false
 ##### admins
 
 A list of Tailscale `UserProfile.ID` values authorized to use admin endpoints.
-When empty (default), all dashboard actions are unprotected. Use
-`/api/whoami` through a Tailscale connection to discover your ID.
+All tailnet users can view proxy status and preferences (viewer role). Only
+users in this list (or authenticated via API key) can perform admin actions.
+Use `/api/whoami` through a Tailscale connection to discover your ID.
 
 ##### adminAllowLocalhost
 

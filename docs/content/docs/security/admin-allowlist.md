@@ -5,8 +5,9 @@ weight: 4
 ---
 
 Restrict access to sensitive dashboard actions by configuring an admin allowlist.
-With the allowlist enabled, only specific Tailscale users can restart, pause,
-resume, or reauth proxies — even if they have access to the tailnet.
+With the allowlist enabled, only specific Tailscale users (or API key holders)
+can restart, pause, resume, or reauth proxies — even if they have access to the
+tailnet. All other tailnet users can view proxy status and preferences (viewer role).
 
 ## How It Works
 
@@ -14,6 +15,9 @@ TSDProxy identifies the caller using Tailscale's `WhoIs` API, which resolves
 the peer identity from the connection's source IP via the tailnet control plane.
 This mechanism is **not spoofable by the client** — it does not rely on headers,
 cookies, or any data the browser sends.
+
+Alternatively, callers can authenticate using an API key via the `Authorization:
+Bearer <key>` header. API keys grant full admin access.
 
 Each Tailscale user has a stable, tailnet-scoped numeric ID (`UserProfile.ID`)
 that cannot change. The allowlist compares this ID against a configured list,
@@ -53,14 +57,16 @@ adminAllowLocalhost: false
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `admins` | `[]string` | (empty) | List of Tailscale `UserProfile.ID` values. Empty list disables admin auth — all dashboard actions are permitted. |
+| `admins` | `[]string` | (empty) | List of Tailscale `UserProfile.ID` values. All tailnet users can view the dashboard; only listed IDs can perform admin actions. |
 | `adminAllowLocalhost` | `bool` | `false` | When `true`, requests from `127.0.0.0/8` or `::1` bypass the allowlist. Intended for bootstrapping only. |
+| `apiKey` | `string` | (empty) | Static API key for non-Tailscale authentication. Grants full admin access. |
+| `apiKeyFile` | `string` | (empty) | Path to a file containing the API key. Takes precedence over `apiKey`. |
 
-> [!WARNING]
-> When the `admins` list is **empty**, every dashboard action (restart, pause,
-> resume, reauth, webhook test) is **unprotected**. Anyone who can reach port
-> 8080 can manage all proxies. Configure an admin allowlist before exposing
-> the dashboard to other tailnet members.
+> [!NOTE]
+> All dashboard and API endpoints now require authentication by default. Every
+> request must present a valid Tailscale identity, API key, or come from localhost
+> with `adminAllowLocalhost` enabled. This is a change from previous versions where
+> an empty `admins` list left endpoints unprotected.
 
 ## Bootstrapping the Allowlist
 
@@ -83,9 +89,13 @@ identity at `warn` level. Check the logs after a failed attempt to find the ID.
 ## Protected Endpoints
 
 The allowlist protects state-changing endpoints (restart, pause, resume,
-reauth, webhook test). Read-only endpoints and the dashboard UI remain
-accessible to all tailnet members. See the [API reference]({{< ref "/docs/operations/api" >}})
-for the full endpoint list.
+reauth, webhook test). All tailnet users can view proxy status, browse the
+dashboard, and manage their own preferences (viewer role). Only admins
+(users in the `admins` list or authenticated via API key) see the Actions
+and Logs tabs in the proxy detail modal.
+
+See the [API reference]({{< ref "/docs/operations/api" >}}) for the full
+endpoint list and authentication requirements.
 
 ## Security Considerations
 
@@ -137,6 +147,67 @@ proxy **strips all client-supplied `x-tsdproxy-*` headers** before setting
 the resolved identity values, preventing header injection attacks.
 The admin middleware only accepts the `x-tsdproxy-id` header from localhost
 connections — the reverse proxy forwards locally within the same process.
+
+## API Key Authentication
+
+For non-Tailscale clients (scripts, CI pipelines, monitoring tools), configure
+an API key in `tsdproxy.yaml`:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+apiKey: "your-secret-api-key"
+# or via file:
+# apiKeyFile: "/run/secrets/tsdproxy-api-key"
+```
+
+Include the key in requests:
+
+```bash
+curl -H "Authorization: Bearer your-secret-api-key" \
+  http://localhost:8080/api/v1/proxies
+```
+
+API keys grant full admin access to all endpoints. If both `apiKey` and
+`apiKeyFile` are set, `apiKeyFile` takes precedence.
+
+> [!CAUTION]
+> API keys are equivalent to admin credentials. Store them securely, use
+> `apiKeyFile` with Docker secrets or a secrets manager, and rotate regularly.
+
+## Viewer Role
+
+All tailnet users who can reach the dashboard have viewer-level access:
+
+- **View** proxy status, health, uptime, and port configuration
+- **Browse** the dashboard with search, filtering, and grouping
+- **Manage** their own preferences (dark mode, view layout, sort order, pinned proxies)
+
+Only users in the `admins` list (or authenticated via API key) can:
+
+- Restart, pause, resume, or reauth proxies
+- View access logs in the proxy detail modal
+- Test webhooks
+
+Non-admin users do not see the Actions or Logs tabs in the proxy detail modal.
+
+## Security Advisory (GHSA-j8rq-87gr-gm9q)
+
+A security vulnerability was fixed that allowed unauthenticated access to
+management endpoints. The fix includes:
+
+- **All endpoints now require authentication** — previously, an empty `admins`
+  list left all endpoints unprotected. Now every request must present a valid
+  Tailscale identity, API key, or come from localhost with `adminAllowLocalhost`
+- **Per-process auth token** — prevents `x-tsdproxy-*` header spoofing from
+  localhost by generating a random token at startup and validating with
+  constant-time comparison
+- **Default bind address changed** — `http.hostname` defaults to `127.0.0.1`
+  instead of `0.0.0.0`, reducing the attack surface when TSDProxy starts
+
+If upgrading from a previous version, you may need to:
+
+1. Set `http.hostname: 0.0.0.0` if you expose the dashboard externally
+2. Configure `admins` list or `apiKey` if you relied on the previously
+   unauthenticated access
 
 ## Troubleshooting
 

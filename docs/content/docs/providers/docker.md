@@ -249,6 +249,33 @@ labels:
 ```
 
 {{% /details %}}
+{{% details title="tsdproxy.identity_headers" %}}
+
+Controls whether TSDProxy injects Tailscale identity headers into requests
+forwarded to the upstream service. Defaults to `"true"` (enabled).
+
+When enabled, the following headers are added to each proxied request:
+
+| Header | Value |
+|--------|-------|
+| `Remote-User` | Tailscale login name |
+| `X-Forwarded-User` | Tailscale login name |
+| `X-Auth-Request-User` | Tailscale login name |
+| `x-tsdproxy-username` | Tailscale login name |
+| `x-tsdproxy-displayname` | Tailscale display name |
+| `x-tsdproxy-profilepicurl` | Tailscale profile picture URL |
+
+Client-supplied identity headers are **always stripped** for security, regardless
+of this setting. Set to `"false"` for backends that consume these headers in
+conflicting ways (e.g. wetty, which reads `Remote-User` as the SSH login username).
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.identity_headers: "false"
+```
+
+{{% /details %}}
 
 ## Health Check Labels
 
@@ -337,6 +364,19 @@ icon based on the image name. See available icons in [icons]({{< ref "/docs/adva
 labels:
   tsdproxy.enable: "true"
   tsdproxy.dash.icon: "si/portainer"
+```
+
+{{% /details %}}
+{{% details title="tsdproxy.dash.category" %}}
+
+Groups proxies in the dashboard by category. Proxies with the same category
+are displayed together in a group.
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "myapp"
+  tsdproxy.dash.category: "Production"
 ```
 
 {{% /details %}}
