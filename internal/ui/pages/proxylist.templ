@@ -46,6 +46,7 @@ type ProxyData struct {
 	StatusHistory         []StatusHistoryEntry
 	Uptime                string
 	Pinned                bool
+	IsAdmin               bool
 }
 
 type StatusHistoryEntry struct {
@@ -370,17 +371,19 @@ templ modalTabs(item ProxyData) {
 		<div class="tab-content pt-4">
 			@infoPanel(item)
 		</div>
-		<input
-			id={ "log-actions-tab-" + dom.SafeID(item.Name) }
-			type="radio"
-			name={ modalname(item.Name) + "_tabs" }
-			class="tab"
-			aria-label="Actions"
-		/>
-		<div class="tab-content pt-4">
-			@ActionsPanel(item)
-		</div>
-		if item.ProxyAccessLog {
+		if item.IsAdmin {
+			<input
+				id={ "log-actions-tab-" + dom.SafeID(item.Name) }
+				type="radio"
+				name={ modalname(item.Name) + "_tabs" }
+				class="tab"
+				aria-label="Actions"
+			/>
+			<div class="tab-content pt-4">
+				@ActionsPanel(item)
+			</div>
+		}
+		if item.IsAdmin && item.ProxyAccessLog {
 			<input
 				id={ "log-logs-tab-" + dom.SafeID(item.Name) }
 				type="radio"
