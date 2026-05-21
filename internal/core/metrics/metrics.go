@@ -4,7 +4,10 @@
 package metrics
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -12,6 +15,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+var errHijackNotSupported = errors.New("hijack not supported")
 
 // Metrics holds Prometheus metrics for per-proxy request instrumentation.
 type Metrics struct {
@@ -118,6 +123,14 @@ func (r *statusRecorder) Flush() {
 	if f, ok := r.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errHijackNotSupported
+	}
+	return h.Hijack()
 }
 
 func (r *statusRecorder) Unwrap() http.ResponseWriter {
