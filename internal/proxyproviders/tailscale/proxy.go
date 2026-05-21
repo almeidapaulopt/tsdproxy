@@ -333,8 +333,8 @@ func (p *Proxy) watchStatus() {
 			}
 			prevStatus := p.getStatus()
 			p.setStatus(model.ProxyStatusRunning, strings.TrimRight(status.Self.DNSName, "."), "")
-			if prevStatus != model.ProxyStatusRunning {
-				p.getTLSCertificates()
+			if prevStatus != model.ProxyStatusRunning && p.hasHTTPSPort() {
+				go p.getTLSCertificates()
 			}
 		}
 	}
@@ -377,8 +377,11 @@ func (p *Proxy) getTLSCertificates() {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(p.ctx, 2*time.Minute)
+	defer cancel()
+
 	waitStart := time.Now()
-	if err := p.certSem.Acquire(p.ctx, 1); err != nil {
+	if err := p.certSem.Acquire(ctx, 1); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			p.log.Error().Err(err).Msg("failed to acquire cert semaphore")
 		}
@@ -396,11 +399,21 @@ func (p *Proxy) getTLSCertificates() {
 		p.log.Warn().Msg("no certificate domains available")
 		return
 	}
-	if _, _, err := lc.CertPair(p.ctx, certDomains[0]); err != nil {
+
+	if _, _, err := lc.CertPair(ctx, certDomains[0]); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			p.log.Error().Err(err).Msg("error to get TLS certificates")
 		}
 		return
 	}
 	p.log.Info().Msg("TLS certificate generated")
+}
+
+func (p *Proxy) hasHTTPSPort() bool {
+	for _, port := range p.config.Ports {
+		if port.ProxyProtocol == "https" {
+			return true
+		}
+	}
+	return false
 }
