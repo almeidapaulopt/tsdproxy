@@ -42,6 +42,9 @@ type (
 		ProxyProvider   string          `yaml:"proxyProvider"`
 		Tailscale       model.Tailscale `yaml:"tailscale"`
 		IdentityHeaders bool            `default:"true" validate:"boolean" yaml:"identityHeaders"`
+		Domain          string          `yaml:"domain"`
+		DNSProvider     string          `yaml:"dnsProvider"`
+		TLSProvider     string          `yaml:"tlsProvider"`
 	}
 
 	port struct {
@@ -262,6 +265,9 @@ func (c *Client) buildConfig(id string, p proxyConfig) (*model.Config, error) {
 	pcfg.HealthCheckCooldown = c.config.HealthCheckCooldown
 	pcfg.Ports = c.getPorts(p.Ports)
 	pcfg.Dashboard = p.Dashboard
+	pcfg.Domain = p.Domain
+	pcfg.DNSProvider = p.DNSProvider
+	pcfg.TLSProvider = p.TLSProvider
 
 	return pcfg, nil
 }

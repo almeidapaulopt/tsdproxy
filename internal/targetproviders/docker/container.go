@@ -207,6 +207,9 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	pcfg.TargetProvider = c.targetProviderName
 	pcfg.Tailscale = *tailscale
 	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, model.DefaultProxyProvider)
+	pcfg.Domain = c.getLabelString(LabelDomain, "")
+	pcfg.DNSProvider = c.getLabelString(LabelDNSProvider, "")
+	pcfg.TLSProvider = c.getLabelString(LabelTLSProvider, "")
 	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, model.DefaultProxyAccessLog)
 	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = c.autoRestart
