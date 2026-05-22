@@ -86,6 +86,20 @@ Docker containers ──labels──► TargetProvider (Docker/List)
 
 Data flow: TargetProvider watches containers → emits TargetEvent → ProxyManager creates Proxy → Proxy spins up Tailscale tsnet.Server → reverse-proxies traffic to container.
 
+### Supported Exposure Modes
+
+TSDProxy is expected to support three exposure modes:
+
+1. **Tailscale-only per proxy** — each proxy gets its own Tailscale connection, DNS is handled through MagicDNS, and TLS certificates are issued/served by Tailscale for that per-proxy connection.
+2. **Per-proxy Tailscale with external DNS/ACME** — each proxy still gets its own Tailscale connection, but the public/custom hostname is managed by an external DNS provider such as Cloudflare, and TLS certificates are issued through ACME/Let's Encrypt.
+3. **Shared Tailscale with external DNS/ACME** — multiple proxies share one Tailscale connection/server, while each exposed custom hostname is managed through external DNS and receives ACME/Let's Encrypt certificates.
+
+When changing proxy startup, DNS provisioning, TLS provider selection, or shared Tailscale lifecycle behavior, keep all three modes working. In particular, per-proxy DNS provider settings must be honored for ACME, external DNS record creation must be restart/idempotency safe, and shared Tailscale servers must fully resume status watching after all proxies stop and later start again.
+
+### Provider Extensibility
+
+TSDProxy is built around provider interfaces so new implementations can be added without rewriting the proxy manager. Target providers discover services, proxy providers expose them over a network, DNS providers publish names, and TLS providers issue or retrieve certificates. Keep these boundaries clean when adding features: provider-specific details should stay behind the relevant interface, and orchestration code should select providers by configuration rather than hard-coding a single implementation.
+
 ### Target URL Resolution
 
 `getTargetURL()` in `internal/targetproviders/docker/container.go` resolves the backend address for a container port. The resolution chain is **protocol-agnostic** — HTTP, TCP, and UDP all follow the same priority order:
@@ -102,7 +116,7 @@ Steps 4–5 are skipped for host-network containers. The chain is intentionally 
 
 - **SPDX headers required**: Every `.go` file must have `SPDX-FileCopyrightText` + `SPDX-License-Identifier: MIT` (enforced by golangci-lint `goheader`)
 - **Global config singleton**: `config.Config` accessed directly (not injected)
-- **Provider pattern**: Target providers (source of containers) and proxy providers (Tailscale) are pluggable via interfaces
+- **Provider pattern**: Target, proxy, DNS, and TLS providers are pluggable via interfaces; new providers should implement the relevant interface and be wired through config-driven provider registration
 - **Zero-value defaults**: `github.com/creasty/defaults` for struct defaults; `model/default.go` for constants
 - **Error wrapping**: Use `fmt.Errorf("context: %w", err)` consistently
 - **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context
