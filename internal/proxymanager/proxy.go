@@ -12,10 +12,12 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
+	"tailscale.com/client/local"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
@@ -71,6 +73,8 @@ type (
 		tlsStatus       tlsproviders.TLSStatus
 		dnsProvider     dnsproviders.Provider
 		tlsProvider     tlsproviders.Provider
+		tailscaleCert   *tls.Certificate
+		tailscaleCertMu sync.Mutex
 	}
 )
 
@@ -633,16 +637,67 @@ func (proxy *Proxy) getListenerForPort(portName string, pc model.PortConfig) (ne
 		return tls.NewListener(l, &tls.Config{
 			MinVersion: tls.VersionTLS12,
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				cert, err := tlsProv.GetCertificate(hello.Context(), domain)
-				if err != nil {
-					return nil, fmt.Errorf("custom tls cert for %s: %w", domain, err)
+				proxy.mtx.RLock()
+				tlsActive := proxy.tlsStatus == tlsproviders.TLSStatusActive
+				proxy.mtx.RUnlock()
+
+				if tlsActive {
+					cert, err := tlsProv.GetCertificate(hello.Context(), domain)
+					if err == nil {
+						return &cert, nil
+					}
+					proxy.log.Warn().Err(err).Msg("custom cert lookup failed, falling back to Tailscale cert")
 				}
-				return &cert, nil
+
+				// Fallback to Tailscale automatic cert
+				cert, err := proxy.getTailscaleCertificate(hello.Context())
+				if err != nil {
+					return nil, fmt.Errorf("no certificate available for %s: %w", domain, err)
+				}
+				return cert, nil
 			},
 		}), nil
 	}
 
 	return proxy.providerProxy.GetListener(portName)
+}
+
+func (proxy *Proxy) getTailscaleCertificate(ctx context.Context) (*tls.Certificate, error) {
+	proxy.tailscaleCertMu.Lock()
+	defer proxy.tailscaleCertMu.Unlock()
+
+	if proxy.tailscaleCert != nil {
+		return proxy.tailscaleCert, nil
+	}
+
+	lcGetter, ok := proxy.providerProxy.(interface{ GetLocalClient() *local.Client })
+	if !ok {
+		return nil, errors.New("tailscale cert not available: provider does not support GetLocalClient")
+	}
+	lc := lcGetter.GetLocalClient()
+	if lc == nil {
+		return nil, errors.New("tailscale local client not available")
+	}
+
+	rawURL := proxy.providerProxy.GetURL()
+	hostname := strings.TrimPrefix(rawURL, "https://")
+	hostname = strings.TrimPrefix(hostname, "http://")
+	if hostname == "" {
+		return nil, errors.New("tailscale hostname not yet available")
+	}
+
+	certPEM, keyPEM, err := lc.CertPair(ctx, hostname)
+	if err != nil {
+		return nil, fmt.Errorf("tailscale CertPair: %w", err)
+	}
+
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse tailscale cert: %w", err)
+	}
+
+	proxy.tailscaleCert = &cert
+	return proxy.tailscaleCert, nil
 }
 
 func (proxy *Proxy) startPacketPort(name string, pc net.PacketConn) {
