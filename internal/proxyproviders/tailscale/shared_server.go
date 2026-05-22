@@ -68,6 +68,18 @@ type SharedServer struct {
 	watchDone  chan struct{}
 	watchOnce  sync.Once
 	closeOnce  sync.Once
+	stopping   chan struct{} // non-nil during shutdown; closed when watcher has exited
+}
+
+// waitForStop blocks until any in-progress shutdown has completed.
+// Must be called with ss.mu held. Returns with ss.mu held.
+func (ss *SharedServer) waitForStop() {
+	for ss.stopping != nil {
+		ch := ss.stopping
+		ss.mu.Unlock()
+		<-ch
+		ss.mu.Lock()
+	}
 }
 
 func NewSharedServer(cfg SharedServerConfig) *SharedServer {
@@ -91,14 +103,17 @@ func (ss *SharedServer) Acquire(domain string, port int) (*VirtualListener, erro
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
+	ss.waitForStop()
+
 	if !ss.started {
 		if err := ss.start(); err != nil {
 			return nil, fmt.Errorf("shared server start: %w", err)
 		}
 
 		ss.watchOnce.Do(func() {
-			ss.watchDone = make(chan struct{})
-			go ss.watchStatus()
+			done := make(chan struct{})
+			ss.watchDone = done
+			go ss.watchStatus(ss.ctx, done)
 		})
 	}
 
@@ -131,7 +146,6 @@ func (ss *SharedServer) Acquire(domain string, port int) (*VirtualListener, erro
 
 func (ss *SharedServer) Release(domain string, port int) {
 	ss.mu.Lock()
-	defer ss.mu.Unlock()
 
 	if pl, ok := ss.listeners[port]; ok {
 		pl.router.Unregister(domain)
@@ -139,13 +153,32 @@ func (ss *SharedServer) Release(domain string, port int) {
 
 	ss.refCount--
 	if ss.refCount <= 0 {
-		ss.shutdown()
+		oldWatchDone := ss.watchDone
+		ss.shutdownState()
+		stopCh := make(chan struct{})
+		ss.stopping = stopCh
+		ss.mu.Unlock()
+
+		if oldWatchDone != nil {
+			<-oldWatchDone
+		}
+
+		ss.mu.Lock()
+		ss.url = ""
+		ss.stopping = nil
+		close(stopCh)
+		ss.mu.Unlock()
+		return
 	}
+
+	ss.mu.Unlock()
 }
 
 func (ss *SharedServer) Start(ctx context.Context) error {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
+
+	ss.waitForStop()
 
 	if ss.started {
 		return nil
@@ -158,8 +191,9 @@ func (ss *SharedServer) Start(ctx context.Context) error {
 	ss.ctx = ctx
 
 	ss.watchOnce.Do(func() {
-		ss.watchDone = make(chan struct{})
-		go ss.watchStatus()
+		done := make(chan struct{})
+		ss.watchDone = done
+		go ss.watchStatus(ss.ctx, done)
 	})
 
 	return nil
@@ -200,14 +234,8 @@ func (ss *SharedServer) start() error {
 	return nil
 }
 
-func (ss *SharedServer) watchStatus() {
-	defer func() {
-		ss.mu.Lock()
-		if ss.watchDone != nil {
-			close(ss.watchDone)
-		}
-		ss.mu.Unlock()
-	}()
+func (ss *SharedServer) watchStatus(ctx context.Context, myDone chan struct{}) {
+	defer close(myDone)
 
 	ss.mu.RLock()
 	lc := ss.lc
@@ -217,7 +245,7 @@ func (ss *SharedServer) watchStatus() {
 		return
 	}
 
-	watcher, err := lc.WatchIPNBus(ss.ctx, ipn.NotifyInitialState|ipn.NotifyNoPrivateKeys|ipn.NotifyInitialHealthState)
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyNoPrivateKeys|ipn.NotifyInitialHealthState)
 	if err != nil {
 		ss.log.Error().Err(err).Msg("shared server watchStatus")
 		return
@@ -240,7 +268,7 @@ func (ss *SharedServer) watchStatus() {
 			return
 		}
 
-		status, err := lc.Status(ss.ctx)
+		status, err := lc.Status(ctx)
 		if err != nil {
 			if !errors.Is(err, net.ErrClosed) && !errors.Is(err, context.Canceled) {
 				ss.log.Error().Err(err).Msg("shared server watchStatus: status")
@@ -265,12 +293,12 @@ func (ss *SharedServer) watchStatus() {
 			ss.url = dnsName
 			ss.mu.Unlock()
 			ss.sendEvent(model.ProxyEvent{Status: model.ProxyStatusRunning})
-			go ss.getTLSCertificates()
+			go ss.getTLSCertificates(ctx)
 		}
 	}
 }
 
-func (ss *SharedServer) getTLSCertificates() {
+func (ss *SharedServer) getTLSCertificates(ctx context.Context) {
 	ss.mu.RLock()
 	lc := ss.lc
 	tsServer := ss.tsServer
@@ -281,10 +309,10 @@ func (ss *SharedServer) getTLSCertificates() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ss.ctx, 2*time.Minute)
+	certCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	if err := certSem.Acquire(ctx, 1); err != nil {
+	if err := certSem.Acquire(certCtx, 1); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			ss.log.Error().Err(err).Msg("failed to acquire cert semaphore")
 		}
@@ -299,7 +327,7 @@ func (ss *SharedServer) getTLSCertificates() {
 		return
 	}
 
-	if _, _, err := lc.CertPair(ctx, certDomains[0]); err != nil {
+	if _, _, err := lc.CertPair(certCtx, certDomains[0]); err != nil {
 		if !errors.Is(err, context.Canceled) {
 			ss.log.Error().Err(err).Msg("error getting TLS certificates for shared server")
 		}
@@ -346,7 +374,7 @@ func (ss *SharedServer) UnsubscribeEvents(ch chan model.ProxyEvent) {
 	}
 }
 
-func (ss *SharedServer) shutdown() {
+func (ss *SharedServer) shutdownState() {
 	for _, pl := range ss.listeners {
 		pl.router.CloseAll()
 		pl.listener.Close()
@@ -358,6 +386,12 @@ func (ss *SharedServer) shutdown() {
 	}
 	ss.cancel()
 	ss.started = false
+	ss.url = ""
+
+	ss.watchOnce = sync.Once{}
+	ss.closeOnce = sync.Once{}
+
+	ss.ctx, ss.cancel = context.WithCancel(context.Background())
 
 	ss.closeOnce.Do(func() {
 		for sub := range ss.subs {
@@ -365,6 +399,10 @@ func (ss *SharedServer) shutdown() {
 		}
 		ss.subs = make(map[*sharedEventSub]struct{})
 	})
+}
+
+func (ss *SharedServer) shutdown() {
+	ss.shutdownState()
 }
 
 func (ss *SharedServer) GetURL() string {
@@ -422,6 +460,8 @@ func (ss *SharedServer) Close() {
 	}
 
 	watchDone := ss.watchDone
+	stopCh := make(chan struct{})
+	ss.stopping = stopCh
 	ss.mu.Unlock()
 
 	ss.cancel()
@@ -431,6 +471,8 @@ func (ss *SharedServer) Close() {
 	}
 
 	ss.mu.Lock()
+	ss.stopping = nil
+	close(stopCh)
 	ss.shutdown()
 	ss.mu.Unlock()
 }

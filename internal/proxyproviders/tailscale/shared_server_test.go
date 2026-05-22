@@ -125,6 +125,74 @@ func TestSharedServerMultipleSubscribers(t *testing.T) {
 	ss.UnsubscribeEvents(ch2)
 }
 
+func TestSharedServerWatchOnceResetsAfterShutdown(t *testing.T) {
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+
+	ss.mu.Lock()
+	ss.refCount = 1
+	ss.started = true
+	ss.url = "old-url"
+	ss.mu.Unlock()
+
+	ss.mu.Lock()
+	ss.shutdown()
+	ss.mu.Unlock()
+
+	if ss.started {
+		t.Fatal("server should not be started after shutdown")
+	}
+
+	if ss.GetURL() != "" {
+		t.Fatalf("URL should be reset after shutdown, got %q", ss.GetURL())
+	}
+
+	if ss.ctx == nil {
+		t.Fatal("ctx should be non-nil after shutdown (fresh context)")
+	}
+	if ss.ctx.Err() != nil {
+		t.Fatal("fresh ctx should not be cancelled")
+	}
+
+	fired := false
+	ss.watchOnce.Do(func() { fired = true })
+	if !fired {
+		t.Fatal("watchOnce should fire again after shutdown reset")
+	}
+
+}
+
+func TestSharedServerSubscribersCleanedUpAfterShutdown(t *testing.T) {
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+
+	ch := ss.SubscribeEvents()
+
+	ss.mu.Lock()
+	ss.refCount = 1
+	ss.started = true
+	ss.mu.Unlock()
+
+	ss.mu.Lock()
+	ss.shutdown()
+	ss.mu.Unlock()
+
+	_, ok := <-ch
+	if ok {
+		t.Fatal("subscriber channel should be closed after shutdown")
+	}
+
+	ch2 := ss.SubscribeEvents()
+	if ch2 == nil {
+		t.Fatal("should be able to subscribe again after shutdown")
+	}
+	ss.UnsubscribeEvents(ch2)
+}
+
 func TestSharedServerGetLocalClientNil(t *testing.T) {
 	t.Parallel()
 
