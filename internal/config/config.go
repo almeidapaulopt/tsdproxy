@@ -59,6 +59,11 @@ type (
 		HTTP                 HTTPConfig                             `yaml:"http"`
 		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
 		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
+		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
+		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"` //nolint:tagliatelle // DNS is an acronym
+		TLSProviders         map[string]*TLSProviderConfig          `yaml:"tlsProviders"`
+		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"`        //nolint:tagliatelle // TLS is an acronym
+		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"` //nolint:tagliatelle // DNS is an acronym
 	}
 
 	WebhookConfig struct {
@@ -129,6 +134,19 @@ type (
 		HealthCheckFailures  int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
 		HealthCheckCooldown  int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
 	}
+
+	DNSProviderConfig struct {
+		Provider     string `validate:"required,oneof=cloudflare magicdns" yaml:"provider"`
+		APIToken     string `yaml:"apiToken,omitempty"`
+		APITokenFile string `yaml:"apiTokenFile,omitempty"`
+	}
+
+	TLSProviderConfig struct {
+		Provider    string `validate:"required,oneof=tailscale acme" yaml:"provider"`
+		Email       string `yaml:"email,omitempty"`
+		CA          string `default:"https://acme-v02.api.letsencrypt.org/directory" yaml:"ca,omitempty"`
+		CertStorage string `yaml:"certStorage,omitempty"`
+	}
 )
 
 // Config  is a global variable to store configuration.
@@ -140,6 +158,8 @@ func InitializeConfig() error {
 	Config.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 	Config.Docker = make(map[string]*DockerTargetProviderConfig)
 	Config.Lists = make(map[string]*ListTargetProviderConfig)
+	Config.DNSProviders = make(map[string]*DNSProviderConfig)
+	Config.TLSProviders = make(map[string]*TLSProviderConfig)
 
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
@@ -200,6 +220,18 @@ func InitializeConfig() error {
 			return fmt.Errorf("API key file %q is empty", Config.APIKeyFile)
 		}
 		Config.APIKey = key
+	}
+
+	// load DNS provider API tokens from files
+	for name, d := range Config.DNSProviders {
+		if d == nil || d.APITokenFile == "" {
+			continue
+		}
+		token, err := Config.getAuthKeyFromFile(d.APITokenFile)
+		if err != nil {
+			return fmt.Errorf("error reading DNS provider %q API token file: %w", name, err)
+		}
+		d.APIToken = token
 	}
 
 	// validate config

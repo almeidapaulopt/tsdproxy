@@ -19,6 +19,9 @@ type (
 		TargetImage         string
 		ProxyProvider       string
 		Hostname            string
+		Domain              string    `validate:"omitempty,fqdn" yaml:"domain"`
+		DNSProvider         string    `validate:"omitempty" yaml:"dnsProvider"`
+		TLSProvider         string    `validate:"omitempty" yaml:"tlsProvider"`
 		Dashboard           Dashboard `validate:"dive"`
 		Tailscale           Tailscale `validate:"dive"`
 		ProxyAccessLog      bool      `default:"true" validate:"boolean"`

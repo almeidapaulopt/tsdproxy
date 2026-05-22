@@ -21,13 +21,21 @@ func (e *DefaultProxyProviderNotFoundError) Error() string {
 
 var ErrNoDefaultProxyProvider = errors.New("no default proxy provider")
 
+type DomainProviderError struct {
+	Domain    string
+	FieldType string
+}
+
+func (e *DomainProviderError) Error() string {
+	return fmt.Sprintf("domain %q set but %s provider not specified", e.Domain, e.FieldType)
+}
+
 // validate method  Validate configurations.
 func (c *config) validate() error {
 	println("Validating configuration...")
 	validate := validator.New()
 
 	if err := validate.Struct(Config); err != nil {
-		// validationErrors := err.(validator.ValidationErrors)
 		var validationErrors validator.ValidationErrors
 		if errors.As(err, &validationErrors) {
 			for _, e := range validationErrors {
@@ -35,6 +43,18 @@ func (c *config) validate() error {
 			}
 			return err
 		}
+	}
+
+	if err := c.validateProxyProviders(); err != nil {
+		return err
+	}
+
+	if err := c.validateDNSProviders(); err != nil {
+		return err
+	}
+
+	if err := c.validateTLSProviders(); err != nil {
+		return err
 	}
 
 	// Set default Proxy Provider if not set.
@@ -88,4 +108,49 @@ func (c *config) hasProxyProvider(name string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateProxyConfig validates per-proxy domain/DNS/TLS provider requirements.
+// Returns error if domain is set but DNS or TLS provider is missing.
+func ValidateProxyConfig(domain, dnsProvider, tlsProvider, defaultDNSProvider, defaultTLSProvider string) error {
+	if domain == "" {
+		return nil
+	}
+	if dnsProvider == "" && defaultDNSProvider == "" {
+		return &DomainProviderError{Domain: domain, FieldType: "DNS"}
+	}
+	if tlsProvider == "" && defaultTLSProvider == "" {
+		return &DomainProviderError{Domain: domain, FieldType: "TLS"}
+	}
+	return nil
+}
+
+func (c *config) validateProxyProviders() error {
+	if len(c.Tailscale.Providers) == 0 {
+		return errors.New("no tailscale proxy providers configured")
+	}
+	for name, p := range c.Tailscale.Providers {
+		if p == nil {
+			return fmt.Errorf("tailscale provider %q has nil configuration", name)
+		}
+	}
+	return nil
+}
+
+func (c *config) validateDNSProviders() error {
+	if c.DefaultDNSProvider != "" {
+		if _, ok := c.DNSProviders[c.DefaultDNSProvider]; !ok {
+			return fmt.Errorf("defaultDNSProvider %q not found in dnsProviders", c.DefaultDNSProvider)
+		}
+	}
+	return nil
+}
+
+func (c *config) validateTLSProviders() error {
+	if c.DefaultTLSProvider != "" {
+		if _, ok := c.TLSProviders[c.DefaultTLSProvider]; !ok {
+			return fmt.Errorf("defaultTLSProvider %q not found in tlsProviders", c.DefaultTLSProvider)
+		}
+	}
+	return nil
 }
