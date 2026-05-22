@@ -41,8 +41,12 @@ func TestProvider_CreateRecord(t *testing.T) {
 	p, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/zones") {
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/zones") && !strings.Contains(r.URL.Path, "/dns_records") {
 			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"zone123","name":"example.com"}]}`))
+			return
+		}
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/dns_records") {
+			_, _ = w.Write([]byte(`{"success":true,"result":[]}`))
 			return
 		}
 		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/dns_records") {
@@ -137,4 +141,55 @@ func TestProvider_CreateRecord_ApiError(t *testing.T) {
 	err := p.CreateRecord(context.Background(), "app.example.com", "CNAME", "target")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid token")
+}
+
+func TestProvider_CreateRecord_AlreadyExists(t *testing.T) {
+	p, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/zones") && !strings.Contains(r.URL.Path, "/dns_records") {
+			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"zone123","name":"example.com"}]}`))
+			return
+		}
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/dns_records") {
+			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"rec123","type":"CNAME","name":"app.example.com","content":"myapp.tailnet.ts.net"}]}`))
+			return
+		}
+	})
+
+	err := p.CreateRecord(context.Background(), "app.example.com", "CNAME", "myapp.tailnet.ts.net")
+	require.NoError(t, err)
+}
+
+func TestProvider_CreateRecord_StaleRecord(t *testing.T) {
+	var gotDelete, gotCreate bool
+
+	p, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/zones") && !strings.Contains(r.URL.Path, "/dns_records") {
+			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"zone123","name":"example.com"}]}`))
+			return
+		}
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/dns_records") {
+			_, _ = w.Write([]byte(`{"success":true,"result":[{"id":"rec_old","type":"CNAME","name":"app.example.com","content":"old.tailnet.ts.net"}]}`))
+			return
+		}
+		if r.Method == http.MethodDelete {
+			gotDelete = true
+			assert.Contains(t, r.URL.Path, "rec_old")
+			_, _ = w.Write([]byte(`{"success":true,"result":{"id":"rec_old"}}`))
+			return
+		}
+		if r.Method == http.MethodPost {
+			gotCreate = true
+			_, _ = w.Write([]byte(`{"success":true,"result":{"id":"rec_new"}}`))
+			return
+		}
+	})
+
+	err := p.CreateRecord(context.Background(), "app.example.com", "CNAME", "myapp.tailnet.ts.net")
+	require.NoError(t, err)
+	assert.True(t, gotDelete, "stale record should be deleted")
+	assert.True(t, gotCreate, "new record should be created")
 }
