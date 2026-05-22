@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -35,6 +36,10 @@ type Client struct {
 	datadir           string
 	tags              string
 	preventDuplicates bool
+	shared            bool
+	sharedServer      *SharedServer
+	sharedHostname    string
+	sharedMu          sync.Mutex
 }
 
 // stateMeta tracks the configuration used to create the current tsnet state,
@@ -64,6 +69,8 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		controlURL:        provider.ControlURL,
 		preventDuplicates: provider.PreventDuplicates,
 		certSem:           semaphore.NewWeighted(concurrency),
+		shared:            provider.Shared,
+		sharedHostname:    strings.TrimSpace(provider.Hostname),
 	}, nil
 }
 
@@ -81,6 +88,10 @@ func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
 // NewProxy method implements proxyprovider NewProxy method.
 // If resolvedAuthKey is empty, auth key resolution is performed internally.
 func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, error) {
+	if c.shared {
+		return c.newSharedProxy(config)
+	}
+
 	c.log.Debug().
 		Str("hostname", config.Hostname).
 		Msg("Setting up tailscale server")
@@ -332,4 +343,45 @@ func (c *Client) resolveTags(cfg *model.Config) string {
 		temptags = strings.Trim(strings.TrimSpace(c.tags), "\"")
 	}
 	return temptags
+}
+
+func (c *Client) newSharedProxy(config *model.Config) (proxyproviders.ProxyInterface, error) {
+	c.sharedMu.Lock()
+	defer c.sharedMu.Unlock()
+
+	if c.sharedServer == nil {
+		authKey, err := c.getAuthkey(config)
+		if err != nil {
+			return nil, fmt.Errorf("shared proxy auth key: %w", err)
+		}
+
+		c.sharedServer = NewSharedServer(SharedServerConfig{
+			Hostname:   c.sharedHostname,
+			DataDir:    path.Join(c.datadir, c.sharedHostname),
+			AuthKey:    authKey,
+			ControlURL: c.getControlURL(),
+			Ephemeral:  config.Tailscale.Ephemeral,
+			CertSem:    c.certSem,
+			Log:        c.log,
+		})
+	} else if config.Tailscale.Ephemeral != c.sharedServer.ephemeral {
+		c.log.Warn().
+			Bool("server_ephemeral", c.sharedServer.ephemeral).
+			Bool("proxy_ephemeral", config.Tailscale.Ephemeral).
+			Str("proxy", config.Hostname).
+			Msg("shared server already running with different ephemeral setting; proxy value ignored")
+	}
+
+	domain := config.Domain
+	if domain == "" {
+		return nil, errors.New("shared proxy provider requires a domain to be set on each proxy")
+	}
+
+	return &SharedProxy{
+		log:    c.log.With().Str("Hostname", config.Hostname).Str("domain", domain).Logger(),
+		config: config,
+		shared: c.sharedServer,
+		domain: domain,
+		events: make(chan model.ProxyEvent, 10), //nolint:mnd
+	}, nil
 }
