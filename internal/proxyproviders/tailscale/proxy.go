@@ -41,12 +41,13 @@ type Proxy struct {
 	status    model.ProxyStatus
 	closeOnce sync.Once
 	watchOnce sync.Once
-	mtx       sync.Mutex
+	mtx       sync.RWMutex
 	started   bool
 }
 
 var (
-	_ proxyproviders.ProxyInterface = (*Proxy)(nil)
+	_ proxyproviders.ProxyInterface   = (*Proxy)(nil)
+	_ proxyproviders.RawTCPListener   = (*Proxy)(nil)
 
 	ErrProxyPortNotFound = errors.New("proxy port not found")
 )
@@ -87,12 +88,18 @@ func (p *Proxy) Start(ctx context.Context) error {
 }
 
 func (p *Proxy) GetURL() string {
-	p.mtx.Lock()
+	p.mtx.RLock()
 	url := p.url
-	p.mtx.Unlock()
+	p.mtx.RUnlock()
 
 	scheme := p.primaryScheme()
 	return scheme + "://" + url
+}
+
+func (p *Proxy) GetLocalClient() *local.Client {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	return p.lc
 }
 
 func (p *Proxy) primaryScheme() string {
@@ -103,18 +110,18 @@ func (p *Proxy) primaryScheme() string {
 }
 
 func (p *Proxy) getStatus() model.ProxyStatus {
-	p.mtx.Lock()
+	p.mtx.RLock()
 	s := p.status
-	p.mtx.Unlock()
+	p.mtx.RUnlock()
 	return s
 }
 
 // Close method implements proxyconfig.Proxy Close method.
 func (p *Proxy) Close() error {
-	p.mtx.Lock()
+	p.mtx.RLock()
 	wasStarted := p.started
 	watchDone := p.watchDone
-	p.mtx.Unlock()
+	p.mtx.RUnlock()
 
 	if !wasStarted {
 		p.closeOnce.Do(func() {
@@ -164,6 +171,16 @@ func (p *Proxy) GetListener(port string) (net.Listener, error) {
 		return p.tsServer.ListenTLS(network, addr)
 	}
 	return p.tsServer.Listen(network, addr)
+}
+
+func (p *Proxy) GetRawTCPListener(port string) (net.Listener, error) {
+	portCfg, ok := p.config.Ports[port]
+	if !ok {
+		return nil, ErrProxyPortNotFound
+	}
+
+	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
+	return p.tsServer.Listen("tcp", addr)
 }
 
 func (p *Proxy) GetPacketConn(port string) (net.PacketConn, error) {
@@ -216,16 +233,16 @@ func (p *Proxy) WatchEvents() chan model.ProxyEvent {
 }
 
 func (p *Proxy) GetAuthURL() string {
-	p.mtx.Lock()
+	p.mtx.RLock()
 	authURL := p.authURL
-	p.mtx.Unlock()
+	p.mtx.RUnlock()
 	return authURL
 }
 
 func (p *Proxy) Whois(r *http.Request) model.Whois {
-	p.mtx.Lock()
+	p.mtx.RLock()
 	lc := p.lc
-	p.mtx.Unlock()
+	p.mtx.RUnlock()
 	if lc == nil {
 		return model.Whois{}
 	}

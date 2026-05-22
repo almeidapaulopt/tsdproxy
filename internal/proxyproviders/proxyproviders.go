@@ -33,4 +33,10 @@ type (
 		WatchEvents() chan model.ProxyEvent
 		Whois(r *http.Request) model.Whois
 	}
+
+	// RawTCPListener is an optional interface that ProxyInterface implementations
+	// can satisfy to provide raw TCP listeners for custom TLS termination.
+	RawTCPListener interface {
+		GetRawTCPListener(port string) (net.Listener, error)
+	}
 )

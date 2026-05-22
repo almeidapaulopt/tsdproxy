@@ -5,6 +5,7 @@ package proxymanager
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -14,11 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
+	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
-
-	"github.com/rs/zerolog"
+	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
 
 const maxStatusHistory = 5
@@ -64,6 +67,10 @@ type (
 		mtx             sync.RWMutex
 		opMu            sync.Mutex
 		paused          bool
+		dnsStatus       dnsproviders.DNSStatus
+		tlsStatus       tlsproviders.TLSStatus
+		dnsProvider     dnsproviders.Provider
+		tlsProvider     tlsproviders.Provider
 	}
 )
 
@@ -215,7 +222,7 @@ func (proxy *Proxy) Resume() error {
 			}
 			proxy.startPacketPort(k, packetConn)
 		} else {
-			l, err := proxy.providerProxy.GetListener(k)
+			l, err := proxy.getListenerForPort(k, pc)
 			if err != nil {
 				proxy.log.Error().Err(err).Str("port", k).Msg("error getting listener for resume")
 				listenerErrors++
@@ -280,11 +287,50 @@ func (proxy *Proxy) GetStatus() model.ProxyStatus {
 }
 
 func (proxy *Proxy) GetURL() string {
+	proxy.mtx.RLock()
+	domain := proxy.Config.Domain
+	tlsOk := proxy.tlsStatus == tlsproviders.TLSStatusActive
+	proxy.mtx.RUnlock()
+
+	if domain != "" && tlsOk {
+		return "https://" + domain
+	}
 	return proxy.providerProxy.GetURL()
 }
 
 func (proxy *Proxy) GetAuthURL() string {
 	return proxy.providerProxy.GetAuthURL()
+}
+
+func (proxy *Proxy) GetDNSStatus() dnsproviders.DNSStatus {
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+	return proxy.dnsStatus
+}
+
+func (proxy *Proxy) GetTLSStatus() tlsproviders.TLSStatus {
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+	return proxy.tlsStatus
+}
+
+func (proxy *Proxy) SetDNSAndTLSProviders(dns dnsproviders.Provider, tls tlsproviders.Provider) {
+	proxy.mtx.Lock()
+	defer proxy.mtx.Unlock()
+	proxy.dnsProvider = dns
+	proxy.tlsProvider = tls
+}
+
+func (proxy *Proxy) setDNSStatus(status dnsproviders.DNSStatus) {
+	proxy.mtx.Lock()
+	proxy.dnsStatus = status
+	proxy.mtx.Unlock()
+}
+
+func (proxy *Proxy) setTLSStatus(status tlsproviders.TLSStatus) {
+	proxy.mtx.Lock()
+	proxy.tlsStatus = status
+	proxy.mtx.Unlock()
 }
 
 func (proxy *Proxy) GetHealth() HealthResult {
@@ -528,7 +574,7 @@ func (proxy *Proxy) start() error {
 			}
 			proxy.startPacketPort(k, packetConn)
 		} else {
-			l, err := proxy.providerProxy.GetListener(k)
+			l, err := proxy.getListenerForPort(k, pc)
 			if err != nil {
 				proxy.log.Error().Err(err).Str("port", k).Msg("Error adding listener")
 				listenerErrors++
@@ -562,6 +608,41 @@ func (proxy *Proxy) startPort(name string, l net.Listener) {
 			}
 		}()
 	}
+}
+
+func (proxy *Proxy) getListenerForPort(portName string, pc model.PortConfig) (net.Listener, error) {
+	needsCustomTLS := proxy.Config.Domain != "" &&
+		pc.ProxyProtocol == model.ProtoHTTPS &&
+		proxy.tlsProvider != nil &&
+		proxy.tlsProvider.Name() != "tailscale"
+
+	if needsCustomTLS {
+		raw, ok := proxy.providerProxy.(proxyproviders.RawTCPListener)
+		if !ok {
+			return nil, errors.New("custom domain TLS requires raw TCP listener support from proxy provider")
+		}
+
+		l, err := raw.GetRawTCPListener(portName)
+		if err != nil {
+			return nil, fmt.Errorf("get raw tcp listener: %w", err)
+		}
+
+		domain := proxy.Config.Domain
+		tlsProv := proxy.tlsProvider
+
+		return tls.NewListener(l, &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				cert, err := tlsProv.GetCertificate(hello.Context(), domain)
+				if err != nil {
+					return nil, fmt.Errorf("custom tls cert for %s: %w", domain, err)
+				}
+				return &cert, nil
+			},
+		}), nil
+	}
+
+	return proxy.providerProxy.GetListener(portName)
 }
 
 func (proxy *Proxy) startPacketPort(name string, pc net.PacketConn) {
