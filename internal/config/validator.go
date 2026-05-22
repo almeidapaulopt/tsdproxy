@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
 )
 
 type DefaultProxyProviderNotFoundError struct {
@@ -132,6 +133,12 @@ func (c *config) validateProxyProviders() error {
 	for name, p := range c.Tailscale.Providers {
 		if p == nil {
 			return fmt.Errorf("tailscale provider %q has nil configuration", name)
+		}
+		if p.Shared {
+			if p.Hostname == "" {
+				return fmt.Errorf("tailscale provider %q: shared tsnet provider requires a hostname", name)
+			}
+			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("shared tsnet provider configured")
 		}
 	}
 	return nil

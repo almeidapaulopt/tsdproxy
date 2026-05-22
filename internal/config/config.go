@@ -121,6 +121,8 @@ type (
 		ControlURL         string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
 		PreventDuplicates  bool   `default:"false" yaml:"preventDuplicates"`
 		MaxCertConcurrency int64  `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
+		Shared             bool   `default:"false" yaml:"shared"`
+		Hostname           string `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
