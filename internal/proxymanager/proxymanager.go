@@ -508,6 +508,32 @@ func (pm *ProxyManager) resolveAndSetProviders(p *Proxy, proxyConfig *model.Conf
 		return fmt.Errorf("dns provider resolution: %w", err)
 	}
 
+	// Detect ACME from config directly, bypassing resolveTLSProvider().
+	// This handles the case where addTLSProviders skipped ACME registration
+	// because no default DNS provider was configured — a proxy with its own
+	// dnsProvider should still get a per-proxy ACME instance.
+	tlsName := proxyConfig.TLSProvider
+	if tlsName == "" {
+		tlsName = config.Config.DefaultTLSProvider
+	}
+	if tlsCfg, ok := config.Config.TLSProviders[tlsName]; ok && tlsCfg.Provider == "acme" {
+		certmagicDNS, ok := dnsProvider.(certmagic.DNSProvider)
+		if !ok {
+			return fmt.Errorf("dns provider %q does not support ACME DNS-01 challenges", dnsProvider.Name())
+		}
+		perProxyACME, err := acmetls.New(acmetls.Config{
+			Email:       tlsCfg.Email,
+			CA:          tlsCfg.CA,
+			DNSProvider: certmagicDNS,
+			CertStorage: tlsCfg.CertStorage,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create per-proxy ACME TLS provider: %w", err)
+		}
+		p.SetDNSAndTLSProviders(dnsProvider, perProxyACME)
+		return nil
+	}
+
 	tlsProvider, err := pm.resolveTLSProvider(proxyConfig)
 	if err != nil {
 		return fmt.Errorf("tls provider resolution: %w", err)
