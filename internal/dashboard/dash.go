@@ -471,6 +471,9 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		Uptime:                formatDuration(p.GetUptime()),
 		Pinned:                pinned[name],
 		IsAdmin:               isAdmin,
+		Domain:                p.Config.Domain,
+		DNSStatus:             p.GetDNSStatus().String(),
+		TLSStatus:             p.GetTLSStatus().String(),
 	}
 }
 

@@ -47,6 +47,9 @@ type ProxyData struct {
 	Uptime                string
 	Pinned                bool
 	IsAdmin               bool
+	Domain                string
+	DNSStatus             string
+	TLSStatus             string
 }
 
 type StatusHistoryEntry struct {
@@ -302,6 +305,7 @@ templ ProxyCardInner(item ProxyData) {
 				></div>
 			}
 		</div>
+		@DomainStatusBadges(item)
 
 		<div class="openbtn">
 			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating {
@@ -416,6 +420,28 @@ templ LogPlaceholder(safeID string) {
 
 templ ModalStatusBadge(item ProxyData) {
 	<span id={ "modal-status-" + dom.SafeID(item.Name) } class={ "badge badge-sm shrink-0 ml-auto font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
+}
+
+templ DomainStatusBadges(item ProxyData) {
+	if item.Domain != "" {
+		<div class="flex gap-1 mt-1">
+			<span class={ "badge badge-xs", domainBadgeColor(item.DNSStatus) }>DNS: { item.DNSStatus }</span>
+			<span class={ "badge badge-xs", domainBadgeColor(item.TLSStatus) }>TLS: { item.TLSStatus }</span>
+		</div>
+	}
+}
+
+func domainBadgeColor(status string) string {
+	switch status {
+	case "active":
+		return "badge-success"
+	case "pending":
+		return "badge-warning"
+	case "error":
+		return "badge-error"
+	default:
+		return "badge-ghost"
+	}
 }
 
 func healthValue(h string) string {
