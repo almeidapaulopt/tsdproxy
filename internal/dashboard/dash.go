@@ -36,8 +36,8 @@ type Dashboard struct {
 	prefs           *PreferencesStore
 	sseClients      map[string]*sseClient
 	stopCh          chan struct{}
-	mtx             sync.RWMutex
 	lastHealthState map[string]string
+	mtx             sync.RWMutex
 }
 
 func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.ProxyManager) *Dashboard {
