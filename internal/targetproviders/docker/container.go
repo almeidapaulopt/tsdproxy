@@ -68,15 +68,15 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	defer newlog.Trace().Msg("End New Container")
 
 	c := &container{
-		ctx:          context.Background(),
-		log:          newlog,
-		id:           dcontainer.ID,
-		name:         dcontainer.Name,
-		hostname:     dcontainer.Config.Hostname,
-		networkMode:  dcontainer.HostConfig.NetworkMode,
-		image:        dcontainer.Config.Image,
-		labels:       dcontainer.Config.Labels,
-		ports:        make(map[string]string),
+		ctx:         context.Background(),
+		log:         newlog,
+		id:          dcontainer.ID,
+		name:        dcontainer.Name,
+		hostname:    dcontainer.Config.Hostname,
+		networkMode: dcontainer.HostConfig.NetworkMode,
+		image:       dcontainer.Config.Image,
+		labels:      dcontainer.Config.Labels,
+		ports:       make(map[string]string),
 	}
 
 	for _, opt := range opts {

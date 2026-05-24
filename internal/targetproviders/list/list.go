@@ -37,14 +37,14 @@ type (
 	configProxyList map[string]proxyConfig
 
 	proxyConfig struct {
-		Dashboard       model.Dashboard `validate:"dive" yaml:"dashboard"`
 		Ports           map[string]port `yaml:"ports"`
 		ProxyProvider   string          `yaml:"proxyProvider"`
-		Tailscale       model.Tailscale `yaml:"tailscale"`
-		IdentityHeaders bool            `default:"true" validate:"boolean" yaml:"identityHeaders"`
 		Domain          string          `yaml:"domain"`
 		DNSProvider     string          `yaml:"dnsProvider"`
 		TLSProvider     string          `yaml:"tlsProvider"`
+		Dashboard       model.Dashboard `validate:"dive" yaml:"dashboard"`
+		Tailscale       model.Tailscale `yaml:"tailscale"`
+		IdentityHeaders bool            `default:"true" validate:"boolean" yaml:"identityHeaders"`
 	}
 
 	port struct {
