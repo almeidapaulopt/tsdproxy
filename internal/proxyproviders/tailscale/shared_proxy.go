@@ -10,9 +10,10 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/rs/zerolog"
+
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
-	"github.com/rs/zerolog"
 )
 
 var (
@@ -26,11 +27,11 @@ type SharedProxy struct {
 	log        zerolog.Logger
 	config     *model.Config
 	shared     *SharedServer
-	domain     string
 	vListeners map[string]*VirtualListener
 	events     chan model.ProxyEvent
-	closeOnce  sync.Once
+	domain     string
 	mtx        sync.RWMutex
+	closeOnce  sync.Once
 	started    bool
 }
 

@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 func TestSharedProxyNeedsSNI(t *testing.T) {
@@ -46,10 +47,10 @@ func TestNewSharedProxy_RejectsNonHTTPSPorts(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
 		ports    map[string]model.PortConfig
-		wantErr  bool
+		name     string
 		errMatch string
+		wantErr  bool
 	}{
 		{
 			name: "https only",

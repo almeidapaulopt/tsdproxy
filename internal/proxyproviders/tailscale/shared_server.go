@@ -14,12 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/tsnet"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 type sniPortListener struct {
@@ -29,13 +30,13 @@ type sniPortListener struct {
 
 // SharedServerConfig holds the configuration for creating a SharedServer.
 type SharedServerConfig struct {
+	Log        zerolog.Logger
+	CertSem    *semaphore.Weighted
 	Hostname   string
 	DataDir    string
 	AuthKey    string
 	ControlURL string
 	Ephemeral  bool
-	CertSem    *semaphore.Weighted
-	Log        zerolog.Logger
 }
 
 // sharedEventSub wraps a subscriber channel with a done flag.
@@ -48,27 +49,27 @@ type sharedEventSub struct {
 // It is reference-counted: the tsnet server starts on first Acquire and
 // stops when the last proxy releases.
 type SharedServer struct {
-	tsServer   *tsnet.Server
-	lc         *local.Client
-	mu         sync.RWMutex
-	refCount   int
-	started    bool
-	url        string
-	ctx        context.Context
-	cancel     context.CancelFunc
 	log        zerolog.Logger
-	hostname   string
-	datadir    string
+	ctx        context.Context
+	certSem    *semaphore.Weighted
+	lc         *local.Client
+	stopping   chan struct{}
+	watchDone  chan struct{}
+	subs       map[*sharedEventSub]struct{}
+	tsServer   *tsnet.Server
+	cancel     context.CancelFunc
+	listeners  map[int]*sniPortListener
+	url        string
 	authKey    string
 	controlURL string
-	ephemeral  bool
-	certSem    *semaphore.Weighted
-	listeners  map[int]*sniPortListener
-	subs       map[*sharedEventSub]struct{}
-	watchDone  chan struct{}
+	datadir    string
+	hostname   string
+	refCount   int
+	mu         sync.RWMutex
 	watchOnce  sync.Once
 	closeOnce  sync.Once
-	stopping   chan struct{} // non-nil during shutdown; closed when watcher has exited
+	ephemeral  bool
+	started    bool
 }
 
 // waitForStop blocks until any in-progress shutdown has completed.
@@ -204,9 +205,9 @@ func (ss *SharedServer) start() error {
 	}
 
 	ss.tsServer = &tsnet.Server{
-		Hostname: ss.hostname,
-		AuthKey:  ss.authKey,
-		Dir:      ss.datadir,
+		Hostname:  ss.hostname,
+		AuthKey:   ss.authKey,
+		Dir:       ss.datadir,
 		Ephemeral: ss.ephemeral,
 		UserLogf: func(format string, args ...any) {
 			ss.log.Info().Msgf(format, args...)

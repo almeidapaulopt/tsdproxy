@@ -6,8 +6,9 @@ package tailscale
 import (
 	"testing"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/rs/zerolog"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 func TestSharedServerSubscribeUnsubscribe(t *testing.T) {
@@ -153,7 +154,7 @@ func TestSharedServerWatchOnceResetsAfterShutdown(t *testing.T) {
 		t.Fatal("ctx should be non-nil after shutdown (fresh context)")
 	}
 	if ss.ctx.Err() != nil {
-		t.Fatal("fresh ctx should not be cancelled")
+		t.Fatal("fresh ctx should not be canceled")
 	}
 
 	fired := false
@@ -161,7 +162,6 @@ func TestSharedServerWatchOnceResetsAfterShutdown(t *testing.T) {
 	if !fired {
 		t.Fatal("watchOnce should fire again after shutdown reset")
 	}
-
 }
 
 func TestSharedServerSubscribersCleanedUpAfterShutdown(t *testing.T) {
