@@ -83,25 +83,25 @@ func (p *Provider) CreateRecord(ctx context.Context, domain, recordType, value s
 		return fmt.Errorf("cloudflare: resolve zone: %w", err)
 	}
 
-	// Check if record already exists with the correct value (idempotent).
 	records, err := p.listRecords(ctx, zoneID, recordType, domain)
 	if err != nil {
 		return fmt.Errorf("cloudflare: list records: %w", err)
 	}
 
+	found := false
 	for _, r := range records {
 		if strings.EqualFold(r.Content, value) {
-			// Record already exists with correct value — idempotent success.
-			return nil
+			found = true
+			continue
 		}
-	}
-
-	// Delete stale records with wrong value.
-	for _, r := range records {
 		if _, err := p.doRequest(ctx, http.MethodDelete,
 			fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, r.ID), nil); err != nil {
 			return fmt.Errorf("cloudflare: delete stale record %s: %w", r.ID, err)
 		}
+	}
+
+	if found {
+		return nil
 	}
 
 	body := cfDNSRecord{
