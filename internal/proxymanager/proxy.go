@@ -73,8 +73,6 @@ type (
 		tlsStatus       tlsproviders.TLSStatus
 		dnsProvider     dnsproviders.Provider
 		tlsProvider     tlsproviders.Provider
-		tailscaleCert   *tls.Certificate
-		tailscaleCertMu sync.Mutex
 	}
 )
 
@@ -663,13 +661,6 @@ func (proxy *Proxy) getListenerForPort(portName string, pc model.PortConfig) (ne
 }
 
 func (proxy *Proxy) getTailscaleCertificate(ctx context.Context) (*tls.Certificate, error) {
-	proxy.tailscaleCertMu.Lock()
-	defer proxy.tailscaleCertMu.Unlock()
-
-	if proxy.tailscaleCert != nil {
-		return proxy.tailscaleCert, nil
-	}
-
 	lcGetter, ok := proxy.providerProxy.(interface{ GetLocalClient() *local.Client })
 	if !ok {
 		return nil, errors.New("tailscale cert not available: provider does not support GetLocalClient")
@@ -696,8 +687,7 @@ func (proxy *Proxy) getTailscaleCertificate(ctx context.Context) (*tls.Certifica
 		return nil, fmt.Errorf("parse tailscale cert: %w", err)
 	}
 
-	proxy.tailscaleCert = &cert
-	return proxy.tailscaleCert, nil
+	return &cert, nil
 }
 
 func (proxy *Proxy) startPacketPort(name string, pc net.PacketConn) {

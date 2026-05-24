@@ -814,6 +814,13 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		return fmt.Errorf("proxy start failed: %w", err)
 	}
 
+	// Insert into the map immediately so concurrent StopAllProxies() and
+	// eventStop can discover and clean up this proxy even while the
+	// asynchronous domain setup is still in progress.
+	pm.mtx.Lock()
+	pm.Proxies[proxyConfig.Hostname] = p
+	pm.mtx.Unlock()
+
 	p.mtx.RLock()
 	hasTLSProvider := p.tlsProvider != nil
 	p.mtx.RUnlock()
@@ -825,10 +832,6 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 				Msg("domain setup failed, proxy running without custom domain")
 		}
 	}
-
-	pm.mtx.Lock()
-	pm.Proxies[proxyConfig.Hostname] = p
-	pm.mtx.Unlock()
 
 	p.setMetricsReady(true)
 	pm.updateProxyCount()
