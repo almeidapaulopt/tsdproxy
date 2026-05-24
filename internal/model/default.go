@@ -29,11 +29,11 @@ const (
 )
 
 type Preferences struct {
-	Dark         bool     `json:"dark"`
-	Grouped      bool     `json:"grouped"`
 	FilterHealth string   `json:"filterHealth"`
 	FilterStatus string   `json:"filterStatus"`
-	Pinned       []string `json:"pinned"`
 	Sort         string   `json:"sort"`
 	View         string   `json:"view"`
+	Pinned       []string `json:"pinned"`
+	Dark         bool     `json:"dark"`
+	Grouped      bool     `json:"grouped"`
 }

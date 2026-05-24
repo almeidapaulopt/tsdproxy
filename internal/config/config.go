@@ -46,24 +46,24 @@ type (
 	// config stores complete configuration.
 	//
 	config struct {
-		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
+		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
 		Lists                map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
+		TLSProviders         map[string]*TLSProviderConfig          `yaml:"tlsProviders"`
+		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
 		Tailscale            TailscaleProxyProviderConfig           `yaml:"tailscale"`
 		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
 		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
 		APIKey               string                                 `yaml:"apiKey,omitempty"`
-		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
-		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
+		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"`
+		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"`
 		Admins               []string                               `yaml:"admins,omitempty"`
-		Log                  LogConfig                              `yaml:"log"`
 		HTTP                 HTTPConfig                             `yaml:"http"`
+		Log                  LogConfig                              `yaml:"log"`
+		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
+		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
 		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
 		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
-		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
-		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"` //nolint:tagliatelle // DNS is an acronym
-		TLSProviders         map[string]*TLSProviderConfig          `yaml:"tlsProviders"`
-		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"`        //nolint:tagliatelle // TLS is an acronym
-		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"` //nolint:tagliatelle // DNS is an acronym
+		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"`
 	}
 
 	WebhookConfig struct {
@@ -119,10 +119,10 @@ type (
 		ClientSecret       string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
 		Tags               string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
 		ControlURL         string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
-		PreventDuplicates  bool   `default:"false" yaml:"preventDuplicates"`
-		MaxCertConcurrency int64  `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
-		Shared             bool   `default:"false" yaml:"shared"`
 		Hostname           string `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
+		MaxCertConcurrency int64  `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
+		PreventDuplicates  bool   `default:"false" yaml:"preventDuplicates"`
+		Shared             bool   `default:"false" yaml:"shared"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
