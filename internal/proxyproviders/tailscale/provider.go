@@ -28,18 +28,18 @@ import (
 type Client struct {
 	log               zerolog.Logger
 	certSem           *semaphore.Weighted
-	Hostname          string
-	AuthKey           string
+	sharedServer      *SharedServer
+	controlURL        string
 	clientID          string
 	clientSecret      string
-	controlURL        string
+	AuthKey           string
 	datadir           string
 	tags              string
-	preventDuplicates bool
-	shared            bool
-	sharedServer      *SharedServer
+	Hostname          string
 	sharedHostname    string
 	sharedMu          sync.Mutex
+	preventDuplicates bool
+	shared            bool
 }
 
 // stateMeta tracks the configuration used to create the current tsnet state,
@@ -49,7 +49,7 @@ type stateMeta struct {
 }
 
 var (
-	_ proxyproviders.Provider              = (*Client)(nil)
+	_ proxyproviders.Provider               = (*Client)(nil)
 	_ proxyproviders.DomainRequiredProvider = (*Client)(nil)
 )
 

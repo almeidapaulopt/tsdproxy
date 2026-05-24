@@ -46,8 +46,8 @@ type Proxy struct {
 }
 
 var (
-	_ proxyproviders.ProxyInterface   = (*Proxy)(nil)
-	_ proxyproviders.RawTCPListener   = (*Proxy)(nil)
+	_ proxyproviders.ProxyInterface = (*Proxy)(nil)
+	_ proxyproviders.RawTCPListener = (*Proxy)(nil)
 
 	ErrProxyPortNotFound = errors.New("proxy port not found")
 )
