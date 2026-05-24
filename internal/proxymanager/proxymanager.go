@@ -603,7 +603,7 @@ func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
 		}
 		select {
 		case <-p.ctx.Done():
-			return "", fmt.Errorf("context cancelled while waiting for proxy URL: %w", p.ctx.Err())
+			return "", fmt.Errorf("context canceled while waiting for proxy URL: %w", p.ctx.Err())
 		case <-time.After(500 * time.Millisecond): //nolint:mnd
 		}
 	}

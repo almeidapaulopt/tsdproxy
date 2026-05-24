@@ -72,8 +72,8 @@ func newPortProxy(
 	//
 	tr := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: !pconfig.TLSValidate}, //nolint
-		MaxIdleConnsPerHost: 10,           //nolint:mnd
-		IdleConnTimeout:     30 * time.Second, //nolint:mnd
+		MaxIdleConnsPerHost: 10,                                                    //nolint:mnd
+		IdleConnTimeout:     30 * time.Second,                                      //nolint:mnd
 	}
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,

@@ -54,18 +54,18 @@ type healthChecker struct {
 	cooldownUntil       time.Time
 	target              atomic.Value
 	ctx                 context.Context
+	transport           *http.Transport
 	result              atomic.Pointer[HealthResult]
 	cancel              context.CancelFunc
 	onRedetect          func() error
+	httpClient          *http.Client
 	scheme              string
 	interval            time.Duration
-	consecutiveFailures int
-	retryAttempt        int
 	cooldown            time.Duration
 	failThreshold       int
+	retryAttempt        int
+	consecutiveFailures int
 	tlsValidate         bool
-	transport           *http.Transport
-	httpClient          *http.Client
 }
 
 const (

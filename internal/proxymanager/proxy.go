@@ -53,26 +53,26 @@ type (
 		startedAt       time.Time
 		providerProxy   proxyproviders.ProxyInterface
 		ctx             context.Context
-		ports           map[string]portHandler
+		tlsProvider     tlsproviders.Provider
+		dnsProvider     dnsproviders.Provider
+		metrics         *metrics.Metrics
 		health          *healthChecker
-		URL             *url.URL
-		cancel          context.CancelFunc
 		onUpdate        func(event model.ProxyEvent)
 		logBuffer       *LogRingBuffer
 		reResolveConfig func() (*model.Config, error)
 		Config          *model.Config
-		metrics         *metrics.Metrics
-		metricsReady    bool
+		URL             *url.URL
+		ports           map[string]portHandler
+		cancel          context.CancelFunc
 		healthPortName  string
 		statusHistory   []StatusTransition
+		dnsStatus       dnsproviders.DNSStatus
+		tlsStatus       tlsproviders.TLSStatus
 		status          model.ProxyStatus
 		mtx             sync.RWMutex
 		opMu            sync.Mutex
 		paused          bool
-		dnsStatus       dnsproviders.DNSStatus
-		tlsStatus       tlsproviders.TLSStatus
-		dnsProvider     dnsproviders.Provider
-		tlsProvider     tlsproviders.Provider
+		metricsReady    bool
 	}
 )
 
