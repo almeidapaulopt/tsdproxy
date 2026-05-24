@@ -28,9 +28,9 @@ var (
 // extract the SNI hostname, and dispatches each connection to the
 // VirtualListener registered for that domain.
 type SNIRouter struct {
+	log       zerolog.Logger
 	listeners map[string]*VirtualListener
 	mu        sync.RWMutex
-	log       zerolog.Logger
 }
 
 func NewSNIRouter(log zerolog.Logger) *SNIRouter {

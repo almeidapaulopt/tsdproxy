@@ -4,6 +4,7 @@
 package tailscale
 
 import (
+	"errors"
 	"net"
 	"testing"
 )
@@ -42,7 +43,7 @@ func TestVirtualListenerClose(t *testing.T) {
 	}
 
 	_, err := vl.Accept()
-	if err != net.ErrClosed {
+	if !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("Accept after Close should return net.ErrClosed, got: %v", err)
 	}
 }

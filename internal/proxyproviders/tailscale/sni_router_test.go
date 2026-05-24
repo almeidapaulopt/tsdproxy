@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"net"
 	"testing"
 
@@ -26,12 +27,12 @@ func buildClientHello(sni string) []byte {
 	sniExt = append(sniExt, sniBytes...)
 
 	hello := make([]byte, 0)
-	hello = append(hello, 0x03, 0x03)       // version TLS 1.2
+	hello = append(hello, 0x03, 0x03) // version TLS 1.2
 	random := make([]byte, 32)
 	hello = append(hello, random...)
-	hello = append(hello, 0x00)             // session ID len = 0
+	hello = append(hello, 0x00)                   // session ID len = 0
 	hello = append(hello, 0x00, 0x02, 0x00, 0x2f) // cipher suites
-	hello = append(hello, 0x01, 0x00)       // compression: null
+	hello = append(hello, 0x01, 0x00)             // compression: null
 	hello = binary.BigEndian.AppendUint16(hello, uint16(len(sniExt)))
 	hello = append(hello, sniExt...)
 
@@ -53,8 +54,8 @@ func buildClientHello(sni string) []byte {
 func buildClientHelloNoSNI() []byte {
 	ext := make([]byte, 0)
 	ext = binary.BigEndian.AppendUint16(ext, 0x0001) // extension type: max_fragment_length (not SNI)
-	ext = binary.BigEndian.AppendUint16(ext, 1)       // ext length
-	ext = append(ext, 0x02)                           // MFL value
+	ext = binary.BigEndian.AppendUint16(ext, 1)      // ext length
+	ext = append(ext, 0x02)                          // MFL value
 
 	hello := make([]byte, 0)
 	hello = append(hello, 0x03, 0x03)
@@ -103,7 +104,7 @@ func TestExtractSNIEmpty(t *testing.T) {
 	br := bufio.NewReaderSize(bytes.NewReader(data), 16384)
 
 	_, err := extractSNI(br)
-	if err != errNoSNI {
+	if !errors.Is(err, errNoSNI) {
 		t.Fatalf("expected errNoSNI, got: %v", err)
 	}
 }
@@ -115,7 +116,7 @@ func TestExtractSNIInvalidHandshake(t *testing.T) {
 	br := bufio.NewReaderSize(bytes.NewReader(record), 16384)
 
 	_, err := extractSNI(br)
-	if err != errNotHandshake {
+	if !errors.Is(err, errNotHandshake) {
 		t.Fatalf("expected errNotHandshake, got: %v", err)
 	}
 }
@@ -146,7 +147,7 @@ func TestExtractSNINotClientHello(t *testing.T) {
 	br := bufio.NewReaderSize(bytes.NewReader(record), 16384)
 
 	_, err := extractSNI(br)
-	if err != errNotClientHello {
+	if !errors.Is(err, errNotClientHello) {
 		t.Fatalf("expected errNotClientHello, got: %v", err)
 	}
 }
@@ -248,7 +249,7 @@ func TestSNIRouterUnregister(t *testing.T) {
 	client.Close()
 
 	_, err = vl.Accept()
-	if err != net.ErrClosed {
+	if !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("expected net.ErrClosed from Accept after unregister, got: %v", err)
 	}
 }

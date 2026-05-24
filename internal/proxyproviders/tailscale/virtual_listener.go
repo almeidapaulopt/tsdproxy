@@ -12,11 +12,11 @@ import (
 // VirtualListener implements net.Listener backed by a channel.
 // The SNI router dispatches connections to it via Dispatch().
 type VirtualListener struct {
+	addr   net.Addr
 	ch     chan net.Conn
 	done   chan struct{}
-	closed atomic.Bool
 	once   sync.Once
-	addr   net.Addr
+	closed atomic.Bool
 }
 
 func NewVirtualListener(addr net.Addr) *VirtualListener {
