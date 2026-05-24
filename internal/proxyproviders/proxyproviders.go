@@ -39,4 +39,12 @@ type (
 	RawTCPListener interface {
 		GetRawTCPListener(port string) (net.Listener, error)
 	}
+
+	// DomainRequiredProvider is an optional interface that Provider
+	// implementations satisfy when every proxy using that provider must have
+	// a domain configured. The proxymanager uses this to validate proxy
+	// configuration before attempting to start the proxy.
+	DomainRequiredProvider interface {
+		IsDomainRequired() bool
+	}
 )

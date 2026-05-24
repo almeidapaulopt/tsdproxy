@@ -48,7 +48,14 @@ type stateMeta struct {
 	Ephemeral bool `yaml:"ephemeral"`
 }
 
-var _ proxyproviders.Provider = (*Client)(nil)
+var (
+	_ proxyproviders.Provider              = (*Client)(nil)
+	_ proxyproviders.DomainRequiredProvider = (*Client)(nil)
+)
+
+func (c *Client) IsDomainRequired() bool {
+	return c.shared
+}
 
 func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig) (*Client, error) {
 	datadir := filepath.Join(config.Config.Tailscale.DataDir, name)
@@ -375,6 +382,12 @@ func (c *Client) newSharedProxy(config *model.Config) (proxyproviders.ProxyInter
 	domain := config.Domain
 	if domain == "" {
 		return nil, errors.New("shared proxy provider requires a domain to be set on each proxy")
+	}
+
+	for portName, portCfg := range config.Ports {
+		if portCfg.ProxyProtocol != model.ProtoHTTPS {
+			return nil, fmt.Errorf("shared proxy provider only supports HTTPS ports, port %q is %s", portName, portCfg.ProxyProtocol)
+		}
 	}
 
 	return &SharedProxy{

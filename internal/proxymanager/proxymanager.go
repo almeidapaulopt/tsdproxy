@@ -756,6 +756,10 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		return fmt.Errorf("error getting ProxyProvider: %w", err)
 	}
 
+	if dp, ok := proxyProvider.(proxyproviders.DomainRequiredProvider); ok && dp.IsDomainRequired() && proxyConfig.Domain == "" {
+		return errors.New("proxy provider requires a domain to be set on each proxy")
+	}
+
 	// Resolve auth key before closing the old proxy. OAuth token exchange
 	// is side-effect-free — if this fails, the existing proxy stays up.
 	authKey, err := proxyProvider.ResolveAuthKey(proxyConfig)
