@@ -40,6 +40,8 @@ linters:
     - whitespace
     - zerologlint
   settings:
+    cyclop:
+      max-complexity: 15
     gocyclo:
       min-complexity: 50
     goheader:
