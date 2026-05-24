@@ -92,7 +92,7 @@ TSDProxy is expected to support three exposure modes:
 
 1. **Tailscale-only per proxy** — each proxy gets its own Tailscale connection, DNS is handled through MagicDNS, and TLS certificates are issued/served by Tailscale for that per-proxy connection.
 2. **Per-proxy Tailscale with external DNS/ACME** — each proxy still gets its own Tailscale connection, but the public/custom hostname is managed by an external DNS provider such as Cloudflare, and TLS certificates are issued through ACME/Let's Encrypt.
-3. **Shared Tailscale with external DNS/ACME** — multiple proxies share one Tailscale connection/server, while each exposed custom hostname is managed through external DNS and receives ACME/Let's Encrypt certificates.
+3. **Shared Tailscale with external DNS/ACME** — multiple proxies share one Tailscale connection/server, while each exposed custom hostname is managed through external DNS and receives ACME/Let's Encrypt certificates. Only HTTPS ports are supported in this mode (SNI routing requires TLS ClientHello; TCP and plain HTTP ports are rejected at startup to prevent port conflicts on the shared server).
 
 When changing proxy startup, DNS provisioning, TLS provider selection, or shared Tailscale lifecycle behavior, keep all three modes working. In particular, per-proxy DNS provider settings must be honored for ACME, external DNS record creation must be restart/idempotency safe, and shared Tailscale servers must fully resume status watching after all proxies stop and later start again.
 
