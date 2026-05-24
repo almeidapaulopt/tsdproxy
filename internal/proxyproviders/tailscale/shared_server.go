@@ -188,8 +188,6 @@ func (ss *SharedServer) Start(ctx context.Context) error {
 		return err
 	}
 
-	ss.ctx = ctx
-
 	ss.watchOnce.Do(func() {
 		done := make(chan struct{})
 		ss.watchDone = done

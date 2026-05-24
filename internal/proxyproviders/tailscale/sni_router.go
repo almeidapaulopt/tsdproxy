@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -78,7 +79,19 @@ func (r *SNIRouter) Serve(l net.Listener) {
 	}
 }
 
+// sniReadDeadline is the maximum time to wait for the TLS ClientHello.
+const sniReadDeadline = 10 * time.Second
+
 func (r *SNIRouter) handleConn(conn net.Conn) {
+	// Set a read deadline to prevent Slowloris-style resource exhaustion.
+	// A well-behaved TLS client sends the ClientHello immediately after
+	// the TCP handshake; 10s is generous.
+	if err := conn.SetReadDeadline(time.Now().Add(sniReadDeadline)); err != nil {
+		r.log.Debug().Err(err).Msg("failed to set read deadline, closing connection")
+		conn.Close()
+		return
+	}
+
 	br := bufio.NewReaderSize(conn, 16384) //nolint:mnd // TLS records up to 16KB
 
 	sni, err := extractSNI(br)
@@ -93,6 +106,9 @@ func (r *SNIRouter) handleConn(conn net.Conn) {
 		conn.Close()
 		return
 	}
+
+	// Clear the deadline so the downstream handler owns its own timeouts.
+	_ = conn.SetReadDeadline(time.Time{})
 
 	r.mu.RLock()
 	vl, ok := r.listeners[sni]
