@@ -4,10 +4,12 @@
 package tailscale
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/semaphore"
 )
 
 func TestSharedProxyNeedsSNI(t *testing.T) {
@@ -31,6 +33,92 @@ func TestSharedProxyNeedsSNI(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("needsSNI(%q) = %v, want %v", tt.protocol, got, tt.want)
 		}
+	}
+}
+
+func TestNewSharedProxy_RejectsNonHTTPSPorts(t *testing.T) {
+	c := &Client{
+		log:            zerolog.Nop(),
+		shared:         true,
+		sharedHostname: "test-shared",
+		datadir:        t.TempDir(),
+		certSem:        semaphore.NewWeighted(1),
+	}
+
+	tests := []struct {
+		name     string
+		ports    map[string]model.PortConfig
+		wantErr  bool
+		errMatch string
+	}{
+		{
+			name: "https only",
+			ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+			},
+			wantErr: false,
+		},
+		{
+			name: "tcp port rejected",
+			ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+				"2": {ProxyProtocol: model.ProtoTCP, ProxyPort: 22},
+			},
+			wantErr:  true,
+			errMatch: "only supports HTTPS ports",
+		},
+		{
+			name: "http port rejected",
+			ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoHTTP, ProxyPort: 80},
+			},
+			wantErr:  true,
+			errMatch: "only supports HTTPS ports",
+		},
+		{
+			name: "redirect port rejected",
+			ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+				"2": {ProxyProtocol: model.ProtoHTTP, ProxyPort: 80, IsRedirect: true},
+			},
+			wantErr:  true,
+			errMatch: "only supports HTTPS ports",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &model.Config{
+				Hostname: "test",
+				Domain:   "test.example.com",
+				Tailscale: model.Tailscale{
+					ResolvedAuthKey: "test-key",
+				},
+				Ports: tt.ports,
+			}
+
+			_, err := c.NewProxy(cfg)
+
+			c.sharedMu.Lock()
+			if c.sharedServer != nil {
+				c.sharedServer.Close()
+				c.sharedServer = nil
+			}
+			c.sharedMu.Unlock()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.errMatch != "" && !strings.Contains(err.Error(), tt.errMatch) {
+					t.Fatalf("error %q should contain %q", err.Error(), tt.errMatch)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ package proxymanager
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"testing"
 
 	"github.com/caddyserver/certmagic"
@@ -15,6 +16,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
 
@@ -171,6 +173,71 @@ func TestResolveAndSetProviders_NonACMEDoesNotRecreate(t *testing.T) {
 	if resolvedTLS.Name() != "tailscale" {
 		t.Fatalf("expected tailscale TLS provider, got %q", resolvedTLS.Name())
 	}
+}
+
+func TestNewAndStartProxy_DomainRequiredProviderRejectsNoDomain(t *testing.T) {
+	setupTestConfig(t)
+
+	pm := newTestProxyManager()
+	pm.ProxyProviders["shared"] = &domainRequiredStub{domainRequired: true}
+
+	proxyConfig := &model.Config{
+		Hostname:      "testproxy",
+		ProxyProvider: "shared",
+		Ports: map[string]model.PortConfig{
+			"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+		},
+	}
+
+	err := pm.newAndStartProxy("testproxy", proxyConfig)
+	if err == nil {
+		t.Fatal("expected error when domain-required provider has no domain set, got nil")
+	}
+	if err.Error() != "proxy provider requires a domain to be set on each proxy" {
+		t.Fatalf("unexpected error message: %v", err)
+	}
+}
+
+func TestNewAndStartProxy_DomainRequiredProviderAllowsDomain(t *testing.T) {
+	setupTestConfig(t)
+
+	pm := newTestProxyManager()
+	pm.ProxyProviders["shared"] = &domainRequiredStub{domainRequired: true, failNewProxy: true}
+
+	proxyConfig := &model.Config{
+		Hostname:      "testproxy",
+		ProxyProvider: "shared",
+		Domain:        "app.example.com",
+		Ports: map[string]model.PortConfig{
+			"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+		},
+	}
+
+	err := pm.newAndStartProxy("testproxy", proxyConfig)
+	if err == nil {
+		t.Fatal("expected error from NewProxy stub, got nil")
+	}
+	if err.Error() == "proxy provider requires a domain to be set on each proxy" {
+		t.Fatal("domain validation should have passed but got domain-required error")
+	}
+}
+
+// domainRequiredStub implements proxyproviders.Provider and
+// proxyproviders.DomainRequiredProvider for testing.
+type domainRequiredStub struct {
+	domainRequired bool
+	failNewProxy   bool
+}
+
+func (s *domainRequiredStub) IsDomainRequired() bool { return s.domainRequired }
+func (s *domainRequiredStub) ResolveAuthKey(_ *model.Config) (string, error) {
+	return "", nil
+}
+func (s *domainRequiredStub) NewProxy(_ *model.Config) (proxyproviders.ProxyInterface, error) {
+	if s.failNewProxy {
+		return nil, errors.New("stub: NewProxy intentionally failed")
+	}
+	return nil, nil
 }
 
 func TestResolveAndSetProviders_ACMEWithNonCertmagicDNSFails(t *testing.T) {
