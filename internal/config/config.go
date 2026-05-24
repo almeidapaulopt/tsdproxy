@@ -170,22 +170,9 @@ func InitializeConfig() error {
 
 	log.Info().Str("file", *file).Msg("loading configuration")
 
-	if err := fileConfig.Load(); err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		log.Info().Str("file", *file).Msg("generating default configuration")
-
-		if err := defaults.Set(Config); err != nil {
-			log.Error().Err(err).Msg("error loading defaults")
-		}
-
-		applyDockerHostnameDefault()
-
-		Config.generateDefaultProviders()
-		if err := fileConfig.Save(); err != nil {
-			return err
-		}
+	if err := Config.loadConfigFile(fileConfig, *file); err != nil {
+		return err
+	}
 	}
 
 	// Load default values.
@@ -197,14 +184,58 @@ func InitializeConfig() error {
 
 	applyDockerHostnameDefault()
 
-	// load auth keys from files
-	for _, d := range Config.Tailscale.Providers {
-		if d != nil && d.ClientSecret != "" && d.ClientID != "" {
+	if err := Config.loadSecretsFromFiles(); err != nil {
+		return err
+	}
+
+	// validate config
+	if err := Config.validate(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *config) loadConfigFile(fileConfig *File, path string) error {
+	if err := fileConfig.Load(); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		log.Info().Str("file", path).Msg("generating default configuration")
+
+		if err := defaults.Set(c); err != nil {
+			log.Error().Err(err).Msg("error loading defaults")
+		}
+
+		c.generateDefaultProviders()
+		if err := fileConfig.Save(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *config) loadSecretsFromFiles() error {
+	if err := c.loadTailscaleAuthKeys(); err != nil {
+		return err
+	}
+
+	if err := c.loadAPIKey(); err != nil {
+		return err
+	}
+
+	return c.loadDNSProviderTokens()
+}
+
+func (c *config) loadTailscaleAuthKeys() error {
+	for _, d := range c.Tailscale.Providers {
+		if d == nil || (d.ClientSecret != "" && d.ClientID != "") {
 			continue
 		}
 
-		if d != nil && d.AuthKeyFile != "" {
-			authkey, err := Config.getAuthKeyFromFile(d.AuthKeyFile)
+		if d.AuthKeyFile != "" {
+			authkey, err := c.getAuthKeyFromFile(d.AuthKeyFile)
 			if err != nil {
 				return err
 			}
@@ -212,33 +243,38 @@ func InitializeConfig() error {
 		}
 	}
 
-	// load API key from file
-	if Config.APIKeyFile != "" {
-		key, err := Config.getAuthKeyFromFile(Config.APIKeyFile)
-		if err != nil {
-			return fmt.Errorf("error reading API key file: %w", err)
-		}
-		if key == "" {
-			return fmt.Errorf("API key file %q is empty", Config.APIKeyFile)
-		}
-		Config.APIKey = key
+	return nil
+}
+
+func (c *config) loadAPIKey() error {
+	if c.APIKeyFile == "" {
+		return nil
 	}
 
-	// load DNS provider API tokens from files
-	for name, d := range Config.DNSProviders {
+	key, err := c.getAuthKeyFromFile(c.APIKeyFile)
+	if err != nil {
+		return fmt.Errorf("error reading API key file: %w", err)
+	}
+
+	if key == "" {
+		return fmt.Errorf("API key file %q is empty", c.APIKeyFile)
+	}
+
+	c.APIKey = key
+
+	return nil
+}
+
+func (c *config) loadDNSProviderTokens() error {
+	for name, d := range c.DNSProviders {
 		if d == nil || d.APITokenFile == "" {
 			continue
 		}
-		token, err := Config.getAuthKeyFromFile(d.APITokenFile)
+		token, err := c.getAuthKeyFromFile(d.APITokenFile)
 		if err != nil {
 			return fmt.Errorf("error reading DNS provider %q API token file: %w", name, err)
 		}
 		d.APIToken = token
-	}
-
-	// validate config
-	if err := Config.validate(); err != nil {
-		return err
 	}
 
 	return nil
