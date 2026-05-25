@@ -42,6 +42,7 @@ This is the only label you need. TSDProxy will use the container name as the Tai
 | `tsdproxy.dash.visible` | `"true"` | Show this proxy in the dashboard |
 | `tsdproxy.dash.label` | proxy name | Display label in the dashboard |
 | `tsdproxy.dash.icon` | auto-detected | Icon in `library/name` format. See [icons]({{< ref "/docs/advanced/icons" >}}) |
+| `tsdproxy.dash.category` | — | Category for grouping proxies in the dashboard |
 
 ## Port Configuration
 

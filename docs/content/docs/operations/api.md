@@ -167,10 +167,57 @@ bootstrapping the [admin allowlist]({{< ref "/docs/security/admin-allowlist" >}}
 }
 ```
 
+## Dashboard Actions
+
+These endpoints are accessible to all authenticated users (viewer role).
+
+### Toggle proxy pin
+
+```http
+POST /api/dashboard/pin/{name}
+```
+
+Pin or unpin a proxy in the dashboard. Pinned proxies appear at the top
+of the list. The toggle is idempotent — calling it again unpins the proxy.
+
+### Update preferences
+
+```http
+PUT /api/dashboard/preferences
+```
+
+Save dashboard preferences for the current user. Accepts a JSON body:
+
+```json
+{
+  "dark": true,
+  "view": "list",
+  "sort": "name",
+  "grouped": false,
+  "filterStatus": "Running",
+  "filterHealth": "Up",
+  "pinned": ["myapp", "nas"]
+}
+```
+
+All fields are optional — only included fields are updated. Preferences are
+persisted at `{DataDir}/dashboard/preferences/{userID}.json`.
+
 ## Admin Actions
 
 All admin endpoints require admin authorization (user in `admins` list or
-API key authentication). Returns `{"status": "ok"}` on success.
+API key authentication). Returns `{"status": "ok"}` on success unless
+otherwise noted.
+
+### Metrics
+
+```http
+GET /metrics
+```
+
+Prometheus metrics endpoint. Exports per-proxy request counters, latency
+histograms, in-flight request gauges, and proxy status gauges. Protected
+by admin middleware.
 
 ### Restart proxy
 

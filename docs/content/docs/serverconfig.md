@@ -277,6 +277,29 @@ A static API key for authenticating non-Tailscale clients. If both `apiKey` and
 Path to a file containing the API key. The file is read at startup and must
 contain exactly one line with the key.
 
+#### telemetry Section
+
+Configures OpenTelemetry export for distributed tracing. Disabled by default.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+telemetry:
+  enabled: false
+  endpoint: "localhost:4317"
+  insecure: false
+```
+
+##### enabled
+
+Enable or disable OpenTelemetry tracing export. Defaults to `false`.
+
+##### endpoint
+
+The OTLP gRPC endpoint to send traces to. Defaults to `localhost:4317`.
+
+##### insecure
+
+When `true`, connects to the telemetry endpoint without TLS. Defaults to `false`.
+
 #### webhooks Section
 
 Configures webhook notifications for proxy status changes. See [Notifications]({{< ref "/docs/notifications" >}}) for detailed recipes.

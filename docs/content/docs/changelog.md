@@ -8,10 +8,75 @@ weight: 500
 
 ### Unreleased
 
+#### Breaking changes
+
+- **Default `http.hostname` changed from `0.0.0.0` to `127.0.0.1`** — the HTTP dashboard now binds to localhost only by default. If you expose the dashboard externally (e.g. via a reverse proxy or port mapping), set `http.hostname: 0.0.0.0` explicitly. See [GHSA-j8rq-87gr-gm9q](https://github.com/almeidapaulopt/tsdproxy/security/advisories/GHSA-j8rq-87gr-gm9q).
+- **All dashboard and API endpoints now require authentication** — previously, an empty `admins` list left endpoints unprotected. Now every request must present a valid Tailscale identity, API key, or come from localhost with `adminAllowLocalhost` enabled. See [Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) for migration instructions.
+- **Dashboard migrated from Datastar to htmx 4 + templ** — the frontend framework has been replaced. Custom CSS and JS overrides targeting Datastar internals will need updating. See the [dashboard documentation]({{< ref "/docs/advanced/dashboard" >}}) for the new architecture.
+
+#### New features
+
+- **Viewer/admin dashboard access tiers** — all tailnet users can now view proxy status and preferences (viewer role). Admin actions (restart, pause, resume, reauth) are restricted to users in the `admins` list or authenticated via API key. Non-admin users see a read-only dashboard without the Actions and Logs tabs. See [Admin Allowlist]({{< ref "/docs/security/admin-allowlist#viewer-role" >}}).
+- **API key authentication** — new `apiKey` and `apiKeyFile` config options allow non-Tailscale clients (scripts, CI, monitoring tools) to authenticate against the API using an `Authorization: Bearer <key>` header. See [Server Configuration]({{< ref "/docs/serverconfig#api-key-authentication" >}}).
+- **`tsdproxy.identity_headers` label** — per-container opt-out from identity header injection (`Remote-User`, `X-Forwarded-User`, `x-tsdproxy-*`). Set `tsdproxy.identity_headers: "false"` for backends that consume these headers in conflicting ways (e.g. wetty). Anti-spoofing header stripping still runs regardless.
+- **`tsdproxy.dash.category` label** — group proxies in the dashboard by category. Set `tsdproxy.dash.category: "Production"` to assign a proxy to a category group. See [Dashboard Labels]({{< ref "/docs/providers/docker-reference#dashboard-labels" >}}).
+- **Dashboard preferences** — per-user preferences (dark mode, view mode, sort, grouping, filters, pinned proxies) are persisted server-side at `{DataDir}/dashboard/preferences/{userID}.json`. Preferences sync across browser sessions.
+- **Dashboard list view** — new true list layout replaces the former compact view. Toggle between grid and list views in the dashboard.
+- **Status timeline and uptime display** — each proxy card shows uptime duration and a status change timeline in the detail modal.
+- **Browser notifications** — opt-in browser notifications for proxy status changes (Running, Stopped, Error).
+- **Version in dashboard footer** — the running TSDProxy version is displayed in the dashboard footer.
+- **Prometheus metrics endpoint** — `/metrics` endpoint exposing per-proxy request counters, latency histograms, and proxy status gauges. Protected by admin middleware.
+- **Unraid Community Applications support** — official Unraid CA template (`contrib/unraid-template.xml`) for one-click deployment on Unraid servers.
+- **htmx 4 migration** — the dashboard frontend has been fully migrated from Datastar to htmx 4 with `hx-sse` extension. Server-sent HTML fragments replace client-side DOM manipulation, reducing frontend complexity and improving maintainability.
+
+#### Fixes
+
+- **Security: GHSA-j8rq-87gr-gm9q** — close unauthenticated access to management endpoints. All API and dashboard routes now require authentication. Prevent `x-tsdproxy-*` header spoofing from localhost with per-process auth token validated via constant-time comparison.
+- Fix dashboard errors leaking internal details — errors are now sanitized before being sent to the client
+- Fix SSE connections not capped — concurrent SSE connections are now limited to prevent resource exhaustion
+- Fix preferences directory traversal — preference file paths are restricted to the configured data directory
+- Fix auth token not stripped immediately after reading — tokens are zeroed from memory after validation
+- Fix session cookie hardening — improved `Secure` and `HttpOnly` flag handling
+- Fix version `isDirty` data race — eliminate race condition in version reporting
+- Fix Tailscale OAuth scopes — narrowed to minimum required permissions
+- Fix WatchEvents CPU spin loop — add reconnection backoff when Docker event stream disconnects
+- Fix proxy Start/Close race — add mutex for Start/Close exclusion, fix port double-close
+- Fix proxy lifecycle ordering — guard metrics writes and fix proxy lifecycle ordering
+- Fix SSE subscriber leak — deduplicate SSE refreshes and fix subscriber leak
+- Fix TLS cert pre-warming for HTTP-only proxies — skip cert generation when no HTTPS port is configured, add timeout
+- Fix health checker idle connections — close idle transport connections on health checker stop
+- Fix health check reusing HTTP client — reuse `http.Client` across health checks to avoid connection leak
+- Fix proxy status broadcast ordering — install proxy in map before broadcasting status to prevent stale data
+- Fix Docker API call timeout — add timeout to Docker daemon API calls
+- Fix Docker hostname validation — validate container hostnames before target resolution
+- Fix Docker port determinism — fix legacy port selection to be deterministic
+- Fix Docker context-aware probing — improve target URL probing with container context
+- Fix Docker port option parser — extract and harden port option parsing
+- Fix list provider event sends — use non-blocking channel sends to prevent stalled clients blocking the provider
+- Fix healthcheck binary IPC — use configurable data directory for port file
+- Fix Tailscale URL scheme — derive URL scheme from port proxy protocol (fixes TCP/UDP showing `https://`)
+- Fix metrics: capture actual response status and prevent Prometheus series leak
+- Fix metrics: add `Hijack()` to status recorder for WebSocket support
+- Fix config: correct DNS check logic, improve file permissions and error handling
+- Fix UI: handle non-HTTP port URLs in dashboard links
+- Fix UI: make footer social icons visible in dark theme
+- Fix UI: show pin button for all proxies in list view
+- Fix UI: prevent XSS with `textContent` instead of `innerHTML` for toast messages
+- Fix UI: remove duplicate inline onclick handlers
+- Fix SSE streaming through reverse proxy
+
 #### Changes
 
-- Replaced Datastar with Vanilla JS + EventSource for SSE real-time updates
+- Migrated frontend from Datastar to htmx 4 with `hx-sse` extension
+- Migrated dashboard server-side rendering to `templ` templates
 - Removed Datastar Go and JavaScript dependencies
+- Render dashboard icons as inline SVG with `currentColor` for dark theme compatibility
+- Removed `pprof` profiling endpoints (was only enabled via `TSDPROXY_PPROF` env var)
+- Upgraded tailscale.com from 1.98.0 to 1.98.3
+- Upgraded daisyui from 5.5.19 to 5.5.20
+- Upgraded golang.org/x/crypto from 0.51.0 to 0.52.0
+- E2E tests: scope cleanup to e2e-owned containers, make `adminAllowLocalhost` opt-in
+- Removed stale TODOs from config validator
 
 ### 2.1.0
 
