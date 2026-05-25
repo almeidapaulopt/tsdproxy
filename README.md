@@ -64,11 +64,16 @@ For automated (headless) setup, configure an [AuthKey or OAuth](https://almeidap
 | Label-based config | Add `tsdproxy.enable=true` to any container. Done. |
 | Automatic HTTPS | Tailscale provisions Let's Encrypt certs for every machine. |
 | Multi-port support | Expose multiple ports per container with granular protocol control. |
-| TCP proxying | Proxy TCP traffic (SSH, databases) alongside HTTP/HTTPS services. |
+| TCP & UDP proxying | Proxy TCP (SSH, databases) and UDP traffic alongside HTTP/HTTPS services. |
+| Port ranges | Define ranges of ports in a single label — e.g. `2222-2230/tcp`. |
 | Funnel support | Expose services to the public internet with `tailscale_funnel` option. |
+| Health monitoring | Automatic backend health probes with recovery and target re-resolution. |
+| Webhook notifications | Push proxy events to ntfy, Discord, Slack, Gotify, or generic webhooks. |
+| REST API | Programmatic control over proxies — pause, resume, and manage via API. |
+| Role-based access | Admin and viewer roles with optional admin allowlist. |
 | Dynamic lifecycle | Containers start and stop. Tailscale machines appear and disappear. |
 | Live config reload | Change settings without restarting TSDProxy. |
-| Dashboard | Real-time web UI with SSE streaming to monitor all your proxies. |
+| Dashboard | Real-time web UI with SSE streaming, access logs, and status timeline. |
 | List provider | Expose non-Docker services via a simple YAML file. |
 
 ## How It Works
@@ -110,6 +115,12 @@ labels:
 
   # TCP proxy for SSH
   tsdproxy.port.4: "22/tcp:22/tcp"
+
+  # UDP proxy (e.g. game server, VoIP)
+  tsdproxy.port.5: "5060/udp:5060/udp"
+
+  # Port range (TCP ports 2222 through 2230)
+  tsdproxy.port.6: "2222-2230/tcp:2222-2230/tcp"
 ```
 
 ## Docker Images
@@ -127,7 +138,7 @@ Full setup guides, configuration reference, and advanced usage:
 
 **[almeidapaulopt.github.io/tsdproxy](https://almeidapaulopt.github.io/tsdproxy/)**
 
-Key docs: [Getting Started](https://almeidapaulopt.github.io/tsdproxy/docs/getting-started/) | [Docker Labels](https://almeidapaulopt.github.io/tsdproxy/docs/providers/docker/) | [Port Configuration](https://almeidapaulopt.github.io/tsdproxy/docs/providers/docker/#port-configuration) | [List Provider](https://almeidapaulopt.github.io/tsdproxy/docs/providers/lists/) | [TCP Proxy](https://almeidapaulopt.github.io/tsdproxy/docs/advanced/tcp-proxy/) | [Funnel](https://almeidapaulopt.github.io/tsdproxy/docs/security/funnel/) | [Upgrading from v1](https://almeidapaulopt.github.io/tsdproxy/docs/upgrading/from-v1/)
+Key docs: [Getting Started](https://almeidapaulopt.github.io/tsdproxy/docs/getting-started/) | [Docker Labels](https://almeidapaulopt.github.io/tsdproxy/docs/providers/docker/) | [Port Configuration](https://almeidapaulopt.github.io/tsdproxy/docs/providers/docker/#port-configuration) | [List Provider](https://almeidapaulopt.github.io/tsdproxy/docs/providers/lists/) | [TCP Proxy](https://almeidapaulopt.github.io/tsdproxy/docs/advanced/tcp-proxy/) | [Funnel](https://almeidapaulopt.github.io/tsdproxy/docs/security/funnel/) | [REST API](https://almeidapaulopt.github.io/tsdproxy/docs/operations/api/) | [Health Checks](https://almeidapaulopt.github.io/tsdproxy/docs/operations/health-check/) | [Webhooks](https://almeidapaulopt.github.io/tsdproxy/docs/notifications/) | [Admin Allowlist](https://almeidapaulopt.github.io/tsdproxy/docs/security/admin-allowlist/) | [Upgrading from v1](https://almeidapaulopt.github.io/tsdproxy/docs/upgrading/from-v1/)
 
 ## Contributing
 
