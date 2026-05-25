@@ -6,7 +6,7 @@ weight: 500
 
 {{% steps %}}
 
-### Unreleased
+### 2.2.0
 
 #### Breaking changes
 
