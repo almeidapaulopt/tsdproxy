@@ -62,6 +62,41 @@ docker compose pull && docker compose up -d
 
 Check Dashboard at `http://<IP>:8080`.
 
+## Post-Upgrade: v2.2.0 Breaking Changes
+
+If you are upgrading to v2.2.0 or later, review these breaking changes:
+
+### Dashboard bind address
+
+The default `http.hostname` changed from `0.0.0.0` to `127.0.0.1`. If you
+expose the dashboard externally (Docker port mapping, reverse proxy), add to
+your config:
+
+```yaml
+http:
+  hostname: 0.0.0.0
+```
+
+See [Server Configuration]({{< ref "/docs/serverconfig#hostname" >}}) for
+details.
+
+### Dashboard authentication
+
+All dashboard and API endpoints now require authentication. If you access the
+dashboard via Docker port mapping (not through a Tailscale proxy), enable
+localhost access:
+
+```yaml
+adminAllowLocalhost: true
+```
+
+Then configure an `admins` list or `apiKey` and disable localhost access. See
+[Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) for full
+instructions.
+
+See the [changelog]({{< ref "/docs/changelog" >}}) for the complete list of
+changes.
+
 ## Rolling Back
 
 ```bash

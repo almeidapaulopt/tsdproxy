@@ -43,6 +43,39 @@ Enable in ACL, add `tailscale_funnel` port option. See
 Verify OAuth credentials or AuthKey. Check logs.
 See [Authentication Methods]({{< ref "/docs/security/auth-methods" >}}) for setup.
 
+### Dashboard unreachable after upgrading to v2.2.0
+
+v2.2.0 changed the default `http.hostname` from `0.0.0.0` to `127.0.0.1` for
+security (see [GHSA-j8rq-87gr-gm9q](https://github.com/almeidapaulopt/tsdproxy/security/advisories/GHSA-j8rq-87gr-gm9q)).
+If you expose the dashboard via Docker port mapping (`ports: "8080:8080"`), the
+server only listens on localhost **inside** the container — unreachable from the host.
+
+**Fix:** set `hostname` explicitly in your `tsdproxy.yaml`:
+
+```yaml
+http:
+  hostname: 0.0.0.0
+  port: 8080
+```
+
+### "Access requires a Tailscale connection" on dashboard
+
+v2.2.0 requires authentication on all dashboard endpoints. If you access the
+dashboard through Docker port mapping (not via a Tailscale proxy), there is no
+Tailscale identity to authenticate with.
+
+**Fix:** enable localhost access in your `tsdproxy.yaml`:
+
+```yaml
+adminAllowLocalhost: true
+```
+
+> ⚠️ Anyone who can reach port 8080 on your host will have admin access.
+> If the port is exposed to a network, consider restricting it or using an
+> [API key]({{< ref "/docs/serverconfig#api-key-authentication" >}}) instead.
+
+See [Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) for details.
+
 ### Enabling debug logging
 
 ```yaml

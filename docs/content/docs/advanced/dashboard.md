@@ -20,10 +20,20 @@ http://localhost:8080
 To access the dashboard from your Tailscale network, you need to expose it as a
 proxy — just like any other service.
 
-> [!NOTE]
+> [!IMPORTANT]
 > The default bind address changed from `0.0.0.0` to `127.0.0.1`. If you need
 > the dashboard accessible on all interfaces (e.g. via Docker port mapping),
-> set `http.hostname: 0.0.0.0` in your config.
+> set `http.hostname: 0.0.0.0` in your config. See
+> [Server Configuration]({{< ref "/docs/serverconfig#hostname" >}}) for details.
+
+> [!IMPORTANT]
+> All dashboard endpoints require authentication. If you access the dashboard
+> through Docker port mapping instead of a Tailscale proxy, there is no
+> Tailscale identity to authenticate with. Enable `adminAllowLocalhost: true`
+> in your config to allow local access. See
+> [Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) and
+> [Troubleshooting]({{< ref "/docs/troubleshooting#access-requires-a-tailscale-connection-on-dashboard" >}})
+> for details.
 
 ## Exposing via Tailscale
 
