@@ -48,6 +48,9 @@ const (
 	TLSProviderTailscale = "tailscale"
 	TLSProviderACME      = "acme"
 
+	DNSProviderCloudflare = "cloudflare"
+	DNSProviderMagicDNS   = "magicdns"
+
 	rangeKeyPrefix = "range_0"
 )
 

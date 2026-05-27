@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -363,12 +364,12 @@ func (pm *ProxyManager) addDNSProviders() {
 			continue
 		}
 		switch cfg.Provider {
-		case "cloudflare":
+		case model.DNSProviderCloudflare:
 			if cfg.APIToken == "" {
 				pm.log.Error().Str("provider", name).Msg("Cloudflare DNS provider missing API token")
 				continue
 			}
-			pm.DNSProviders[name] = cloudflaredns.New(cfg.APIToken)
+			pm.DNSProviders[name] = cloudflaredns.New(cfg.APIToken.Value())
 			pm.log.Debug().Str("provider", name).Msg("Created Cloudflare DNS provider")
 		case "magicdns":
 			pm.DNSProviders[name] = magicdns.New()
@@ -549,8 +550,9 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 		if lc == nil {
 			return errors.New("tailscale local client not available (proxy not started?)")
 		}
-		tlsProvider = tailscaletls.New(lc)
-		p.SetDNSAndTLSProviders(dnsProvider, tlsProvider)
+		if tsTLS, ok := tlsProvider.(*tailscaletls.Provider); ok {
+			tsTLS.SetLocalClient(lc)
+		}
 	}
 
 	// The Tailscale proxy URL is populated asynchronously by watchStatus().
@@ -583,9 +585,12 @@ const proxyURLWaitTimeout = 60 * time.Second
 
 func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
 	deadline := time.Now().Add(proxyURLWaitTimeout)
+	ticker := time.NewTicker(500 * time.Millisecond) //nolint:mnd
+	defer ticker.Stop()
+
 	for {
 		targetURL := p.providerProxy.GetURL()
-		targetHostname := stripScheme(targetURL)
+		targetHostname := extractHost(targetURL)
 		if targetHostname != "" {
 			return targetHostname, nil
 		}
@@ -595,7 +600,7 @@ func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
 		select {
 		case <-p.ctx.Done():
 			return "", fmt.Errorf("context canceled while waiting for proxy URL: %w", p.ctx.Err())
-		case <-time.After(500 * time.Millisecond): //nolint:mnd
+		case <-ticker.C:
 		}
 	}
 }
@@ -625,6 +630,9 @@ func (pm *ProxyManager) cleanupDomainForProxy(p *Proxy) {
 			pm.log.Error().Err(err).Str("domain", p.Config.Domain).Msg("dns cleanup failed")
 		}
 	}
+
+	p.setDNSStatus(dnsproviders.DNSStatusNone)
+	p.setTLSStatus(tlsproviders.TLSStatusNone)
 }
 
 // addTargetProvider method adds a TargetProvider to the ProxyManager.
@@ -653,6 +661,7 @@ func (pm *ProxyManager) closeAndRemoveProxy(hostname string) {
 	pm.mtx.Unlock()
 
 	if old != nil {
+		old.setupWg.Wait()
 		pm.cleanupDomainForProxy(old)
 		old.Close()
 		pm.cleanupProxyMetrics(hostname)
@@ -678,6 +687,7 @@ func (pm *ProxyManager) removeProxy(hostname string) {
 	delete(pm.Proxies, hostname)
 	pm.mtx.Unlock()
 
+	proxy.setupWg.Wait()
 	pm.cleanupDomainForProxy(proxy)
 	proxy.Close()
 	pm.hostMu.Delete(hostname)
@@ -723,6 +733,7 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 	}
 
 	if proxy != nil {
+		proxy.setupWg.Wait()
 		pm.cleanupDomainForProxy(proxy)
 		proxy.Close()
 		pm.cleanupProxyMetrics(proxy.Config.Hostname)
@@ -817,7 +828,9 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	p.mtx.RUnlock()
 
 	if proxyConfig.Domain != "" && hasTLSProvider {
+		p.setupWg.Add(1)
 		go func() {
+			defer p.setupWg.Done()
 			if err := pm.setupDomainForProxy(p, proxyConfig); err != nil {
 				pm.log.Error().Err(err).Str("proxy", name).
 					Str("domain", proxyConfig.Domain).
@@ -906,8 +919,10 @@ func (pm *ProxyManager) ReloadProviders() {
 	pm.log.Info().Msg("Reloaded DNS and TLS providers from config")
 }
 
-func stripScheme(rawURL string) string {
-	rawURL, _ = strings.CutPrefix(rawURL, "https://")
-	rawURL, _ = strings.CutPrefix(rawURL, "http://")
-	return rawURL
+func extractHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return rawURL
+	}
+	return u.Host
 }

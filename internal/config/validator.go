@@ -10,6 +10,8 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 type DefaultProxyProviderNotFoundError struct {
@@ -33,14 +35,15 @@ func (e *DomainProviderError) Error() string {
 
 // validate method  Validate configurations.
 func (c *config) validate() error {
-	println("Validating configuration...")
+	log.Info().Msg("Validating configuration...")
 	validate := validator.New()
 
 	if err := validate.Struct(Config); err != nil {
 		var validationErrors validator.ValidationErrors
 		if errors.As(err, &validationErrors) {
 			for _, e := range validationErrors {
-				fmt.Println(e)
+				log.Error().Str("namespace", e.Namespace()).Str("field", e.Field()).
+					Str("tag", e.Tag()).Msg("validation error")
 			}
 			return err
 		}
@@ -150,6 +153,21 @@ func (c *config) validateDNSProviders() error {
 			return fmt.Errorf("defaultDNSProvider %q not found in dnsProviders", c.DefaultDNSProvider)
 		}
 	}
+	for name, cfg := range c.DNSProviders {
+		if cfg == nil {
+			continue
+		}
+	switch cfg.Provider {
+	case model.DNSProviderCloudflare:
+		if cfg.APIToken == "" {
+			return fmt.Errorf("dns provider %q: cloudflare requires an apiToken", name)
+		}
+	case model.DNSProviderMagicDNS:
+			// no additional validation needed
+		default:
+			return fmt.Errorf("dns provider %q: unknown provider type %q", name, cfg.Provider)
+		}
+	}
 	return nil
 }
 
@@ -157,6 +175,37 @@ func (c *config) validateTLSProviders() error {
 	if c.DefaultTLSProvider != "" {
 		if _, ok := c.TLSProviders[c.DefaultTLSProvider]; !ok {
 			return fmt.Errorf("defaultTLSProvider %q not found in tlsProviders", c.DefaultTLSProvider)
+		}
+	}
+	for name, cfg := range c.TLSProviders {
+		if cfg == nil {
+			continue
+		}
+		switch cfg.Provider {
+		case model.TLSProviderTailscale:
+			// auto-created per proxy, valid
+		case model.TLSProviderACME:
+			if cfg.Email == "" {
+				return fmt.Errorf("tls provider %q: acme requires an email address", name)
+			}
+			// Verify a DNS provider capable of DNS-01 is configured
+			if c.DefaultDNSProvider == "" {
+				hasDNSProvider := false
+				for _, dnsCfg := range c.DNSProviders {
+					if dnsCfg != nil && dnsCfg.Provider == model.DNSProviderCloudflare {
+						hasDNSProvider = true
+						break
+					}
+				}
+				if !hasDNSProvider {
+					return fmt.Errorf(
+						"tls provider %q: acme requires a DNS provider for "+
+							"DNS-01 challenges (configure a cloudflare dnsProvider or set defaultDNSProvider)",
+						name)
+				}
+			}
+		default:
+			return fmt.Errorf("tls provider %q: unknown provider type %q", name, cfg.Provider)
 		}
 	}
 	return nil
