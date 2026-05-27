@@ -1,10 +1,9 @@
-# .github/workflows/release.yml
-name: goreleaser devel
+name: goreleaser v2 dev
 
 on:
   push:
     branches:
-      - main
+      - v2
     paths-ignore:
       - docs/**
       - dev/**
@@ -51,8 +50,8 @@ jobs:
       - name: Get Tailscale version
         run: echo "TAILSCALE_VERSION=$(go list -m tailscale.com | awk '{print $2}')" >> $GITHUB_ENV
 
-      - name: Set dev tag
-        run: echo "LATEST_TAG=dev" >> $GITHUB_ENV
+      - name: Set v2 dev tag
+        run: echo "LATEST_TAG=v2-dev" >> $GITHUB_ENV
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7

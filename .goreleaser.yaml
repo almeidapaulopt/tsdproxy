@@ -9,7 +9,7 @@ env:
   - GITHUB_ORG=almeidapaulopt
   - DOCKER_ORG=almeidapaulopt
   - DOCKERFILE=Dockerfile.goreleaser
-  - LATEST={{if or .Prerelease .IsDraft .IsSnapshot .IsNightly .IsSingleTarget }}next{{else}}latest{{ end }}
+  - LATEST={{ if .Env.LATEST_TAG }}{{ .Env.LATEST_TAG }}{{ else }}{{ .Major }}{{ end }}
 
 before:
   hooks:
@@ -35,7 +35,7 @@ release:
   target_commitish: "{{ .Commit }}"
   discussion_category_name: General
   prerelease: auto
-  make_latest: "{{ if .Prerelease }}false{{ else }}true{{ end }}"
+  make_latest: "{{ if and (not .Prerelease) (not .Env.DISABLE_PACKAGE_MANAGERS) }}true{{ else }}false{{ end }}"
 
 builds:
   - id: server
@@ -189,7 +189,7 @@ homebrew_casks:
       - tsdproxyd
     homepage: "https://github.com/almeidapaulopt/tsdproxy"
     description: "Tailscale Docker reverse proxy — expose containers with one label"
-    skip_upload: auto
+    skip_upload: '{{ if .Env.DISABLE_PACKAGE_MANAGERS }}true{{ else }}auto{{ end }}'
     url:
       verified: "github.com/almeidapaulopt/tsdproxy/"
     hooks:
@@ -214,6 +214,7 @@ aurs:
     private_key: "{{ .Env.AUR_KEY }}"
     git_url: "ssh://aur@aur.archlinux.org/tsdproxy-bin.git"
     skip_upload: auto
+    disable: '{{ if .Env.DISABLE_PACKAGE_MANAGERS }}true{{ else }}false{{ end }}'
     provides:
       - tsdproxy
     conflicts:

@@ -50,6 +50,16 @@ jobs:
       - name: Get Tailscale version
         run: echo "TAILSCALE_VERSION=$(go list -m tailscale.com | awk '{print $2}')" >> $GITHUB_ENV
 
+      - name: Configure release stream
+        run: |
+          MAJOR=$(echo "${GITHUB_REF#refs/tags/v}" | cut -d. -f1)
+          HIGHEST=$(git tag -l 'v[0-9]*' | sed 's/v//' | cut -d. -f1 | sort -n | tail -1)
+          if [ "$MAJOR" -ge "${HIGHEST:-0}" ]; then
+            echo "LATEST_TAG=latest" >> $GITHUB_ENV
+          else
+            echo "DISABLE_PACKAGE_MANAGERS=true" >> $GITHUB_ENV
+          fi
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:

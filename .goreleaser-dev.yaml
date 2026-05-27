@@ -9,7 +9,7 @@ env:
   - GITHUB_ORG=almeidapaulopt
   - DOCKER_ORG=almeidapaulopt
   - DOCKERFILE=Dockerfile.goreleaser
-  - LATEST=dev
+  - LATEST={{ if .Env.LATEST_TAG }}{{ .Env.LATEST_TAG }}{{ else }}dev{{ end }}
 
 before:
   hooks:
