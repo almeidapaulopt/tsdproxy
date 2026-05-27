@@ -5,7 +5,9 @@ package tailscale
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -53,4 +55,18 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 		return
 	}
 	log.Info().Msg("TLS certificate generated")
+}
+
+// CertPairToTLSCertificate calls CertPair on the local client and wraps the
+// PEM blocks into a tls.Certificate. Shared by per-proxy and shared-proxy paths.
+func CertPairToTLSCertificate(ctx context.Context, lc *local.Client, domain string) (*tls.Certificate, error) {
+	certPEM, keyPEM, err := lc.CertPair(ctx, domain)
+	if err != nil {
+		return nil, fmt.Errorf("tailscale CertPair for %s: %w", domain, err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, fmt.Errorf("parse cert for %s: %w", domain, err)
+	}
+	return &cert, nil
 }

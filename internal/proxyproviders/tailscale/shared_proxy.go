@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -127,6 +126,7 @@ func (p *SharedProxy) Close() error {
 	p.releaseAllPorts()
 	if p.stopCh != nil {
 		close(p.stopCh)
+		p.stopCh = nil
 	}
 	p.mtx.Unlock()
 
@@ -162,15 +162,7 @@ func (p *SharedProxy) GetListener(port string) (net.Listener, error) {
 				if lc == nil {
 					return nil, errors.New("shared server local client not available")
 				}
-				certPEM, keyPEM, err := lc.CertPair(hello.Context(), p.domain)
-				if err != nil {
-					return nil, fmt.Errorf("tailscale CertPair for %s: %w", p.domain, err)
-				}
-				cert, err := tls.X509KeyPair(certPEM, keyPEM)
-				if err != nil {
-					return nil, fmt.Errorf("parse cert for %s: %w", p.domain, err)
-				}
-				return &cert, nil
+				return CertPairToTLSCertificate(hello.Context(), lc, p.domain)
 			},
 		}), nil
 
@@ -239,6 +231,12 @@ func (p *SharedProxy) GetLocalClient() *local.Client {
 }
 
 func (p *SharedProxy) primaryScheme() string {
+	// Prioritize HTTPS over HTTP when multiple protocols exist.
+	for _, port := range p.config.Ports {
+		if port.ProxyProtocol == model.ProtoHTTPS {
+			return model.ProtoHTTPS
+		}
+	}
 	for _, port := range p.config.Ports {
 		return port.ProxyProtocol
 	}

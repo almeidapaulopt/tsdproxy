@@ -23,6 +23,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
+	tsproxy "github.com/almeidapaulopt/tsdproxy/internal/proxyproviders/tailscale"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
 
@@ -69,6 +70,7 @@ type (
 		dnsStatus       dnsproviders.DNSStatus
 		tlsStatus       tlsproviders.TLSStatus
 		status          model.ProxyStatus
+		setupWg         sync.WaitGroup
 		mtx             sync.RWMutex
 		opMu            sync.Mutex
 		paused          bool
@@ -681,17 +683,7 @@ func (proxy *Proxy) getTailscaleCertificate(ctx context.Context) (*tls.Certifica
 		return nil, errors.New("tailscale hostname not yet available")
 	}
 
-	certPEM, keyPEM, err := lc.CertPair(ctx, hostname)
-	if err != nil {
-		return nil, fmt.Errorf("tailscale CertPair: %w", err)
-	}
-
-	cert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("parse tailscale cert: %w", err)
-	}
-
-	return &cert, nil
+	return tsproxy.CertPairToTLSCertificate(ctx, lc, hostname)
 }
 
 func (proxy *Proxy) startPacketPort(name string, pc net.PacketConn) {
