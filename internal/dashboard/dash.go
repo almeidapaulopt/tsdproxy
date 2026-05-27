@@ -71,7 +71,7 @@ func (dash *Dashboard) dashboardSubject(r *http.Request) string {
 	if who.ID != "" {
 		return who.ID
 	}
-	if core.IsLocalhost(r.RemoteAddr) {
+	if core.IsTrustedSource(r.RemoteAddr) {
 		return "__localhost__"
 	}
 	if core.ValidAPIKey(r) {
