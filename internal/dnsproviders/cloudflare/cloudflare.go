@@ -13,10 +13,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libdns/libdns"
+	"golang.org/x/time/rate"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 )
 
@@ -24,8 +27,10 @@ const defaultAPIBaseURL = "https://api.cloudflare.com/client/v4"
 
 // Provider implements dnsproviders.Provider for Cloudflare DNS.
 type Provider struct {
-	apiToken   string
 	client     *http.Client
+	limiter    *rate.Limiter
+	zoneCache  sync.Map
+	apiToken   secretstring.SecretString
 	apiBaseURL string
 }
 
@@ -67,9 +72,10 @@ type cfDNSRecord struct {
 
 func New(apiToken string) *Provider {
 	return &Provider{
-		apiToken:   apiToken,
+		apiToken:   secretstring.SecretString(apiToken),
 		client:     &http.Client{Timeout: 30 * time.Second}, //nolint:mnd
 		apiBaseURL: defaultAPIBaseURL,
+		limiter:    rate.NewLimiter(5, 10), //nolint:mnd // 5 req/s, burst of 10
 	}
 }
 
@@ -169,6 +175,10 @@ func (p *Provider) resolveZoneID(ctx context.Context, domain string) (string, er
 	for i := 0; i < len(parts)-1; i++ {
 		zoneName := strings.Join(parts[i:], ".")
 
+		if cached, ok := p.zoneCache.Load(zoneName); ok {
+			return cached.(string), nil
+		}
+
 		resp, err := p.doRequest(ctx, http.MethodGet, "/zones?name="+url.QueryEscape(zoneName), nil)
 		if err != nil {
 			return "", err
@@ -180,6 +190,7 @@ func (p *Provider) resolveZoneID(ctx context.Context, domain string) (string, er
 		}
 
 		if len(zones) > 0 {
+			p.zoneCache.Store(zoneName, zones[0].ID)
 			return zones[0].ID, nil
 		}
 	}
@@ -258,6 +269,11 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, recs []libdns
 }
 
 func (p *Provider) doRequest(ctx context.Context, method, path string, body interface{}) (json.RawMessage, error) {
+	// Rate limit to avoid hitting Cloudflare API limits.
+	if err := p.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
+	}
+
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -271,7 +287,7 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body inte
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+p.apiToken)
+	req.Header.Set("Authorization", "Bearer "+p.apiToken.Value())
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.client.Do(req)

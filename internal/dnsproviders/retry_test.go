@@ -70,3 +70,36 @@ func TestRetry_BackoffIsExponential(t *testing.T) {
 	assert.GreaterOrEqual(t, gap1.Milliseconds(), int64(8), "first backoff should be ~10ms")
 	assert.GreaterOrEqual(t, gap2.Milliseconds(), int64(16), "second backoff should be ~20ms")
 }
+
+func TestRetry_OverflowGuardClampsToMaxBackoff(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := Retry(ctx, func() error { return errors.New("fail") }, 1, 1<<60)
+
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+func TestRetry_BackoffClampedAtMaxBackoff(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := Retry(ctx, func() error { return errors.New("fail") }, 2, 20*time.Second)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, 10*time.Second)
+}
+
+func TestRetry_ZeroRetries(t *testing.T) {
+	calls := 0
+	err := Retry(context.Background(), func() error {
+		calls++
+		return errors.New("fail")
+	}, 0, time.Millisecond)
+
+	require.Error(t, err)
+	assert.Equal(t, 1, calls)
+	assert.Contains(t, err.Error(), "max retries (0) exceeded")
+}

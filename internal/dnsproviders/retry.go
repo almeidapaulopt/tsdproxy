@@ -27,7 +27,7 @@ func Retry(ctx context.Context, op func() error, maxRetries int, initialBackoff 
 
 		if attempt < maxRetries {
 			backoff := initialBackoff << uint(attempt)
-			if backoff > maxBackoff {
+			if backoff <= 0 || backoff > maxBackoff {
 				backoff = maxBackoff
 			}
 
