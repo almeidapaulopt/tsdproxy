@@ -12,6 +12,7 @@ import (
 
 	"tailscale.com/client/local"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
 
@@ -28,7 +29,7 @@ func New(lc *local.Client) *Provider {
 }
 
 func (p *Provider) Name() string {
-	return "tailscale"
+	return model.TLSProviderTailscale
 }
 
 func (p *Provider) Provision(ctx context.Context, domain string) error {

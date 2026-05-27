@@ -6,6 +6,7 @@ package main
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -35,7 +36,7 @@ func readPort() string {
 	if dataDir == "" {
 		dataDir = "/data"
 	}
-	if data, err := os.ReadFile(dataDir + "/.http-port"); err == nil {
+	if data, err := os.ReadFile(filepath.Join(dataDir, ".http-port")); err == nil { //nolint:gosec // G703: dataDir from env, not user input
 		if p := strings.TrimSpace(string(data)); p != "" {
 			return p
 		}

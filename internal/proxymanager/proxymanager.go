@@ -180,7 +180,7 @@ func (pm *ProxyManager) reconnectBackoff(provider targetproviders.TargetProvider
 		Dur("retry_after", current).
 		Msg(reason + ", reconnecting")
 	time.Sleep(current)
-	next := current * 2
+	next := current * 2 //nolint:mnd
 	if next > maxWatchBackoff {
 		return maxWatchBackoff
 	}
@@ -386,10 +386,10 @@ func (pm *ProxyManager) addTLSProviders() {
 			continue
 		}
 		switch cfg.Provider {
-		case "tailscale":
+		case model.TLSProviderTailscale:
 			pm.log.Warn().Str("provider", name).
 				Msg("Tailscale TLS provider is auto-created per proxy, skipping global registration")
-		case "acme":
+		case model.TLSProviderACME:
 			dnsProv, err := pm.resolveDNSProviderForACMELocked()
 			if err != nil {
 				pm.log.Error().Err(err).Str("provider", name).
@@ -412,15 +412,6 @@ func (pm *ProxyManager) addTLSProviders() {
 			pm.log.Error().Str("provider", name).Str("type", cfg.Provider).Msg("Unknown TLS provider type")
 		}
 	}
-}
-
-// resolveDNSProviderForACME finds a DNS provider that satisfies certmagic.DNSProvider
-// for ACME DNS-01 challenges. Uses the default DNS provider, or the first Cloudflare provider.
-func (pm *ProxyManager) resolveDNSProviderForACME() (certmagic.DNSProvider, error) {
-	pm.mtx.RLock()
-	defer pm.mtx.RUnlock()
-
-	return pm.resolveDNSProviderForACMELocked()
 }
 
 func (pm *ProxyManager) resolveDNSProviderForACMELocked() (certmagic.DNSProvider, error) {
@@ -487,11 +478,11 @@ func (pm *ProxyManager) resolveTLSProviderLocked(proxyCfg *model.Config) (tlspro
 		return nil, ErrNoTLSProvider
 	}
 
-	if name == "tailscale" {
+	if name == model.TLSProviderTailscale {
 		return tailscaletls.New(nil), nil
 	}
 
-	if cfg, ok := config.Config.TLSProviders[name]; ok && cfg.Provider == "tailscale" {
+	if cfg, ok := config.Config.TLSProviders[name]; ok && cfg.Provider == model.TLSProviderTailscale {
 		return tailscaletls.New(nil), nil
 	}
 
@@ -516,19 +507,19 @@ func (pm *ProxyManager) resolveAndSetProviders(p *Proxy, proxyConfig *model.Conf
 	if tlsName == "" {
 		tlsName = config.Config.DefaultTLSProvider
 	}
-	if tlsCfg, ok := config.Config.TLSProviders[tlsName]; ok && tlsCfg.Provider == "acme" {
+	if tlsCfg, ok := config.Config.TLSProviders[tlsName]; ok && tlsCfg.Provider == model.TLSProviderACME {
 		certmagicDNS, ok := dnsProvider.(certmagic.DNSProvider)
 		if !ok {
 			return fmt.Errorf("dns provider %q does not support ACME DNS-01 challenges", dnsProvider.Name())
 		}
-		perProxyACME, err := acmetls.New(acmetls.Config{
+		perProxyACME, acmeErr := acmetls.New(acmetls.Config{
 			Email:       tlsCfg.Email,
 			CA:          tlsCfg.CA,
 			DNSProvider: certmagicDNS,
 			CertStorage: tlsCfg.CertStorage,
 		})
-		if err != nil {
-			return fmt.Errorf("failed to create per-proxy ACME TLS provider: %w", err)
+		if acmeErr != nil {
+			return fmt.Errorf("failed to create per-proxy ACME TLS provider: %w", acmeErr)
 		}
 		p.SetDNSAndTLSProviders(dnsProvider, perProxyACME)
 		return nil
@@ -549,7 +540,7 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 	tlsProvider := p.tlsProvider
 	p.mtx.RUnlock()
 
-	if tlsProvider.Name() == "tailscale" {
+	if tlsProvider.Name() == model.TLSProviderTailscale {
 		lcProvider, ok := p.providerProxy.(interface{ GetLocalClient() *local.Client })
 		if !ok {
 			return errors.New("tailscale tls requires a tailscale proxy provider")
@@ -826,11 +817,13 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	p.mtx.RUnlock()
 
 	if proxyConfig.Domain != "" && hasTLSProvider {
-		if err := pm.setupDomainForProxy(p, proxyConfig); err != nil {
-			pm.log.Error().Err(err).Str("proxy", name).
-				Str("domain", proxyConfig.Domain).
-				Msg("domain setup failed, proxy running without custom domain")
-		}
+		go func() {
+			if err := pm.setupDomainForProxy(p, proxyConfig); err != nil {
+				pm.log.Error().Err(err).Str("proxy", name).
+					Str("domain", proxyConfig.Domain).
+					Msg("domain setup failed, proxy running without custom domain")
+			}
+		}()
 	}
 
 	p.setMetricsReady(true)

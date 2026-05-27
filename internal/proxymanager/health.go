@@ -279,14 +279,14 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 	var result HealthResult
 	result.CheckedAt = time.Now()
 
-	addr, err := net.ResolveUDPAddr("udp", hc.getTarget())
+	addr, err := net.ResolveUDPAddr(model.ProtoUDP, hc.getTarget())
 	if err != nil {
 		result.Status = HealthDown
 		result.Error = fmt.Sprintf("error resolving address: %v", err)
 		return result
 	}
 
-	conn, err := net.DialUDP("udp", nil, addr)
+	conn, err := net.DialUDP(model.ProtoUDP, nil, addr)
 	if err != nil {
 		result.Status = HealthDown
 		result.Error = err.Error()

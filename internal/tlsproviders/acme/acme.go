@@ -10,6 +10,7 @@ import (
 
 	"github.com/caddyserver/certmagic"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
 
@@ -54,7 +55,7 @@ func New(acmeCfg Config) (*Provider, error) {
 }
 
 func (p *Provider) Name() string {
-	return "acme"
+	return model.TLSProviderACME
 }
 
 func (p *Provider) Provision(ctx context.Context, domain string) error {

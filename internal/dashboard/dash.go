@@ -400,11 +400,11 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		portURL := scheme + "://" + hostname
 
 		switch scheme {
-		case "https":
+		case model.ProtoHTTPS:
 			if target.ProxyPort != 443 { //nolint:mnd
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}
-		case "http":
+		case model.ProtoHTTP:
 			if target.ProxyPort != 80 { //nolint:mnd
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}

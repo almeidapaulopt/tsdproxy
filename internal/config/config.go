@@ -54,8 +54,8 @@ type (
 		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
 		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
 		APIKey               string                                 `yaml:"apiKey,omitempty"`
-		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"`
-		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"`
+		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"` //nolint:tagliatelle
+		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"` //nolint:tagliatelle
 		Admins               []string                               `yaml:"admins,omitempty"`
 		HTTP                 HTTPConfig                             `yaml:"http"`
 		Log                  LogConfig                              `yaml:"log"`
@@ -63,7 +63,7 @@ type (
 		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
 		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
 		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
-		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"`
+		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"` //nolint:tagliatelle
 	}
 
 	WebhookConfig struct {

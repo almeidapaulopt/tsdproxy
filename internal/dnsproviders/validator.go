@@ -11,6 +11,8 @@ import (
 	"time"
 
 	dns "codeberg.org/miekg/dns"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 const (
@@ -34,7 +36,7 @@ func validateCNAMEWithAddr(ctx context.Context, domain, expectedTarget, dnsAddr 
 	t.ReadTimeout = defaultDNSReadTimeout
 	c.Transport = t
 
-	r, _, err := c.Exchange(ctx, m, "udp", dnsAddr)
+	r, _, err := c.Exchange(ctx, m, model.ProtoUDP, dnsAddr)
 	if err != nil {
 		return false, fmt.Errorf("dns query for %s: %w", domain, err)
 	}

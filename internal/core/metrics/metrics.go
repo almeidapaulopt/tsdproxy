@@ -60,7 +60,7 @@ func New() *Metrics {
 		),
 		ProxiesTotal: prometheus.NewGauge(
 			prometheus.GaugeOpts{
-				Name: "tsdproxy_proxies_total",
+				Name: "tsdproxy_proxies",
 				Help: "Total number of active proxies.",
 			},
 		),

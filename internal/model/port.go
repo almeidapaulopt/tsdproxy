@@ -45,6 +45,9 @@ const (
 	ProtoTCP   = "tcp"
 	ProtoUDP   = "udp"
 
+	TLSProviderTailscale = "tailscale"
+	TLSProviderACME      = "acme"
+
 	rangeKeyPrefix = "range_0"
 )
 

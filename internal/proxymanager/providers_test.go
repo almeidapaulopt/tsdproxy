@@ -245,7 +245,7 @@ func (s *domainRequiredStub) NewProxy(_ *model.Config) (proxyproviders.ProxyInte
 	if s.failNewProxy {
 		return nil, errors.New("stub: NewProxy intentionally failed")
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func TestResolveAndSetProviders_ACMEWithNonCertmagicDNSFails(t *testing.T) {

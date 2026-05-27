@@ -68,7 +68,7 @@ type cfDNSRecord struct {
 func New(apiToken string) *Provider {
 	return &Provider{
 		apiToken:   apiToken,
-		client:     &http.Client{Timeout: 30 * time.Second},
+		client:     &http.Client{Timeout: 30 * time.Second}, //nolint:mnd
 		apiBaseURL: defaultAPIBaseURL,
 	}
 }
@@ -94,9 +94,9 @@ func (p *Provider) CreateRecord(ctx context.Context, domain, recordType, value s
 			found = true
 			continue
 		}
-		if _, err := p.doRequest(ctx, http.MethodDelete,
-			fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, r.ID), nil); err != nil {
-			return fmt.Errorf("cloudflare: delete stale record %s: %w", r.ID, err)
+		if _, delErr := p.doRequest(ctx, http.MethodDelete,
+			fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, r.ID), nil); delErr != nil {
+			return fmt.Errorf("cloudflare: delete stale record %s: %w", r.ID, delErr)
 		}
 	}
 
