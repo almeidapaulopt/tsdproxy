@@ -4,7 +4,6 @@
 package tailscale
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -13,31 +12,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-func TestSharedProxyNeedsSNI(t *testing.T) {
-	t.Parallel()
-
-	p := &SharedProxy{}
-
-	tests := []struct {
-		protocol string
-		want     bool
-	}{
-		{model.ProtoHTTPS, true},
-		{model.ProtoHTTP, false},
-		{model.ProtoTCP, false},
-		{model.ProtoUDP, false},
-	}
-
-	for _, tt := range tests {
-		portCfg := &model.PortConfig{ProxyProtocol: tt.protocol}
-		got := p.needsSNI(portCfg)
-		if got != tt.want {
-			t.Errorf("needsSNI(%q) = %v, want %v", tt.protocol, got, tt.want)
-		}
-	}
-}
-
-func TestNewSharedProxy_RejectsNonHTTPSPorts(t *testing.T) {
+func TestNewSharedProxy_AcceptsAllProtocols(t *testing.T) {
 	c := &Client{
 		log:            zerolog.Nop(),
 		shared:         true,
@@ -47,10 +22,9 @@ func TestNewSharedProxy_RejectsNonHTTPSPorts(t *testing.T) {
 	}
 
 	tests := []struct {
-		ports    map[string]model.PortConfig
-		name     string
-		errMatch string
-		wantErr  bool
+		name    string
+		ports   map[string]model.PortConfig
+		wantErr bool
 	}{
 		{
 			name: "https only",
@@ -60,30 +34,27 @@ func TestNewSharedProxy_RejectsNonHTTPSPorts(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "tcp port rejected",
+			name: "tcp port accepted",
 			ports: map[string]model.PortConfig{
 				"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
 				"2": {ProxyProtocol: model.ProtoTCP, ProxyPort: 22},
 			},
-			wantErr:  true,
-			errMatch: "only supports HTTPS ports",
+			wantErr: false,
 		},
 		{
-			name: "http port rejected",
+			name: "http port accepted",
 			ports: map[string]model.PortConfig{
 				"1": {ProxyProtocol: model.ProtoHTTP, ProxyPort: 80},
 			},
-			wantErr:  true,
-			errMatch: "only supports HTTPS ports",
+			wantErr: false,
 		},
 		{
-			name: "redirect port rejected",
+			name: "redirect port accepted",
 			ports: map[string]model.PortConfig{
 				"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
 				"2": {ProxyProtocol: model.ProtoHTTP, ProxyPort: 80, IsRedirect: true},
 			},
-			wantErr:  true,
-			errMatch: "only supports HTTPS ports",
+			wantErr: false,
 		},
 	}
 
@@ -110,9 +81,6 @@ func TestNewSharedProxy_RejectsNonHTTPSPorts(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
-				}
-				if tt.errMatch != "" && !strings.Contains(err.Error(), tt.errMatch) {
-					t.Fatalf("error %q should contain %q", err.Error(), tt.errMatch)
 				}
 			} else {
 				if err != nil {

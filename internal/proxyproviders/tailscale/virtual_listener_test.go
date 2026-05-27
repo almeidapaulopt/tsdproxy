@@ -6,7 +6,11 @@ package tailscale
 import (
 	"errors"
 	"net"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestVirtualListenerAccept(t *testing.T) {
@@ -106,5 +110,67 @@ func TestVirtualListenerDispatchDropWhenFull(t *testing.T) {
 		if err == nil {
 			t.Fatal("overflow connection should have been closed")
 		}
+	}
+}
+
+func TestVirtualListenerConcurrentDispatchClose(t *testing.T) {
+	t.Parallel()
+
+	const numSenders = 8
+	const sendsPerSender = 100
+
+	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+
+	var wg sync.WaitGroup
+	dispatched := atomic.Int32{}
+
+	// Start sender goroutines that continuously dispatch connections.
+	for i := range numSenders {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := range sendsPerSender {
+				server, client := net.Pipe()
+				// Close the client end immediately — we don't need it.
+				client.Close()
+
+				if vl.Dispatch(server) {
+					dispatched.Add(1)
+				}
+				// Small yield to allow interleaving.
+				if j%16 == 0 { //nolint:mnd
+					runtime.Gosched()
+				}
+			}
+		}(i)
+	}
+
+	// After a short delay, close the listener.
+	time.Sleep(5 * time.Millisecond)
+	vl.Close()
+
+	// Wait for all senders to finish.
+	wg.Wait()
+
+	// Verify: no panics (test reaching here proves it), and the count
+	// of dispatched connections is reasonable (some succeeded before Close,
+	// some failed after).
+	totalSends := int32(numSenders) * int32(sendsPerSender)
+	d := dispatched.Load()
+	if d > totalSends {
+		t.Fatalf("dispatched count %d exceeds total sends %d", d, totalSends)
+	}
+
+	// Dispatch after Close should always fail.
+	server, client := net.Pipe()
+	defer client.Close()
+	if vl.Dispatch(server) {
+		t.Fatal("Dispatch after Close should return false")
+	}
+
+	// Accept should return error after Close.
+	_, err := vl.Accept()
+	if !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Accept after Close should return net.ErrClosed, got: %v", err)
 	}
 }
