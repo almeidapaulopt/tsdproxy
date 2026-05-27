@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"tailscale.com/client/local"
 
@@ -18,14 +19,30 @@ import (
 
 // Provider implements tlsproviders.Provider using Tailscale's CertPair.
 // Only works for MagicDNS domains (*.ts.net).
+// The local client may be set lazily via SetLocalClient after creation.
 type Provider struct {
 	lc *local.Client
+	mu sync.RWMutex
 }
 
 var _ tlsproviders.Provider = (*Provider)(nil)
 
 func New(lc *local.Client) *Provider {
 	return &Provider{lc: lc}
+}
+
+// SetLocalClient updates the Tailscale local client. Safe to call concurrently.
+// Used when the TLS provider is created before the tsnet server is available.
+func (p *Provider) SetLocalClient(lc *local.Client) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lc = lc
+}
+
+func (p *Provider) getLocalClient() *local.Client {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.lc
 }
 
 func (p *Provider) Name() string {
@@ -36,21 +53,23 @@ func (p *Provider) Provision(ctx context.Context, domain string) error {
 	if !isMagicDNSDomain(domain) {
 		return fmt.Errorf("tailscale tls: domain %q is not a MagicDNS domain", domain)
 	}
-	if p.lc == nil {
+	lc := p.getLocalClient()
+	if lc == nil {
 		return errors.New("tailscale tls: local client is nil")
 	}
-	_, _, err := p.lc.CertPair(ctx, domain)
+	_, _, err := lc.CertPair(ctx, domain)
 	if err != nil {
 		return fmt.Errorf("tailscale tls: certpair for %s: %w", domain, err)
 	}
 	return nil
 }
 
-func (p *Provider) GetCertificate(_ context.Context, domain string) (tls.Certificate, error) {
-	if p.lc == nil {
+func (p *Provider) GetCertificate(ctx context.Context, domain string) (tls.Certificate, error) {
+	lc := p.getLocalClient()
+	if lc == nil {
 		return tls.Certificate{}, errors.New("tailscale tls: local client is nil")
 	}
-	certPEM, keyPEM, err := p.lc.CertPair(context.Background(), domain)
+	certPEM, keyPEM, err := lc.CertPair(ctx, domain)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("tailscale tls: get cert for %s: %w", domain, err)
 	}

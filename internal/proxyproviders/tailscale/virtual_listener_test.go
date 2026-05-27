@@ -127,7 +127,7 @@ func TestVirtualListenerConcurrentDispatchClose(t *testing.T) {
 	// Start sender goroutines that continuously dispatch connections.
 	for i := range numSenders {
 		wg.Add(1)
-		go func(id int) {
+		go func(_ int) {
 			defer wg.Done()
 			for j := range sendsPerSender {
 				server, client := net.Pipe()

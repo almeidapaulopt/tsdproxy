@@ -22,8 +22,8 @@ func TestNewSharedProxy_AcceptsAllProtocols(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
 		ports   map[string]model.PortConfig
+		name    string
 		wantErr bool
 	}{
 		{

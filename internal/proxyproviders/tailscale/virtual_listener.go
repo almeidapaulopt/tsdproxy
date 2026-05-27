@@ -6,7 +6,6 @@ package tailscale
 import (
 	"net"
 	"sync"
-	"sync/atomic"
 )
 
 // VirtualListener implements net.Listener backed by a channel.
@@ -16,7 +15,7 @@ type VirtualListener struct {
 	ch     chan net.Conn
 	done   chan struct{}
 	once   sync.Once
-	closed atomic.Bool
+	closed bool
 	mu     sync.Mutex // serializes Dispatch vs Close
 }
 
@@ -43,7 +42,7 @@ func (vl *VirtualListener) Accept() (net.Conn, error) {
 func (vl *VirtualListener) Close() error {
 	vl.once.Do(func() {
 		vl.mu.Lock()
-		vl.closed.Store(true)
+		vl.closed = true
 		close(vl.ch)
 		vl.mu.Unlock()
 
@@ -65,7 +64,7 @@ func (vl *VirtualListener) Addr() net.Addr {
 // Called by the port router. Non-blocking; drops if listener is closed.
 func (vl *VirtualListener) Dispatch(conn net.Conn) bool {
 	vl.mu.Lock()
-	if vl.closed.Load() {
+	if vl.closed {
 		vl.mu.Unlock()
 		conn.Close()
 		return false

@@ -252,7 +252,7 @@ func TestSharedServerAcquirePacketOnClosedServer(t *testing.T) {
 	}
 }
 
-func TestSharedServerReleasePacketOnNilRuntime(t *testing.T) {
+func TestSharedServerReleasePacketOnNilRuntime(_ *testing.T) {
 	ss := NewSharedServer(SharedServerConfig{
 		Hostname: "test-server",
 		Log:      zerolog.Nop(),
@@ -324,13 +324,15 @@ func TestRegisterPacketRouteConflictDetection(t *testing.T) {
 
 type noopPacketConn struct{}
 
-func (noopPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) { return 0, nil, net.ErrClosed }
-func (noopPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error)  { return 0, nil }
-func (noopPacketConn) Close() error                                         { return nil }
-func (noopPacketConn) LocalAddr() net.Addr                                  { return &net.UDPAddr{} }
-func (noopPacketConn) SetDeadline(t time.Time) error                        { return nil }
-func (noopPacketConn) SetReadDeadline(t time.Time) error                    { return nil }
-func (noopPacketConn) SetWriteDeadline(t time.Time) error                   { return nil }
+func (noopPacketConn) ReadFrom(_ []byte) (n int, addr net.Addr, err error) {
+	return 0, nil, net.ErrClosed
+}
+func (noopPacketConn) WriteTo(_ []byte, _ net.Addr) (n int, err error) { return 0, nil }
+func (noopPacketConn) Close() error                                    { return nil }
+func (noopPacketConn) LocalAddr() net.Addr                             { return &net.UDPAddr{} }
+func (noopPacketConn) SetDeadline(_ time.Time) error                   { return nil }
+func (noopPacketConn) SetReadDeadline(_ time.Time) error               { return nil }
+func (noopPacketConn) SetWriteDeadline(_ time.Time) error              { return nil }
 
 func TestSharedServerCertInFlightPreventsDuplicate(_ *testing.T) {
 	ss := NewSharedServer(SharedServerConfig{

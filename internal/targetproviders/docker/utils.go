@@ -74,5 +74,6 @@ func (c *container) getAuthKeyFromAuthFile(authKey string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read auth key from file: %w", err)
 	}
+	defer clear(temp) // zero secret buffer after use
 	return strings.TrimSpace(string(temp)), nil
 }

@@ -68,9 +68,9 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	return &Client{
 		log:               log.With().Str("tailscale", name).Logger(),
 		Hostname:          name,
-		AuthKey:           strings.TrimSpace(provider.AuthKey),
+		AuthKey:           strings.TrimSpace(provider.AuthKey.Value()),
 		clientID:          strings.TrimSpace(provider.ClientID),
-		clientSecret:      strings.TrimSpace(provider.ClientSecret),
+		clientSecret:      strings.TrimSpace(provider.ClientSecret.Value()),
 		tags:              strings.TrimSpace(provider.Tags),
 		datadir:           datadir,
 		controlURL:        provider.ControlURL,
