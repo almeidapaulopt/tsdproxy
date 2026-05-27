@@ -156,6 +156,8 @@ func InitializeConfig() error {
 			log.Error().Err(err).Msg("error loading defaults")
 		}
 
+		applyDockerHostnameDefault()
+
 		Config.generateDefaultProviders()
 		if err := fileConfig.Save(); err != nil {
 			return err
@@ -168,6 +170,8 @@ func InitializeConfig() error {
 	if err := defaults.Set(Config); err != nil {
 		log.Error().Err(err).Msg("error loading defaults")
 	}
+
+	applyDockerHostnameDefault()
 
 	// load auth keys from files
 	for _, d := range Config.Tailscale.Providers {
@@ -202,6 +206,24 @@ func InitializeConfig() error {
 	}
 
 	return nil
+}
+
+// applyDockerHostnameDefault overrides the HTTP hostname from 127.0.0.1 to
+// 0.0.0.0 when running inside a Docker container. Outside Docker the default
+// remains 127.0.0.1 per GHSA-j8rq-87gr-gm9q to avoid exposing management
+// endpoints on the network. Inside Docker, 127.0.0.1 is unreachable via
+// port mapping, so 0.0.0.0 is required.
+func applyDockerHostnameDefault() {
+	if isRunningInDocker() && Config.HTTP.Hostname == "127.0.0.1" {
+		Config.HTTP.Hostname = "0.0.0.0"
+		log.Info().Msg("running in Docker: defaulting http.hostname to 0.0.0.0")
+	}
+}
+
+// isRunningInDocker returns true if the process is running inside a Docker container.
+func isRunningInDocker() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
 }
 
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {

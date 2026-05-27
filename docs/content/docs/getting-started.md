@@ -100,14 +100,16 @@ authenticate with Tailscale.
 > The auto-generated config sets `http.hostname: 0.0.0.0` so the dashboard is
 > reachable through Docker port mapping. If you regenerate the config or upgrade
 > from a previous version, note that **the default is `127.0.0.1`** (localhost only).
-> If the dashboard is unreachable, set `hostname: 0.0.0.0` explicitly.
+> When running inside Docker, the hostname is automatically overridden to `0.0.0.0`.
+> For non-Docker setups, set `hostname: 0.0.0.0` explicitly if needed.
 > See [Troubleshooting]({{< ref "/docs/troubleshooting#dashboard-unreachable-after-upgrading-to-v220" >}}).
 
 > [!IMPORTANT]
 > All dashboard endpoints require authentication. When accessing via Docker port
 > mapping (not through a Tailscale proxy), enable
-> `adminAllowLocalhost: true` in your config. See
-> [Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) for details.
+> `adminAllowLocalhost: true` in your config. In Docker, this trusts requests
+> from the Docker bridge network automatically.
+> See [Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) for details.
 
 > [!TIP]
 > For automated authentication without manual browser login, configure OAuth or

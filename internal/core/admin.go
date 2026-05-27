@@ -69,7 +69,7 @@ func AdminMiddleware() Middleware {
 					return
 				}
 
-				if IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+				if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -83,7 +83,7 @@ func AdminMiddleware() Middleware {
 				return
 			}
 
-			if IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+			if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -110,7 +110,7 @@ func ViewerMiddleware() Middleware {
 				return
 			}
 
-			if IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+			if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -131,7 +131,7 @@ func IsAdmin(r *http.Request) bool {
 	if id != "" {
 		return UserIDIsAdmin(id)
 	}
-	return IsLocalhost(r.RemoteAddr) && config.Config.AdminAllowLocalhost
+	return IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost
 }
 
 func UserIDIsAdmin(id string) bool {
@@ -212,6 +212,32 @@ func IsLocalhost(remoteAddr string) bool {
 	}
 
 	return ip.IsLoopback()
+}
+
+// IsTrustedSource returns true when the request originates from a
+// trusted network: loopback (127.0.0.0/8, ::1) or RFC 1918 private
+// addresses (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16).
+//
+// The private-network check extends the loopback-only IsLocalhost to
+// cover Docker port-mapped requests, which arrive inside the container
+// from the Docker bridge gateway (e.g. 172.17.0.1) rather than
+// 127.0.0.1.
+//
+// IMPORTANT: This must NOT be used where loopback-only trust is
+// required (e.g. validating proxy auth tokens or identity headers).
+// Use IsLocalhost for those cases.
+func IsTrustedSource(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 // validProxyAuthToken checks whether the request carries a valid per-process
