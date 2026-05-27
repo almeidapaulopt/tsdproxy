@@ -79,8 +79,8 @@ type sharedCmd interface{ cmd() }
 type acquireCmd struct {
 	reply    chan acquireResult
 	domain   string
-	port     int
 	protocol string
+	port     int
 }
 
 func (acquireCmd) cmd() {}
@@ -107,8 +107,8 @@ type acquirePacketResult struct {
 type releaseCmd struct {
 	reply    chan struct{}
 	domain   string
-	port     int
 	protocol string
+	port     int
 }
 
 func (releaseCmd) cmd() {}
@@ -170,10 +170,31 @@ type idleTimeoutCmd struct{}
 
 func (idleTimeoutCmd) cmd() {}
 
+// ensureRunning transitions from idle to running state, starting the runtime if needed.
+// Returns the new state, runtime, and any startup error.
+func (ss *SharedServer) ensureRunning(state sharedState, rt *sharedRuntime, nextGen *int) (sharedState, *sharedRuntime, error) {
+	if state == sharedClosed {
+		return state, rt, errors.New("shared server closed")
+	}
+	if state == sharedIdle {
+		if rt == nil {
+			newRT := ss.startRuntime(nil, *nextGen)
+			if newRT == nil {
+				return state, rt, errors.New("shared server start failed")
+			}
+			(*nextGen)++
+			rt = newRT
+		}
+		state = sharedRunning
+	}
+	return state, rt, nil
+}
+
 // sharedIdleTimeout is how long the shared server stays running after the last
 // proxy is released. Prevents tsnet teardown/restart flapping during rolling
 // restarts or when containers cycle quickly.
 const sharedIdleTimeout = 30 * time.Second
+
 // All mutable state is managed by a single event-loop goroutine.
 // Public methods are thin wrappers that send commands and wait for replies.
 type SharedServer struct {
@@ -316,46 +337,23 @@ func (ss *SharedServer) loop() {
 }
 
 func (ss *SharedServer) handleAcquire(c acquireCmd, state sharedState, rt *sharedRuntime, nextGen *int) (sharedState, *sharedRuntime) {
-	switch state {
-	case sharedIdle:
-		if rt == nil {
-			newRT := ss.startRuntime(nil, *nextGen)
-			if newRT == nil {
-				c.reply <- acquireResult{nil, nil, errors.New("shared server start failed")}
-				return state, rt
-			}
-			(*nextGen)++
-			rt = newRT
-		}
-		state = sharedRunning
-		vl, direct, err := ss.registerRoute(rt, c.domain, c.port, c.protocol)
-		if err != nil {
-			if rt.routeCount <= 0 {
-				ss.stopRuntime(rt)
-				rt = nil
-				state = sharedIdle
-			}
-			c.reply <- acquireResult{nil, nil, err}
-			return state, rt
-		}
-		c.reply <- acquireResult{vl, direct, nil}
-
-	case sharedRunning:
-		vl, direct, err := ss.registerRoute(rt, c.domain, c.port, c.protocol)
-		if err != nil {
-			if rt.routeCount <= 0 {
-				ss.stopRuntime(rt)
-				rt = nil
-				state = sharedIdle
-			}
-			c.reply <- acquireResult{nil, nil, err}
-			return state, rt
-		}
-		c.reply <- acquireResult{vl, direct, nil}
-
-	case sharedClosed:
-		c.reply <- acquireResult{nil, nil, errors.New("shared server closed")}
+	state, rt, err := ss.ensureRunning(state, rt, nextGen)
+	if err != nil {
+		c.reply <- acquireResult{nil, nil, err}
+		return state, rt
 	}
+
+	vl, direct, err := ss.registerRoute(rt, c.domain, c.port, c.protocol)
+	if err != nil {
+		if rt.routeCount <= 0 {
+			ss.stopRuntime(rt)
+			rt = nil
+			state = sharedIdle
+		}
+		c.reply <- acquireResult{nil, nil, err}
+		return state, rt
+	}
+	c.reply <- acquireResult{vl, direct, nil}
 	return state, rt
 }
 
@@ -371,7 +369,7 @@ func (ss *SharedServer) handleRelease(c releaseCmd, state sharedState, rt *share
 	return state, rt
 }
 
-func (ss *SharedServer) handleClose(c closeCmd, state sharedState, rt *sharedRuntime) {
+func (ss *SharedServer) handleClose(c closeCmd, _ sharedState, rt *sharedRuntime) {
 	if rt != nil {
 		ss.stopRuntime(rt)
 	}
@@ -380,39 +378,28 @@ func (ss *SharedServer) handleClose(c closeCmd, state sharedState, rt *sharedRun
 }
 
 func (ss *SharedServer) handleAcquirePacket(c acquirePacketCmd, state sharedState, rt *sharedRuntime, nextGen *int) (sharedState, *sharedRuntime) {
-	switch state {
-	case sharedIdle:
-		if rt == nil {
-			newRT := ss.startRuntime(nil, *nextGen)
-			if newRT == nil {
-				c.reply <- acquirePacketResult{nil, errors.New("shared server start failed")}
-				return state, rt
-			}
-			(*nextGen)++
-			rt = newRT
-		}
-		state = sharedRunning
-		fallthrough
-	case sharedRunning:
-		pc, err := ss.registerPacketRoute(rt, c.domain, c.port)
-		if err != nil {
-			if rt.routeCount <= 0 {
-				ss.stopRuntime(rt)
-				rt = nil
-				state = sharedIdle
-			}
-			c.reply <- acquirePacketResult{nil, err}
-			return state, rt
-		}
-		c.reply <- acquirePacketResult{pc, nil}
-	case sharedClosed:
-		c.reply <- acquirePacketResult{nil, errors.New("shared server closed")}
+	state, rt, err := ss.ensureRunning(state, rt, nextGen)
+	if err != nil {
+		c.reply <- acquirePacketResult{nil, err}
+		return state, rt
 	}
+
+	pc, err := ss.registerPacketRoute(rt, c.domain, c.port)
+	if err != nil {
+		if rt.routeCount <= 0 {
+			ss.stopRuntime(rt)
+			rt = nil
+			state = sharedIdle
+		}
+		c.reply <- acquirePacketResult{nil, err}
+		return state, rt
+	}
+	c.reply <- acquirePacketResult{pc, nil}
 	return state, rt
 }
 
 func (ss *SharedServer) handleReleasePacket(c releasePacketCmd, state sharedState, rt *sharedRuntime) (sharedState, *sharedRuntime) {
-	if rt != nil {
+	if state == sharedRunning && rt != nil {
 		ss.unregisterPacketRoute(rt, c.domain, c.port)
 		if rt.routeCount <= 0 {
 			c.reply <- struct{}{}
@@ -805,53 +792,50 @@ func (ss *SharedServer) getCertificates(ctx context.Context, gen int, lc *local.
 
 // Public methods — thin wrappers that send a command and wait for the reply.
 
+// sendAndWait sends a command via the event loop and waits for a reply.
+// Returns the value from the reply channel and true, or zero value and false
+// if the server is closed.
+func sendAndWait[T any](ss *SharedServer, cmd sharedCmd, reply chan T) (T, bool) {
+	if !ss.sendPublic(cmd) {
+		var zero T
+		return zero, false
+	}
+	select {
+	case v := <-reply:
+		return v, true
+	case <-ss.done:
+		var zero T
+		return zero, false
+	}
+}
+
 // Acquire registers a domain on the given port, starting the tsnet server if needed.
 func (ss *SharedServer) Acquire(domain string, port int, protocol string) (*VirtualListener, net.Listener, error) {
 	cmd := acquireCmd{domain: domain, port: port, protocol: protocol, reply: make(chan acquireResult, 1)}
-	if !ss.sendPublic(cmd) {
+	result, ok := sendAndWait(ss, cmd, cmd.reply)
+	if !ok {
 		return nil, nil, errors.New("shared server closed")
 	}
-	select {
-	case result := <-cmd.reply:
-		return result.vl, result.direct, result.err
-	case <-ss.done:
-		return nil, nil, errors.New("shared server closed")
-	}
+	return result.vl, result.direct, result.err
 }
 
 func (ss *SharedServer) Release(domain string, port int, protocol string) {
 	cmd := releaseCmd{domain: domain, port: port, protocol: protocol, reply: make(chan struct{}, 1)}
-	if !ss.sendPublic(cmd) {
-		return
-	}
-	select {
-	case <-cmd.reply:
-	case <-ss.done:
-	}
+	sendAndWait(ss, cmd, cmd.reply)
 }
 
 func (ss *SharedServer) AcquirePacket(domain string, port int) (net.PacketConn, error) {
 	cmd := acquirePacketCmd{domain: domain, port: port, reply: make(chan acquirePacketResult, 1)}
-	if !ss.sendPublic(cmd) {
+	result, ok := sendAndWait(ss, cmd, cmd.reply)
+	if !ok {
 		return nil, errors.New("shared server closed")
 	}
-	select {
-	case result := <-cmd.reply:
-		return result.pc, result.err
-	case <-ss.done:
-		return nil, errors.New("shared server closed")
-	}
+	return result.pc, result.err
 }
 
 func (ss *SharedServer) ReleasePacket(domain string, port int) {
 	cmd := releasePacketCmd{domain: domain, port: port, reply: make(chan struct{}, 1)}
-	if !ss.sendPublic(cmd) {
-		return
-	}
-	select {
-	case <-cmd.reply:
-	case <-ss.done:
-	}
+	sendAndWait(ss, cmd, cmd.reply)
 }
 
 // Close shuts down the shared server permanently.
@@ -860,68 +844,44 @@ func (ss *SharedServer) Close() {
 		return
 	}
 	cmd := closeCmd{reply: make(chan error, 1)}
-	if !ss.sendPublic(cmd) {
-		return
-	}
-	select {
-	case <-cmd.reply:
-	case <-ss.done:
-	}
+	_, _ = sendAndWait(ss, cmd, cmd.reply)
 }
 
 // GetURL returns the current Tailscale DNS name, or empty string if not running.
 func (ss *SharedServer) GetURL() string {
 	cmd := getURLCmd{reply: make(chan string, 1)}
-	if !ss.sendPublic(cmd) {
+	v, ok := sendAndWait(ss, cmd, cmd.reply)
+	if !ok {
 		return ""
 	}
-	select {
-	case v := <-cmd.reply:
-		return v
-	case <-ss.done:
-		return ""
-	}
+	return v
 }
 
 // GetLocalClient returns the Tailscale local client, or nil if not running.
 func (ss *SharedServer) GetLocalClient() *local.Client {
 	cmd := getLocalClientCmd{reply: make(chan *local.Client, 1)}
-	if !ss.sendPublic(cmd) {
+	lc, ok := sendAndWait(ss, cmd, cmd.reply)
+	if !ok {
 		return nil
 	}
-	select {
-	case lc := <-cmd.reply:
-		return lc
-	case <-ss.done:
-		return nil
-	}
+	return lc
 }
 
 // SubscribeEvents returns a channel that receives status events from the
 // shared server. Call UnsubscribeEvents to clean up.
 func (ss *SharedServer) SubscribeEvents() chan model.ProxyEvent {
 	cmd := subscribeCmd{reply: make(chan chan model.ProxyEvent, 1)}
-	if !ss.sendPublic(cmd) {
+	ch, ok := sendAndWait(ss, cmd, cmd.reply)
+	if !ok {
 		return nil
 	}
-	select {
-	case ch := <-cmd.reply:
-		return ch
-	case <-ss.done:
-		return nil
-	}
+	return ch
 }
 
 // UnsubscribeEvents removes an event subscription.
 func (ss *SharedServer) UnsubscribeEvents(ch chan model.ProxyEvent) {
 	cmd := unsubscribeCmd{ch: ch, reply: make(chan struct{}, 1)}
-	if !ss.sendPublic(cmd) {
-		return
-	}
-	select {
-	case <-cmd.reply:
-	case <-ss.done:
-	}
+	sendAndWait(ss, cmd, cmd.reply)
 }
 
 // Whois returns identity information for the request's remote address.
