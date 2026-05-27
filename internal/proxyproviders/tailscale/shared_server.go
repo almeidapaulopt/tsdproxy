@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -23,9 +24,10 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-type sniPortListener struct {
-	router   *SNIRouter
+type portEntry struct {
 	listener net.Listener
+	router   *PortRouter
+	owner    string
 }
 
 // SharedServerConfig holds the configuration for creating a SharedServer.
@@ -45,47 +47,151 @@ type sharedEventSub struct {
 	once sync.Once
 }
 
-// SharedServer owns a single tsnet.Server shared by multiple proxies.
-// It is reference-counted: the tsnet server starts on first Acquire and
-// stops when the last proxy releases.
+// sharedState represents the state of the SharedServer state machine.
+type sharedState int
+
+const (
+	sharedIdle sharedState = iota
+	sharedRunning
+	sharedClosed
+)
+
+// sharedRuntime holds all mutable state owned exclusively by the loop goroutine.
+type sharedRuntime struct {
+	ctx          context.Context
+	cancel       context.CancelFunc
+	tsServer     *tsnet.Server
+	lc           *local.Client
+	listeners    map[int]*portEntry
+	packetRoutes map[int]net.PacketConn // port → PacketConn for UDP
+	subs         map[*sharedEventSub]struct{}
+	watchDone    chan struct{}
+	url          string
+	gen          int
+	routeCount   int
+	certInFlight bool
+}
+
+// Command types for the state machine.
+
+type sharedCmd interface{ cmd() }
+
+type acquireCmd struct {
+	reply    chan acquireResult
+	domain   string
+	port     int
+	protocol string
+}
+
+func (acquireCmd) cmd() {}
+
+type acquireResult struct {
+	vl     *VirtualListener
+	direct net.Listener
+	err    error
+}
+
+type acquirePacketCmd struct {
+	reply  chan acquirePacketResult
+	domain string
+	port   int
+}
+
+func (acquirePacketCmd) cmd() {}
+
+type acquirePacketResult struct {
+	pc  net.PacketConn
+	err error
+}
+
+type releaseCmd struct {
+	reply    chan struct{}
+	domain   string
+	port     int
+	protocol string
+}
+
+func (releaseCmd) cmd() {}
+
+type releasePacketCmd struct {
+	reply  chan struct{}
+	domain string
+	port   int
+}
+
+func (releasePacketCmd) cmd() {}
+
+type closeCmd struct {
+	reply chan error
+}
+
+func (closeCmd) cmd() {}
+
+type getURLCmd struct {
+	reply chan string
+}
+
+func (getURLCmd) cmd() {}
+
+type getLocalClientCmd struct {
+	reply chan *local.Client
+}
+
+func (getLocalClientCmd) cmd() {}
+
+type subscribeCmd struct {
+	reply chan chan model.ProxyEvent
+}
+
+func (subscribeCmd) cmd() {}
+
+type unsubscribeCmd struct {
+	ch    chan model.ProxyEvent
+	reply chan struct{}
+}
+
+func (unsubscribeCmd) cmd() {}
+
+type watchUpdateCmd struct {
+	url string
+	evt model.ProxyEvent
+	gen int
+}
+
+func (watchUpdateCmd) cmd() {}
+
+type certDoneCmd struct {
+	gen int
+}
+
+func (certDoneCmd) cmd() {}
+
+type idleTimeoutCmd struct{}
+
+func (idleTimeoutCmd) cmd() {}
+
+// sharedIdleTimeout is how long the shared server stays running after the last
+// proxy is released. Prevents tsnet teardown/restart flapping during rolling
+// restarts or when containers cycle quickly.
+const sharedIdleTimeout = 30 * time.Second
+// All mutable state is managed by a single event-loop goroutine.
+// Public methods are thin wrappers that send commands and wait for replies.
 type SharedServer struct {
 	log        zerolog.Logger
-	ctx        context.Context
 	certSem    *semaphore.Weighted
-	lc         *local.Client
-	stopping   chan struct{}
-	watchDone  chan struct{}
-	subs       map[*sharedEventSub]struct{}
-	tsServer   *tsnet.Server
-	cancel     context.CancelFunc
-	listeners  map[int]*sniPortListener
-	url        string
+	cmds       chan sharedCmd
+	done       chan struct{}
+	hostname   string
+	datadir    string
 	authKey    string
 	controlURL string
-	datadir    string
-	hostname   string
-	refCount   int
-	mu         sync.RWMutex
-	watchOnce  sync.Once
-	closeOnce  sync.Once
+	closed     atomic.Bool
 	ephemeral  bool
-	started    bool
 }
 
-// waitForStop blocks until any in-progress shutdown has completed.
-// Must be called with ss.mu held. Returns with ss.mu held.
-func (ss *SharedServer) waitForStop() {
-	for ss.stopping != nil {
-		ch := ss.stopping
-		ss.mu.Unlock()
-		<-ch
-		ss.mu.Lock()
-	}
-}
-
+// NewSharedServer creates a SharedServer and starts the event loop.
 func NewSharedServer(cfg SharedServerConfig) *SharedServer {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &SharedServer{
+	ss := &SharedServer{
 		hostname:   cfg.Hostname,
 		datadir:    cfg.DataDir,
 		authKey:    cfg.AuthKey,
@@ -93,152 +199,530 @@ func NewSharedServer(cfg SharedServerConfig) *SharedServer {
 		ephemeral:  cfg.Ephemeral,
 		certSem:    cfg.CertSem,
 		log:        cfg.Log.With().Str("shared_server", cfg.Hostname).Logger(),
-		ctx:        ctx,
-		cancel:     cancel,
-		listeners:  make(map[int]*sniPortListener),
-		subs:       make(map[*sharedEventSub]struct{}),
+		cmds:       make(chan sharedCmd, 64), //nolint:mnd
+		done:       make(chan struct{}),
+	}
+	go ss.loop()
+	return ss
+}
+
+// sendProducer sends a command from a producer goroutine (watchStatus, getCertificates).
+// It aborts if the loop has exited or the producer's context was canceled,
+// preventing deadlock when the loop is blocked in stopRuntime.
+func (ss *SharedServer) sendProducer(ctx context.Context, cmd sharedCmd) bool {
+	if ctx == nil {
+		select {
+		case ss.cmds <- cmd:
+			return true
+		case <-ss.done:
+			return false
+		}
+	}
+	select {
+	case ss.cmds <- cmd:
+		return true
+	case <-ss.done:
+		return false
+	case <-ctx.Done():
+		return false
 	}
 }
 
-func (ss *SharedServer) Acquire(domain string, port int) (*VirtualListener, error) {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
+// sendPublic sends a command from a public method. Returns false if the
+// server is closed (loop has exited), preventing goroutine leaks.
+func (ss *SharedServer) sendPublic(cmd sharedCmd) bool {
+	if ss.closed.Load() {
+		return false
+	}
+	select {
+	case ss.cmds <- cmd:
+		return true
+	case <-ss.done:
+		return false
+	}
+}
 
-	ss.waitForStop()
+// loop is the core event loop. It owns all mutable state.
+func (ss *SharedServer) loop() {
+	defer close(ss.done)
 
-	if !ss.started {
-		if err := ss.start(); err != nil {
-			return nil, fmt.Errorf("shared server start: %w", err)
+	state := sharedIdle
+	var rt *sharedRuntime // nil when idle
+	var nextGen int       // monotonic generation counter, loop-scoped
+	var idleTimer *time.Timer
+
+	for cmd := range ss.cmds {
+		// Cancel idle timer only for state-mutating commands.
+		// Read-only commands (watchUpdate, certDone, getURL, getLocalClient,
+		// subscribe, unsubscribe) must not disrupt the idle countdown.
+		switch cmd.(type) {
+		case acquireCmd, acquirePacketCmd, releaseCmd, releasePacketCmd,
+			closeCmd, idleTimeoutCmd:
+			if idleTimer != nil {
+				idleTimer.Stop()
+				idleTimer = nil
+			}
 		}
 
-		ss.watchOnce.Do(func() {
-			done := make(chan struct{})
-			ss.watchDone = done
-			go ss.watchStatus(ss.ctx, done)
-		})
+		switch c := cmd.(type) {
+		case acquireCmd:
+			state, rt = ss.handleAcquire(c, state, rt, &nextGen)
+		case releaseCmd:
+			state, rt = ss.handleRelease(c, state, rt)
+			if state == sharedIdle && rt != nil {
+				idleTimer = time.AfterFunc(sharedIdleTimeout, func() {
+					select {
+					case ss.cmds <- idleTimeoutCmd{}:
+					case <-ss.done:
+					}
+				})
+			}
+		case acquirePacketCmd:
+			state, rt = ss.handleAcquirePacket(c, state, rt, &nextGen)
+		case releasePacketCmd:
+			state, rt = ss.handleReleasePacket(c, state, rt)
+			if state == sharedIdle && rt != nil {
+				idleTimer = time.AfterFunc(sharedIdleTimeout, func() {
+					select {
+					case ss.cmds <- idleTimeoutCmd{}:
+					case <-ss.done:
+					}
+				})
+			}
+		case idleTimeoutCmd:
+			// Only stop if we're still idle (acquire after release cancels the timer).
+			if state == sharedIdle && rt != nil {
+				ss.log.Info().Msg("shared server idle timeout, stopping")
+				ss.stopRuntime(rt)
+				rt = nil
+			}
+		case closeCmd:
+			ss.handleClose(c, state, rt)
+			return
+		case watchUpdateCmd:
+			ss.handleWatchUpdate(c, rt)
+		case certDoneCmd:
+			ss.handleCertDone(c, rt)
+		case getURLCmd:
+			ss.handleGetURL(c, rt)
+		case getLocalClientCmd:
+			ss.handleGetLocalClient(c, rt)
+		case subscribeCmd:
+			rt = ss.handleSubscribe(c, rt)
+		case unsubscribeCmd:
+			ss.handleUnsubscribe(c, rt)
+		}
 	}
+}
 
-	ss.refCount++
-
-	pl, ok := ss.listeners[port]
-	if !ok {
-		addr := ":" + strconv.Itoa(port)
-		l, err := ss.tsServer.Listen("tcp", addr)
+func (ss *SharedServer) handleAcquire(c acquireCmd, state sharedState, rt *sharedRuntime, nextGen *int) (sharedState, *sharedRuntime) {
+	switch state {
+	case sharedIdle:
+		if rt == nil {
+			newRT := ss.startRuntime(nil, *nextGen)
+			if newRT == nil {
+				c.reply <- acquireResult{nil, nil, errors.New("shared server start failed")}
+				return state, rt
+			}
+			(*nextGen)++
+			rt = newRT
+		}
+		state = sharedRunning
+		vl, direct, err := ss.registerRoute(rt, c.domain, c.port, c.protocol)
 		if err != nil {
-			ss.refCount--
-			return nil, fmt.Errorf("listen on port %d: %w", port, err)
+			if rt.routeCount <= 0 {
+				ss.stopRuntime(rt)
+				rt = nil
+				state = sharedIdle
+			}
+			c.reply <- acquireResult{nil, nil, err}
+			return state, rt
 		}
+		c.reply <- acquireResult{vl, direct, nil}
 
-		router := NewSNIRouter(ss.log.With().Int("port", port).Logger())
-		pl = &sniPortListener{
-			router:   router,
-			listener: l,
+	case sharedRunning:
+		vl, direct, err := ss.registerRoute(rt, c.domain, c.port, c.protocol)
+		if err != nil {
+			if rt.routeCount <= 0 {
+				ss.stopRuntime(rt)
+				rt = nil
+				state = sharedIdle
+			}
+			c.reply <- acquireResult{nil, nil, err}
+			return state, rt
 		}
-		ss.listeners[port] = pl
+		c.reply <- acquireResult{vl, direct, nil}
 
-		go router.Serve(l)
+	case sharedClosed:
+		c.reply <- acquireResult{nil, nil, errors.New("shared server closed")}
 	}
-
-	vl := pl.router.Register(domain)
-	ss.log.Info().Str("domain", domain).Int("port", port).Msg("domain registered with shared server")
-
-	return vl, nil
+	return state, rt
 }
 
-func (ss *SharedServer) Release(domain string, port int) {
-	ss.mu.Lock()
-
-	if pl, ok := ss.listeners[port]; ok {
-		pl.router.Unregister(domain)
-	}
-
-	ss.refCount--
-	if ss.refCount <= 0 {
-		oldWatchDone := ss.watchDone
-		ss.shutdownState()
-		stopCh := make(chan struct{})
-		ss.stopping = stopCh
-		ss.mu.Unlock()
-
-		if oldWatchDone != nil {
-			<-oldWatchDone
+func (ss *SharedServer) handleRelease(c releaseCmd, state sharedState, rt *sharedRuntime) (sharedState, *sharedRuntime) {
+	if state == sharedRunning && rt != nil {
+		ss.unregisterRoute(rt, c.domain, c.port, c.protocol)
+		if rt.routeCount <= 0 {
+			c.reply <- struct{}{}
+			return sharedIdle, rt
 		}
+	}
+	c.reply <- struct{}{}
+	return state, rt
+}
 
-		ss.mu.Lock()
-		ss.url = ""
-		ss.stopping = nil
-		close(stopCh)
-		ss.mu.Unlock()
+func (ss *SharedServer) handleClose(c closeCmd, state sharedState, rt *sharedRuntime) {
+	if rt != nil {
+		ss.stopRuntime(rt)
+	}
+	ss.closed.Store(true)
+	c.reply <- nil
+}
+
+func (ss *SharedServer) handleAcquirePacket(c acquirePacketCmd, state sharedState, rt *sharedRuntime, nextGen *int) (sharedState, *sharedRuntime) {
+	switch state {
+	case sharedIdle:
+		if rt == nil {
+			newRT := ss.startRuntime(nil, *nextGen)
+			if newRT == nil {
+				c.reply <- acquirePacketResult{nil, errors.New("shared server start failed")}
+				return state, rt
+			}
+			(*nextGen)++
+			rt = newRT
+		}
+		state = sharedRunning
+		fallthrough
+	case sharedRunning:
+		pc, err := ss.registerPacketRoute(rt, c.domain, c.port)
+		if err != nil {
+			if rt.routeCount <= 0 {
+				ss.stopRuntime(rt)
+				rt = nil
+				state = sharedIdle
+			}
+			c.reply <- acquirePacketResult{nil, err}
+			return state, rt
+		}
+		c.reply <- acquirePacketResult{pc, nil}
+	case sharedClosed:
+		c.reply <- acquirePacketResult{nil, errors.New("shared server closed")}
+	}
+	return state, rt
+}
+
+func (ss *SharedServer) handleReleasePacket(c releasePacketCmd, state sharedState, rt *sharedRuntime) (sharedState, *sharedRuntime) {
+	if rt != nil {
+		ss.unregisterPacketRoute(rt, c.domain, c.port)
+		if rt.routeCount <= 0 {
+			c.reply <- struct{}{}
+			return sharedIdle, rt
+		}
+	}
+	c.reply <- struct{}{}
+	return state, rt
+}
+
+func (ss *SharedServer) handleWatchUpdate(c watchUpdateCmd, rt *sharedRuntime) {
+	if rt == nil || c.gen != rt.gen {
 		return
 	}
-
-	ss.mu.Unlock()
+	if c.url != "" {
+		rt.url = c.url
+	}
+	for sub := range rt.subs {
+		select {
+		case sub.ch <- c.evt:
+		default:
+			ss.log.Warn().Msg("dropping shared server event: subscriber channel full")
+		}
+	}
+	if c.evt.Status == model.ProxyStatusRunning && !rt.certInFlight {
+		rt.certInFlight = true
+		go ss.getCertificates(rt.ctx, rt.gen, rt.lc, rt.tsServer)
+	}
 }
 
-func (ss *SharedServer) Start(ctx context.Context) error {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-
-	ss.waitForStop()
-
-	if ss.started {
-		return nil
+func (ss *SharedServer) handleCertDone(c certDoneCmd, rt *sharedRuntime) {
+	if rt != nil && c.gen == rt.gen {
+		rt.certInFlight = false
 	}
-
-	if err := ss.start(); err != nil {
-		return err
-	}
-
-	ss.watchOnce.Do(func() {
-		done := make(chan struct{})
-		ss.watchDone = done
-		go ss.watchStatus(ss.ctx, done)
-	})
-
-	return nil
 }
 
-func (ss *SharedServer) start() error {
+func (ss *SharedServer) handleGetURL(c getURLCmd, rt *sharedRuntime) {
+	url := ""
+	if rt != nil {
+		url = rt.url
+	}
+	c.reply <- url
+}
+
+func (ss *SharedServer) handleGetLocalClient(c getLocalClientCmd, rt *sharedRuntime) {
+	var lc *local.Client
+	if rt != nil {
+		lc = rt.lc
+	}
+	c.reply <- lc
+}
+
+func (ss *SharedServer) handleSubscribe(c subscribeCmd, rt *sharedRuntime) *sharedRuntime {
+	if rt == nil {
+		rt = &sharedRuntime{
+			subs: make(map[*sharedEventSub]struct{}),
+		}
+	}
+	sub := &sharedEventSub{
+		ch: make(chan model.ProxyEvent, 16), //nolint:mnd
+	}
+	rt.subs[sub] = struct{}{}
+	c.reply <- sub.ch
+	return rt
+}
+
+func (ss *SharedServer) handleUnsubscribe(c unsubscribeCmd, rt *sharedRuntime) {
+	if rt != nil {
+		for sub := range rt.subs {
+			if sub.ch == c.ch {
+				sub.once.Do(func() { close(sub.ch) })
+				delete(rt.subs, sub)
+				break
+			}
+		}
+	}
+	c.reply <- struct{}{}
+}
+
+// startRuntime creates a new tsnet.Server, starts it, and begins watching status.
+// If an existing subscriber-only runtime is passed, its subscribers are transferred.
+func (ss *SharedServer) startRuntime(prevRT *sharedRuntime, gen int) *sharedRuntime {
 	controlURL := ss.controlURL
 	if controlURL == "" {
 		controlURL = model.DefaultTailscaleControlURL
 	}
 
-	ss.tsServer = &tsnet.Server{
-		Hostname:  ss.hostname,
-		AuthKey:   ss.authKey,
-		Dir:       ss.datadir,
-		Ephemeral: ss.ephemeral,
-		UserLogf: func(format string, args ...any) {
-			ss.log.Info().Msgf(format, args...)
-		},
-		Logf: func(format string, args ...any) {
-			ss.log.Trace().Msgf(format, args...)
-		},
+	ctx, cancel := context.WithCancel(context.Background())
+
+	tsServer := &tsnet.Server{
+		Hostname:   ss.hostname,
+		AuthKey:    ss.authKey,
+		Dir:        ss.datadir,
+		Ephemeral:  ss.ephemeral,
 		ControlURL: controlURL,
+		UserLogf:   func(format string, args ...any) { ss.log.Info().Msgf(format, args...) },
+		Logf:       func(format string, args ...any) { ss.log.Trace().Msgf(format, args...) },
 	}
 
-	if err := ss.tsServer.Start(); err != nil {
-		return fmt.Errorf("tsnet start: %w", err)
+	if err := tsServer.Start(); err != nil {
+		ss.log.Error().Err(err).Msg("failed to start tsnet server")
+		cancel()
+		return nil
 	}
 
-	lc, err := ss.tsServer.LocalClient()
+	lc, err := tsServer.LocalClient()
 	if err != nil {
-		ss.tsServer.Close()
-		return fmt.Errorf("local client: %w", err)
+		ss.log.Error().Err(err).Msg("failed to get local client")
+		tsServer.Close()
+		cancel()
+		return nil
 	}
-	ss.lc = lc
-	ss.started = true
 
-	return nil
+	// Transfer subscribers from previous runtime if any.
+	subs := make(map[*sharedEventSub]struct{})
+	if prevRT != nil {
+		for sub := range prevRT.subs {
+			subs[sub] = struct{}{}
+		}
+	}
+
+	rt := &sharedRuntime{
+		gen:          gen,
+		ctx:          ctx,
+		cancel:       cancel,
+		tsServer:     tsServer,
+		lc:           lc,
+		listeners:    make(map[int]*portEntry),
+		packetRoutes: make(map[int]net.PacketConn),
+		subs:         subs,
+	}
+
+	// Start watcher.
+	watchDone := make(chan struct{})
+	rt.watchDone = watchDone
+	go ss.watchStatus(ctx, rt.gen, lc, watchDone)
+
+	return rt
 }
 
-func (ss *SharedServer) watchStatus(ctx context.Context, myDone chan struct{}) {
-	defer close(myDone)
+// registerRoute registers a domain on the given port, creating the port listener if needed.
+func (ss *SharedServer) registerRoute(rt *sharedRuntime, domain string, port int, protocol string) (*VirtualListener, net.Listener, error) {
+	entry, exists := rt.listeners[port]
 
-	ss.mu.RLock()
-	lc := ss.lc
-	ss.mu.RUnlock()
+	switch protocol {
+	case model.ProtoHTTPS, model.ProtoHTTP:
+		if !exists {
+			if _, udpExists := rt.packetRoutes[port]; udpExists {
+				return nil, nil, fmt.Errorf("port %d already in use as UDP port", port)
+			}
+
+			addr := ":" + strconv.Itoa(port)
+			l, err := rt.tsServer.Listen("tcp", addr)
+			if err != nil {
+				return nil, nil, fmt.Errorf("listen on port %d: %w", port, err)
+			}
+
+			mode := RouteSNI
+			if protocol == model.ProtoHTTP {
+				mode = RouteHTTPHost
+			}
+
+			router := NewPortRouter(mode, ss.log.With().Int("port", port).Logger())
+			entry = &portEntry{
+				listener: l,
+				router:   router,
+			}
+			rt.listeners[port] = entry
+			go router.Serve(l)
+		}
+
+		if entry.router == nil {
+			return nil, nil, fmt.Errorf("port %d is already in use as a direct (TCP/UDP) port", port)
+		}
+
+		expectedMode := RouteSNI
+		if protocol == model.ProtoHTTP {
+			expectedMode = RouteHTTPHost
+		}
+		if entry.router.mode != expectedMode {
+			return nil, nil, fmt.Errorf("port %d routing mode conflict: already %v, requested %v", port, entry.router.mode, expectedMode)
+		}
+
+		vl, err := entry.router.Register(domain)
+		if err != nil {
+			return nil, nil, err
+		}
+		rt.routeCount++
+		ss.log.Info().Str("domain", domain).Int("port", port).Str("protocol", protocol).Msg("domain registered with shared server")
+		return vl, nil, nil
+
+	case model.ProtoTCP:
+		if exists {
+			return nil, nil, fmt.Errorf("port %d already claimed by %q", port, entry.owner)
+		}
+		if _, udpExists := rt.packetRoutes[port]; udpExists {
+			return nil, nil, fmt.Errorf("port %d already in use as UDP port", port)
+		}
+
+		addr := ":" + strconv.Itoa(port)
+		l, err := rt.tsServer.Listen("tcp", addr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("listen on port %d: %w", port, err)
+		}
+
+		rt.listeners[port] = &portEntry{
+			listener: l,
+			owner:    domain,
+		}
+		rt.routeCount++
+		ss.log.Info().Str("domain", domain).Int("port", port).Str("protocol", protocol).Msg("TCP port registered with shared server")
+		return nil, l, nil
+
+	default:
+		return nil, nil, fmt.Errorf("unsupported protocol %q for shared proxy TCP routing", protocol)
+	}
+}
+
+func (ss *SharedServer) registerPacketRoute(rt *sharedRuntime, domain string, port int) (net.PacketConn, error) {
+	if _, exists := rt.listeners[port]; exists {
+		return nil, fmt.Errorf("port %d already in use", port)
+	}
+	if _, exists := rt.packetRoutes[port]; exists {
+		return nil, fmt.Errorf("UDP port %d already claimed", port)
+	}
+
+	addr := ":" + strconv.Itoa(port)
+	pc, err := rt.tsServer.ListenPacket("udp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen packet on port %d: %w", port, err)
+	}
+	rt.packetRoutes[port] = pc
+	rt.routeCount++
+	ss.log.Info().Str("domain", domain).Int("port", port).Str("protocol", "udp").Msg("UDP port registered with shared server")
+	return pc, nil
+}
+
+// unregisterRoute removes a domain registration from the given port.
+func (ss *SharedServer) unregisterRoute(rt *sharedRuntime, domain string, port int, protocol string) {
+	entry, ok := rt.listeners[port]
+	if !ok {
+		return
+	}
+
+	switch protocol {
+	case model.ProtoHTTPS, model.ProtoHTTP:
+		if entry.router != nil && entry.router.Unregister(domain) {
+			rt.routeCount--
+			if entry.router.IsEmpty() {
+				entry.router.CloseAll()
+				entry.listener.Close()
+				delete(rt.listeners, port)
+			}
+		}
+	case model.ProtoTCP:
+		entry.listener.Close()
+		delete(rt.listeners, port)
+		rt.routeCount--
+	}
+}
+
+func (ss *SharedServer) unregisterPacketRoute(rt *sharedRuntime, domain string, port int) {
+	if pc, ok := rt.packetRoutes[port]; ok {
+		pc.Close()
+		delete(rt.packetRoutes, port)
+		rt.routeCount--
+		ss.log.Info().Str("domain", domain).Int("port", port).Msg("UDP port unregistered from shared server")
+	}
+}
+
+// stopRuntime tears down the tsnet server, all listeners, and notifies subscribers.
+func (ss *SharedServer) stopRuntime(rt *sharedRuntime) {
+	for _, pc := range rt.packetRoutes {
+		pc.Close()
+	}
+
+	for _, entry := range rt.listeners {
+		if entry.router != nil {
+			entry.router.CloseAll()
+		}
+		if entry.listener != nil {
+			entry.listener.Close()
+		}
+	}
+
+	// Close tsnet server.
+	if rt.tsServer != nil {
+		rt.tsServer.Close()
+	}
+
+	// Cancel context (signals watchStatus to stop).
+	if rt.cancel != nil {
+		rt.cancel()
+	}
+
+	// Wait for watcher to finish.
+	if rt.watchDone != nil {
+		<-rt.watchDone
+	}
+
+	// Close all subscriber channels.
+	for sub := range rt.subs {
+		sub.once.Do(func() { close(sub.ch) })
+	}
+}
+
+// watchStatus is a pure event producer. It sends watchUpdateCmd events to the loop.
+func (ss *SharedServer) watchStatus(ctx context.Context, gen int, lc *local.Client, done chan struct{}) {
+	defer close(done)
+
 	if lc == nil {
 		ss.log.Error().Msg("shared server watchStatus: local client is nil")
 		return
@@ -263,7 +747,16 @@ func (ss *SharedServer) watchStatus(ctx context.Context, myDone chan struct{}) {
 		if n.ErrMessage != nil {
 			errMsg := *n.ErrMessage
 			ss.log.Error().Str("error", errMsg).Msg("shared server watchStatus: backend")
-			ss.sendEvent(model.ProxyEvent{Status: model.ProxyStatusError})
+
+			if strings.Contains(errMsg, "invalid key") {
+				ss.log.Error().Msg(
+					"the auth key may be invalid, expired, or the tailnet policy requires" +
+						" hardware attestation (not supported by tsnet)." +
+						" Verify the key is correct and check tailnet policy settings.",
+				)
+			}
+
+			ss.sendProducer(ctx, watchUpdateCmd{gen: gen, evt: model.ProxyEvent{Status: model.ProxyStatusError}})
 			return
 		}
 
@@ -278,200 +771,160 @@ func (ss *SharedServer) watchStatus(ctx context.Context, myDone chan struct{}) {
 
 		switch status.BackendState {
 		case "NeedsLogin":
-			ss.log.Info().Msg("shared server in NeedsLogin state")
-			ss.sendEvent(model.ProxyEvent{Status: model.ProxyStatusAuthenticating})
+			if status.AuthURL != "" {
+				ss.log.Info().Msg("shared server in NeedsLogin state, waiting for interactive auth")
+			} else {
+				ss.log.Info().Msg(
+					"shared server in NeedsLogin state without an auth URL." +
+						" This indicates stale tsnet state (e.g. after power loss, reboot, or changing ephemeral)." +
+						" Restart tsdproxy to auto-recover, or manually delete the shared server data directory.",
+				)
+			}
+			ss.sendProducer(ctx, watchUpdateCmd{gen: gen, evt: model.ProxyEvent{Status: model.ProxyStatusAuthenticating}})
 		case "Starting":
-			ss.sendEvent(model.ProxyEvent{Status: model.ProxyStatusStarting})
+			ss.sendProducer(ctx, watchUpdateCmd{gen: gen, evt: model.ProxyEvent{Status: model.ProxyStatusStarting}})
 		case "Running":
 			if status.Self == nil {
 				ss.log.Warn().Msg("shared server status Self is nil, skipping")
 				continue
 			}
 			dnsName := strings.TrimRight(status.Self.DNSName, ".")
-			ss.mu.Lock()
-			ss.url = dnsName
-			ss.mu.Unlock()
-			ss.sendEvent(model.ProxyEvent{Status: model.ProxyStatusRunning})
-			go ss.getTLSCertificates(ctx)
+			ss.sendProducer(ctx, watchUpdateCmd{gen: gen, evt: model.ProxyEvent{Status: model.ProxyStatusRunning}, url: dnsName})
 		}
 	}
 }
 
-func (ss *SharedServer) getTLSCertificates(ctx context.Context) {
-	ss.mu.RLock()
-	lc := ss.lc
-	tsServer := ss.tsServer
-	certSem := ss.certSem
-	ss.mu.RUnlock()
+// getCertificates is a pure event producer. It sends certDoneCmd when finished.
+func (ss *SharedServer) getCertificates(ctx context.Context, gen int, lc *local.Client, tsServer *tsnet.Server) {
+	defer func() {
+		ss.sendProducer(ctx, certDoneCmd{gen: gen})
+	}()
 
-	if lc == nil || tsServer == nil || certSem == nil {
-		return
-	}
-
-	certCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	if err := certSem.Acquire(certCtx, 1); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			ss.log.Error().Err(err).Msg("failed to acquire cert semaphore")
-		}
-		return
-	}
-	defer certSem.Release(1)
-
-	ss.log.Info().Msg("Generating TLS certificate for shared server")
-	certDomains := tsServer.CertDomains()
-	if len(certDomains) == 0 {
-		ss.log.Warn().Msg("no certificate domains available")
-		return
-	}
-
-	if _, _, err := lc.CertPair(certCtx, certDomains[0]); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			ss.log.Error().Err(err).Msg("error getting TLS certificates for shared server")
-		}
-		return
-	}
-	ss.log.Info().Msg("TLS certificate generated for shared server")
+	acquireCert(ctx, lc, tsServer, ss.certSem, ss.log)
 }
 
-func (ss *SharedServer) sendEvent(status model.ProxyEvent) {
-	ss.mu.RLock()
-	defer ss.mu.RUnlock()
+// Public methods — thin wrappers that send a command and wait for the reply.
 
-	for sub := range ss.subs {
-		select {
-		case sub.ch <- status:
-		default:
-			ss.log.Warn().Msg("dropping shared server event: subscriber channel full")
-		}
+// Acquire registers a domain on the given port, starting the tsnet server if needed.
+func (ss *SharedServer) Acquire(domain string, port int, protocol string) (*VirtualListener, net.Listener, error) {
+	cmd := acquireCmd{domain: domain, port: port, protocol: protocol, reply: make(chan acquireResult, 1)}
+	if !ss.sendPublic(cmd) {
+		return nil, nil, errors.New("shared server closed")
+	}
+	select {
+	case result := <-cmd.reply:
+		return result.vl, result.direct, result.err
+	case <-ss.done:
+		return nil, nil, errors.New("shared server closed")
+	}
+}
+
+func (ss *SharedServer) Release(domain string, port int, protocol string) {
+	cmd := releaseCmd{domain: domain, port: port, protocol: protocol, reply: make(chan struct{}, 1)}
+	if !ss.sendPublic(cmd) {
+		return
+	}
+	select {
+	case <-cmd.reply:
+	case <-ss.done:
+	}
+}
+
+func (ss *SharedServer) AcquirePacket(domain string, port int) (net.PacketConn, error) {
+	cmd := acquirePacketCmd{domain: domain, port: port, reply: make(chan acquirePacketResult, 1)}
+	if !ss.sendPublic(cmd) {
+		return nil, errors.New("shared server closed")
+	}
+	select {
+	case result := <-cmd.reply:
+		return result.pc, result.err
+	case <-ss.done:
+		return nil, errors.New("shared server closed")
+	}
+}
+
+func (ss *SharedServer) ReleasePacket(domain string, port int) {
+	cmd := releasePacketCmd{domain: domain, port: port, reply: make(chan struct{}, 1)}
+	if !ss.sendPublic(cmd) {
+		return
+	}
+	select {
+	case <-cmd.reply:
+	case <-ss.done:
+	}
+}
+
+// Close shuts down the shared server permanently.
+func (ss *SharedServer) Close() {
+	if ss.closed.Load() {
+		return
+	}
+	cmd := closeCmd{reply: make(chan error, 1)}
+	if !ss.sendPublic(cmd) {
+		return
+	}
+	select {
+	case <-cmd.reply:
+	case <-ss.done:
+	}
+}
+
+// GetURL returns the current Tailscale DNS name, or empty string if not running.
+func (ss *SharedServer) GetURL() string {
+	cmd := getURLCmd{reply: make(chan string, 1)}
+	if !ss.sendPublic(cmd) {
+		return ""
+	}
+	select {
+	case v := <-cmd.reply:
+		return v
+	case <-ss.done:
+		return ""
+	}
+}
+
+// GetLocalClient returns the Tailscale local client, or nil if not running.
+func (ss *SharedServer) GetLocalClient() *local.Client {
+	cmd := getLocalClientCmd{reply: make(chan *local.Client, 1)}
+	if !ss.sendPublic(cmd) {
+		return nil
+	}
+	select {
+	case lc := <-cmd.reply:
+		return lc
+	case <-ss.done:
+		return nil
 	}
 }
 
 // SubscribeEvents returns a channel that receives status events from the
 // shared server. Call UnsubscribeEvents to clean up.
 func (ss *SharedServer) SubscribeEvents() chan model.ProxyEvent {
-	sub := &sharedEventSub{
-		ch: make(chan model.ProxyEvent, 16), //nolint:mnd
+	cmd := subscribeCmd{reply: make(chan chan model.ProxyEvent, 1)}
+	if !ss.sendPublic(cmd) {
+		return nil
 	}
-	ss.mu.Lock()
-	ss.subs[sub] = struct{}{}
-	ss.mu.Unlock()
-	return sub.ch
+	select {
+	case ch := <-cmd.reply:
+		return ch
+	case <-ss.done:
+		return nil
+	}
 }
 
 // UnsubscribeEvents removes an event subscription.
 func (ss *SharedServer) UnsubscribeEvents(ch chan model.ProxyEvent) {
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	for sub := range ss.subs {
-		if sub.ch == ch {
-			sub.once.Do(func() { close(sub.ch) })
-			delete(ss.subs, sub)
-			return
-		}
-	}
-}
-
-func (ss *SharedServer) shutdownState() {
-	for _, pl := range ss.listeners {
-		pl.router.CloseAll()
-		pl.listener.Close()
-	}
-	ss.listeners = make(map[int]*sniPortListener)
-
-	if ss.tsServer != nil {
-		ss.tsServer.Close()
-	}
-	ss.cancel()
-	ss.started = false
-	ss.url = ""
-
-	ss.watchOnce = sync.Once{}
-	ss.closeOnce = sync.Once{}
-
-	ss.ctx, ss.cancel = context.WithCancel(context.Background())
-
-	ss.closeOnce.Do(func() {
-		for sub := range ss.subs {
-			sub.once.Do(func() { close(sub.ch) })
-		}
-		ss.subs = make(map[*sharedEventSub]struct{})
-	})
-}
-
-func (ss *SharedServer) shutdown() {
-	ss.shutdownState()
-}
-
-func (ss *SharedServer) GetURL() string {
-	ss.mu.RLock()
-	defer ss.mu.RUnlock()
-	return ss.url
-}
-
-func (ss *SharedServer) GetLocalClient() *local.Client {
-	ss.mu.RLock()
-	defer ss.mu.RUnlock()
-	return ss.lc
-}
-
-func (ss *SharedServer) Whois(r *http.Request) model.Whois {
-	ss.mu.RLock()
-	lc := ss.lc
-	ss.mu.RUnlock()
-	if lc == nil {
-		return model.Whois{}
-	}
-	who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
-	if err != nil {
-		return model.Whois{}
-	}
-
-	if who.UserProfile == nil {
-		return model.Whois{}
-	}
-
-	if who.Node != nil && who.Node.IsTagged() {
-		return model.Whois{}
-	}
-
-	return model.Whois{
-		DisplayName:   who.UserProfile.DisplayName,
-		Username:      who.UserProfile.LoginName,
-		ID:            who.UserProfile.ID.String(),
-		ProfilePicURL: who.UserProfile.ProfilePicURL,
-	}
-}
-
-func (ss *SharedServer) Close() {
-	ss.mu.Lock()
-
-	if !ss.started {
-		ss.closeOnce.Do(func() {
-			for sub := range ss.subs {
-				sub.once.Do(func() { close(sub.ch) })
-			}
-			ss.subs = make(map[*sharedEventSub]struct{})
-		})
-		ss.mu.Unlock()
+	cmd := unsubscribeCmd{ch: ch, reply: make(chan struct{}, 1)}
+	if !ss.sendPublic(cmd) {
 		return
 	}
-
-	watchDone := ss.watchDone
-	stopCh := make(chan struct{})
-	ss.stopping = stopCh
-	ss.mu.Unlock()
-
-	ss.cancel()
-
-	if watchDone != nil {
-		<-watchDone
+	select {
+	case <-cmd.reply:
+	case <-ss.done:
 	}
+}
 
-	ss.mu.Lock()
-	ss.stopping = nil
-	close(stopCh)
-	ss.shutdown()
-	ss.mu.Unlock()
+// Whois returns identity information for the request's remote address.
+func (ss *SharedServer) Whois(r *http.Request) model.Whois {
+	return whoisFromLocalClient(ss.GetLocalClient(), r)
 }

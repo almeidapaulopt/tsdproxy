@@ -10,13 +10,14 @@ import (
 )
 
 // VirtualListener implements net.Listener backed by a channel.
-// The SNI router dispatches connections to it via Dispatch().
+// The port router dispatches connections to it via Dispatch().
 type VirtualListener struct {
 	addr   net.Addr
 	ch     chan net.Conn
 	done   chan struct{}
 	once   sync.Once
 	closed atomic.Bool
+	mu     sync.Mutex // serializes Dispatch vs Close
 }
 
 func NewVirtualListener(addr net.Addr) *VirtualListener {
@@ -41,8 +42,17 @@ func (vl *VirtualListener) Accept() (net.Conn, error) {
 
 func (vl *VirtualListener) Close() error {
 	vl.once.Do(func() {
+		vl.mu.Lock()
 		vl.closed.Store(true)
+		close(vl.ch)
+		vl.mu.Unlock()
+
 		close(vl.done)
+
+		// Drain buffered connections to prevent resource leaks.
+		for conn := range vl.ch {
+			conn.Close()
+		}
 	})
 	return nil
 }
@@ -52,20 +62,20 @@ func (vl *VirtualListener) Addr() net.Addr {
 }
 
 // Dispatch sends a connection to this virtual listener.
-// Called by the SNI router. Non-blocking; drops if listener is closed.
+// Called by the port router. Non-blocking; drops if listener is closed.
 func (vl *VirtualListener) Dispatch(conn net.Conn) bool {
+	vl.mu.Lock()
 	if vl.closed.Load() {
+		vl.mu.Unlock()
 		conn.Close()
 		return false
 	}
-
 	select {
 	case vl.ch <- conn:
+		vl.mu.Unlock()
 		return true
-	case <-vl.done:
-		conn.Close()
-		return false
 	default:
+		vl.mu.Unlock()
 		conn.Close()
 		return false
 	}

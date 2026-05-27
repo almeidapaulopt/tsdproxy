@@ -384,12 +384,6 @@ func (c *Client) newSharedProxy(config *model.Config) (proxyproviders.ProxyInter
 		return nil, errors.New("shared proxy provider requires a domain to be set on each proxy")
 	}
 
-	for portName, portCfg := range config.Ports {
-		if portCfg.ProxyProtocol != model.ProtoHTTPS {
-			return nil, fmt.Errorf("shared proxy provider only supports HTTPS ports, port %q is %s", portName, portCfg.ProxyProtocol)
-		}
-	}
-
 	return &SharedProxy{
 		log:    c.log.With().Str("Hostname", config.Hostname).Str("domain", domain).Logger(),
 		config: config,

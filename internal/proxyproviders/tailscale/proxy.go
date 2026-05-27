@@ -159,7 +159,7 @@ func (p *Proxy) GetListener(port string) (net.Listener, error) {
 	}
 
 	network := portCfg.ProxyProtocol
-	if portCfg.ProxyProtocol == "http" || portCfg.ProxyProtocol == "https" || portCfg.ProxyProtocol == "udp" {
+	if portCfg.ProxyProtocol == model.ProtoHTTP || portCfg.ProxyProtocol == model.ProtoHTTPS || portCfg.ProxyProtocol == model.ProtoUDP {
 		network = "tcp"
 	}
 	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
@@ -167,7 +167,7 @@ func (p *Proxy) GetListener(port string) (net.Listener, error) {
 	if portCfg.Tailscale.Funnel {
 		return p.tsServer.ListenFunnel(network, addr)
 	}
-	if portCfg.ProxyProtocol == "https" {
+	if portCfg.ProxyProtocol == model.ProtoHTTPS {
 		return p.tsServer.ListenTLS(network, addr)
 	}
 	return p.tsServer.Listen(network, addr)
@@ -195,7 +195,7 @@ func (p *Proxy) GetPacketConn(port string) (net.PacketConn, error) {
 	}
 
 	addr := ip4.String() + ":" + strconv.Itoa(portCfg.ProxyPort)
-	return p.tsServer.ListenPacket("udp", addr)
+	return p.tsServer.ListenPacket(model.ProtoUDP, addr)
 }
 
 func (p *Proxy) waitForIP(ctx context.Context) (netip.Addr, error) {
@@ -243,32 +243,7 @@ func (p *Proxy) Whois(r *http.Request) model.Whois {
 	p.mtx.RLock()
 	lc := p.lc
 	p.mtx.RUnlock()
-	if lc == nil {
-		return model.Whois{}
-	}
-	who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
-	if err != nil {
-		return model.Whois{}
-	}
-
-	if who.UserProfile == nil {
-		return model.Whois{}
-	}
-
-	// Reject tagged nodes — their UserProfile is the pseudo-user
-	// "tagged-devices", not a real user identity. Without this check,
-	// any tagged container in the tailnet could spoof as a user and
-	// call admin endpoints or access allowlist-gated proxies.
-	if who.Node != nil && who.Node.IsTagged() {
-		return model.Whois{}
-	}
-
-	return model.Whois{
-		DisplayName:   who.UserProfile.DisplayName,
-		Username:      who.UserProfile.LoginName,
-		ID:            who.UserProfile.ID.String(),
-		ProfilePicURL: who.UserProfile.ProfilePicURL,
-	}
+	return whoisFromLocalClient(lc, r)
 }
 
 func (p *Proxy) watchStatus() {
@@ -390,45 +365,12 @@ func (p *Proxy) getTLSCertificates() {
 	tsServer := p.tsServer
 	p.mtx.Unlock()
 
-	if lc == nil || tsServer == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(p.ctx, 2*time.Minute)
-	defer cancel()
-
-	waitStart := time.Now()
-	if err := p.certSem.Acquire(ctx, 1); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			p.log.Error().Err(err).Msg("failed to acquire cert semaphore")
-		}
-		return
-	}
-	defer p.certSem.Release(1)
-
-	if wait := time.Since(waitStart); wait > time.Second {
-		p.log.Warn().Dur("wait", wait).Msg("cert generation delayed by semaphore contention")
-	}
-
-	p.log.Info().Msg("Generating TLS certificate")
-	certDomains := tsServer.CertDomains()
-	if len(certDomains) == 0 {
-		p.log.Warn().Msg("no certificate domains available")
-		return
-	}
-
-	if _, _, err := lc.CertPair(ctx, certDomains[0]); err != nil {
-		if !errors.Is(err, context.Canceled) {
-			p.log.Error().Err(err).Msg("error to get TLS certificates")
-		}
-		return
-	}
-	p.log.Info().Msg("TLS certificate generated")
+	acquireCert(p.ctx, lc, tsServer, p.certSem, p.log)
 }
 
 func (p *Proxy) hasHTTPSPort() bool {
 	for _, port := range p.config.Ports {
-		if port.ProxyProtocol == "https" {
+		if port.ProxyProtocol == model.ProtoHTTPS {
 			return true
 		}
 	}
