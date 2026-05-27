@@ -82,46 +82,43 @@ func buildClientHelloNoSNI() []byte {
 	return record
 }
 
-func TestExtractSNI(t *testing.T) {
+func TestClientHelloServerName(t *testing.T) {
 	t.Parallel()
 
 	data := buildClientHello("example.com")
 	br := bufio.NewReaderSize(bytes.NewReader(data), 16384)
 
-	sni, err := extractSNI(br)
-	if err != nil {
-		t.Fatalf("extractSNI returned error: %v", err)
-	}
+	sni := clientHelloServerName(br)
 	if sni != "example.com" {
 		t.Fatalf("expected SNI %q, got %q", "example.com", sni)
 	}
 }
 
-func TestExtractSNIEmpty(t *testing.T) {
+func TestClientHelloServerNameEmpty(t *testing.T) {
 	t.Parallel()
 
 	data := buildClientHelloNoSNI()
 	br := bufio.NewReaderSize(bytes.NewReader(data), 16384)
 
-	_, err := extractSNI(br)
-	if !errors.Is(err, errNoSNI) {
-		t.Fatalf("expected errNoSNI, got: %v", err)
+	sni := clientHelloServerName(br)
+	if sni != "" {
+		t.Fatalf("expected empty SNI, got %q", sni)
 	}
 }
 
-func TestExtractSNIInvalidHandshake(t *testing.T) {
+func TestClientHelloServerNameInvalidHandshake(t *testing.T) {
 	t.Parallel()
 
 	record := []byte{0x17, 0x03, 0x01, 0x00, 0x02, 0x00, 0x00} // non-handshake type
 	br := bufio.NewReaderSize(bytes.NewReader(record), 16384)
 
-	_, err := extractSNI(br)
-	if !errors.Is(err, errNotHandshake) {
-		t.Fatalf("expected errNotHandshake, got: %v", err)
+	sni := clientHelloServerName(br)
+	if sni != "" {
+		t.Fatalf("expected empty SNI for non-handshake, got %q", sni)
 	}
 }
 
-func TestExtractSNINotClientHello(t *testing.T) {
+func TestClientHelloServerNameNotClientHello(t *testing.T) {
 	t.Parallel()
 
 	hello := make([]byte, 0)
@@ -146,16 +143,19 @@ func TestExtractSNINotClientHello(t *testing.T) {
 
 	br := bufio.NewReaderSize(bytes.NewReader(record), 16384)
 
-	_, err := extractSNI(br)
-	if !errors.Is(err, errNotClientHello) {
-		t.Fatalf("expected errNotClientHello, got: %v", err)
+	sni := clientHelloServerName(br)
+	if sni != "" {
+		t.Fatalf("expected empty SNI for non-ClientHello, got %q", sni)
 	}
 }
 
-func TestSNIRouterRegisterAndServe(t *testing.T) {
-	router := NewSNIRouter(zerolog.Nop())
+func TestPortRouterRegisterAndServe(t *testing.T) {
+	router := NewPortRouter(RouteSNI, zerolog.Nop())
 
-	vl := router.Register("test.example.com")
+	vl, err := router.Register("test.example.com")
+	if err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
 
 	server, client := net.Pipe()
 
@@ -164,7 +164,7 @@ func TestSNIRouterRegisterAndServe(t *testing.T) {
 	}()
 
 	hello := buildClientHello("test.example.com")
-	_, err := client.Write(hello)
+	_, err = client.Write(hello)
 	if err != nil {
 		t.Fatalf("failed to write ClientHello: %v", err)
 	}
@@ -188,10 +188,13 @@ func TestSNIRouterRegisterAndServe(t *testing.T) {
 	vl.Close()
 }
 
-func TestSNIRouterUnknownDomain(t *testing.T) {
-	router := NewSNIRouter(zerolog.Nop())
+func TestPortRouterUnknownDomain(t *testing.T) {
+	router := NewPortRouter(RouteSNI, zerolog.Nop())
 
-	_ = router.Register("known.example.com")
+	_, err := router.Register("known.example.com")
+	if err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
 
 	server, client := net.Pipe()
 
@@ -202,7 +205,7 @@ func TestSNIRouterUnknownDomain(t *testing.T) {
 	}()
 
 	hello := buildClientHello("unknown.example.com")
-	_, err := client.Write(hello)
+	_, err = client.Write(hello)
 	if err != nil {
 		t.Fatalf("failed to write ClientHello: %v", err)
 	}
@@ -218,10 +221,13 @@ func TestSNIRouterUnknownDomain(t *testing.T) {
 	client.Close()
 }
 
-func TestSNIRouterUnregister(t *testing.T) {
-	router := NewSNIRouter(zerolog.Nop())
+func TestPortRouterUnregister(t *testing.T) {
+	router := NewPortRouter(RouteSNI, zerolog.Nop())
 
-	vl := router.Register("remove.example.com")
+	vl, err := router.Register("remove.example.com")
+	if err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
 	router.Unregister("remove.example.com")
 
 	server, client := net.Pipe()
@@ -233,7 +239,7 @@ func TestSNIRouterUnregister(t *testing.T) {
 	}()
 
 	hello := buildClientHello("remove.example.com")
-	_, err := client.Write(hello)
+	_, err = client.Write(hello)
 	if err != nil {
 		t.Fatalf("failed to write ClientHello: %v", err)
 	}
