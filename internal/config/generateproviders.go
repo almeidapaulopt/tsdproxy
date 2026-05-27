@@ -9,6 +9,8 @@ import (
 	"os"
 
 	"github.com/creasty/defaults"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 const (
@@ -74,7 +76,7 @@ func (c *config) generateTailscaleConfig() {
 	}
 
 	if authKey != "" {
-		ts.AuthKey = authKey
+		ts.AuthKey = secretstring.SecretString(authKey)
 	}
 	if authKeyFile != "" {
 		ts.AuthKeyFile = authKeyFile

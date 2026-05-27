@@ -3,6 +3,8 @@
 
 package config
 
+import "github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
+
 func SetTestConfig(dataDir, authKey string) {
 	Config = &config{
 		DefaultProxyProvider: "default",
@@ -12,7 +14,7 @@ func SetTestConfig(dataDir, authKey string) {
 		Providers: make(map[string]*TailscaleServerConfig),
 	}
 	Config.Tailscale.Providers["default"] = &TailscaleServerConfig{
-		AuthKey:    authKey,
+		AuthKey:    secretstring.SecretString(authKey),
 		ControlURL: "https://controlplane.tailscale.com",
 	}
 	Config.Docker = make(map[string]*DockerTargetProviderConfig)

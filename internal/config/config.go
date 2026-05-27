@@ -14,6 +14,8 @@ import (
 
 	"github.com/creasty/defaults"
 	"github.com/rs/zerolog/log"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 // ValidateKeyFilePath resolves symlinks and verifies the path points to a
@@ -53,7 +55,7 @@ type (
 		Tailscale            TailscaleProxyProviderConfig           `yaml:"tailscale"`
 		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
 		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
-		APIKey               string                                 `yaml:"apiKey,omitempty"`
+		APIKey               secretstring.SecretString              `yaml:"apiKey,omitempty"`
 		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"` //nolint:tagliatelle
 		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"` //nolint:tagliatelle
 		Admins               []string                               `yaml:"admins,omitempty"`
@@ -113,16 +115,16 @@ type (
 
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
-		AuthKey            string `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
-		AuthKeyFile        string `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
-		ClientID           string `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
-		ClientSecret       string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
-		Tags               string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
-		ControlURL         string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
-		Hostname           string `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
-		MaxCertConcurrency int64  `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
-		PreventDuplicates  bool   `default:"false" yaml:"preventDuplicates"`
-		Shared             bool   `default:"false" yaml:"shared"`
+		AuthKey            secretstring.SecretString `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
+		AuthKeyFile        string                    `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
+		ClientID           string                    `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
+		ClientSecret       secretstring.SecretString `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
+		Tags               string                    `default:"" validate:"omitempty" yaml:"tags,omitempty"`
+		ControlURL         string                    `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
+		Hostname           string                    `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
+		MaxCertConcurrency int64                     `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
+		PreventDuplicates  bool                      `default:"false" yaml:"preventDuplicates"`
+		Shared             bool                      `default:"false" yaml:"shared"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
@@ -138,9 +140,9 @@ type (
 	}
 
 	DNSProviderConfig struct {
-		Provider     string `validate:"required,oneof=cloudflare magicdns" yaml:"provider"`
-		APIToken     string `yaml:"apiToken,omitempty"`
-		APITokenFile string `yaml:"apiTokenFile,omitempty"`
+		Provider     string                    `validate:"required,oneof=cloudflare magicdns" yaml:"provider"`
+		APIToken     secretstring.SecretString `yaml:"apiToken,omitempty"`
+		APITokenFile string                    `yaml:"apiTokenFile,omitempty"`
 	}
 
 	TLSProviderConfig struct {
@@ -239,7 +241,7 @@ func (c *config) loadTailscaleAuthKeys() error {
 			if err != nil {
 				return err
 			}
-			d.AuthKey = authkey
+			d.AuthKey = secretstring.SecretString(authkey)
 		}
 	}
 
@@ -260,7 +262,7 @@ func (c *config) loadAPIKey() error {
 		return fmt.Errorf("API key file %q is empty", c.APIKeyFile)
 	}
 
-	c.APIKey = key
+	c.APIKey = secretstring.SecretString(key)
 
 	return nil
 }
@@ -274,7 +276,7 @@ func (c *config) loadDNSProviderTokens() error {
 		if err != nil {
 			return fmt.Errorf("error reading DNS provider %q API token file: %w", name, err)
 		}
-		d.APIToken = token
+		d.APIToken = secretstring.SecretString(token)
 	}
 
 	return nil
@@ -307,5 +309,22 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}
+	defer clear(data) // zero secret buffer after use
 	return strings.TrimSpace(string(data)), nil
+}
+
+// ClearSecrets wipes sensitive fields from memory after configuration is loaded.
+func (c *config) ClearSecrets() {
+	c.APIKey = ""
+	for _, p := range c.Tailscale.Providers {
+		if p != nil {
+			p.AuthKey = ""
+			p.ClientSecret = ""
+		}
+	}
+	for _, d := range c.DNSProviders {
+		if d != nil {
+			d.APIToken = ""
+		}
+	}
 }
