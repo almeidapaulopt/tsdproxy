@@ -50,7 +50,10 @@ security (see [GHSA-j8rq-87gr-gm9q](https://github.com/almeidapaulopt/tsdproxy/s
 If you expose the dashboard via Docker port mapping (`ports: "8080:8080"`), the
 server only listens on localhost **inside** the container — unreachable from the host.
 
-**Fix:** set `hostname` explicitly in your `tsdproxy.yaml`:
+**When running in Docker**, the hostname is automatically overridden to `0.0.0.0`,
+so no manual configuration is needed.
+
+**For non-Docker setups**, set `hostname` explicitly in your `tsdproxy.yaml`:
 
 ```yaml
 http:
@@ -69,6 +72,10 @@ Tailscale identity to authenticate with.
 ```yaml
 adminAllowLocalhost: true
 ```
+
+When `adminAllowLocalhost` is enabled, requests from loopback (`127.0.0.0/8`)
+and RFC 1918 private networks (including Docker bridge IPs like `172.17.0.1`)
+are trusted. This works correctly with Docker port mapping out of the box.
 
 > ⚠️ Anyone who can reach port 8080 on your host will have admin access.
 > If the port is exposed to a network, consider restricting it or using an

@@ -216,9 +216,12 @@ Configures the built-in HTTP server that serves the dashboard and health endpoin
 
 The bind address for the HTTP server. Defaults to `127.0.0.1` (localhost only).
 
+When running inside Docker, the hostname is automatically overridden to `0.0.0.0`
+so that port-mapped access (`-p 8080:8080`) works without manual configuration.
+
 > [!WARNING]
-> The default changed from `0.0.0.0` to `127.0.0.1` in the latest release for security.
-> If you need the dashboard accessible on all interfaces (e.g. via Docker port mapping),
+> The default changed from `0.0.0.0` to `127.0.0.1` in v2.2.0 for security.
+> If you need the dashboard accessible on all interfaces outside Docker,
 > set `hostname: 0.0.0.0` explicitly.
 
 ##### port
@@ -372,13 +375,18 @@ Use `/api/whoami` through a Tailscale connection to discover your ID.
 
 ##### adminAllowLocalhost
 
-When `true`, requests originating from `localhost` bypass the admin allowlist.
-Defaults to `false`. Intended only for bootstrapping — enable temporarily,
-then disable once your ID is in the list.
+When `true`, requests originating from loopback (`127.0.0.0/8`, `::1`) or
+RFC 1918 private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+bypass the admin allowlist. Defaults to `false`. Intended only for
+bootstrapping — enable temporarily, then disable once your ID is in the list.
+
+The private-network check enables `adminAllowLocalhost` to work with Docker
+port mapping, where requests arrive from the Docker bridge gateway
+(e.g. `172.17.0.1`) rather than `127.0.0.1`.
 
 > [!WARNING]
-> With `adminAllowLocalhost: true`, any process on the host can call admin
-> endpoints without authentication.
+> With `adminAllowLocalhost: true`, any process on the host or Docker
+> network can call admin endpoints without authentication.
 
 {{% /steps %}}
 

@@ -47,8 +47,9 @@ admins:
   - "12345"  # alice@github
   - "67890"  # bob@example.com
 
-# Permit localhost requests to bypass the allowlist (for bootstrapping).
-# Only enable this temporarily — any process on the host can then call
+# Permit localhost and private-network requests to bypass the allowlist (for bootstrapping).
+# This includes loopback (127.0.0.0/8, ::1) and RFC 1918 private IPs (Docker bridge, etc.).
+# Only enable this temporarily — any process on the host or Docker network can then call
 # admin endpoints.
 adminAllowLocalhost: false
 ```
@@ -58,7 +59,7 @@ adminAllowLocalhost: false
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `admins` | `[]string` | (empty) | List of Tailscale `UserProfile.ID` values. All tailnet users can view the dashboard; only listed IDs can perform admin actions. |
-| `adminAllowLocalhost` | `bool` | `false` | When `true`, requests from `127.0.0.0/8` or `::1` bypass the allowlist. Intended for bootstrapping only. |
+| `adminAllowLocalhost` | `bool` | `false` | When `true`, requests from loopback (`127.0.0.0/8`, `::1`) and RFC 1918 private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) bypass the allowlist. The private-network check enables `adminAllowLocalhost` to work with Docker port mapping, where requests arrive from the Docker bridge gateway rather than `127.0.0.1`. Intended for bootstrapping only. |
 | `apiKey` | `string` | (empty) | Static API key for non-Tailscale authentication. Grants full admin access. |
 | `apiKeyFile` | `string` | (empty) | Path to a file containing the API key. Takes precedence over `apiKey`. |
 
@@ -201,7 +202,9 @@ management endpoints. The fix includes:
   localhost by generating a random token at startup and validating with
   constant-time comparison
 - **Default bind address changed** — `http.hostname` defaults to `127.0.0.1`
-  instead of `0.0.0.0`, reducing the attack surface when TSDProxy starts
+  instead of `0.0.0.0`, reducing the attack surface when TSDProxy starts.
+  When running inside Docker, the hostname is automatically overridden to
+  `0.0.0.0` so port-mapped access works without manual configuration.
 
 If upgrading from a previous version, you may need to:
 
@@ -219,6 +222,11 @@ your Tailscale proxy URL (e.g., `https://dash-dev.<tailnet>.ts.net`).
 
 If you need local access for bootstrapping, temporarily set
 `adminAllowLocalhost: true`.
+
+> [!NOTE]
+> When running inside Docker, `adminAllowLocalhost: true` trusts requests
+> from the Docker bridge network (not just `127.0.0.1`), so it works
+> correctly with port mapping (`-p 8080:8080`).
 
 ### "access denied" (403)
 

@@ -39,6 +39,9 @@ weight: 500
 - Fix session cookie hardening — improved `Secure` and `HttpOnly` flag handling
 - Fix version `isDirty` data race — eliminate race condition in version reporting
 - Fix Tailscale OAuth scopes — narrowed to minimum required permissions
+- Fix `adminAllowLocalhost` not working with Docker port mapping — the localhost check now also trusts RFC 1918 private networks (Docker bridge IPs), not just loopback
+- Fix Docker deployments requiring manual `hostname: 0.0.0.0` — the hostname is now automatically overridden to `0.0.0.0` when running inside a container
+- Fix OAuth tag rejection error message — surfaces actionable guidance about OAuth client tag assignment when Tailscale returns a 400
 - Fix WatchEvents CPU spin loop — add reconnection backoff when Docker event stream disconnects
 - Fix proxy Start/Close race — add mutex for Start/Close exclusion, fix port double-close
 - Fix proxy lifecycle ordering — guard metrics writes and fix proxy lifecycle ordering
