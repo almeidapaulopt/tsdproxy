@@ -312,6 +312,13 @@ func (c *Client) getOAuth(cfg *model.Config) (string, error) {
 
 	authkey, err := tsclient.Keys().Create(ctx, ckr)
 	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "invalid or not permitted") {
+			return "", fmt.Errorf(
+				"OAuth token rejected for tags %v — ensure the tag is assigned to your OAuth client in the Tailscale admin console (Access Controls → OAuth clients) and listed in ACL tagOwners. Original error: %w",
+				capabilities.Devices.Create.Tags, err,
+			)
+		}
 		return "", fmt.Errorf("unable to get OAuth token: %w", err)
 	}
 
