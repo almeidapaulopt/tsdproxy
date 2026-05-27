@@ -5,12 +5,15 @@ package tailscale
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"sync"
 
 	"github.com/rs/zerolog"
+	"tailscale.com/client/local"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
@@ -22,20 +25,24 @@ var (
 )
 
 // SharedProxy implements proxyproviders.ProxyInterface for proxies that share
-// a single tsnet.Server via SNI routing.
+// a single tsnet.Server via port-based multiplexing (SNI, HTTP Host, or direct).
 type SharedProxy struct {
-	log        zerolog.Logger
-	config     *model.Config
-	shared     *SharedServer
-	vListeners map[string]*VirtualListener
-	events     chan model.ProxyEvent
-	domain     string
-	mtx        sync.RWMutex
-	closeOnce  sync.Once
-	started    bool
+	log             zerolog.Logger
+	config          *model.Config
+	shared          *SharedServer
+	vListeners      map[string]*VirtualListener
+	directListeners map[string]net.Listener
+	packetConns     map[string]net.PacketConn
+	events          chan model.ProxyEvent
+	forwarderDone   chan struct{}
+	stopCh          chan struct{}
+	domain          string
+	mtx             sync.RWMutex
+	closeOnce       sync.Once
+	started         bool
 }
 
-func (p *SharedProxy) Start(ctx context.Context) error {
+func (p *SharedProxy) Start(_ context.Context) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -43,47 +50,89 @@ func (p *SharedProxy) Start(ctx context.Context) error {
 		return nil
 	}
 
-	if err := p.shared.Start(ctx); err != nil {
-		return err
-	}
-
 	p.vListeners = make(map[string]*VirtualListener)
+	p.directListeners = make(map[string]net.Listener)
 
 	for portName, portCfg := range p.config.Ports {
-		if !p.needsSNI(&portCfg) {
-			continue
-		}
-
-		vl, err := p.shared.Acquire(p.domain, portCfg.ProxyPort)
-		if err != nil {
-			for name, v := range p.vListeners {
-				p.shared.Release(p.domain, p.config.Ports[name].ProxyPort)
-				v.Close()
+		switch portCfg.ProxyProtocol {
+		case model.ProtoHTTPS, model.ProtoHTTP:
+			vl, _, err := p.shared.Acquire(p.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
+			if err != nil {
+				p.rollbackAcquired()
+				return err
 			}
-			p.vListeners = nil
-			return err
+			p.vListeners[portName] = vl
+
+		case model.ProtoTCP:
+			_, direct, err := p.shared.Acquire(p.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
+			if err != nil {
+				p.rollbackAcquired()
+				return err
+			}
+			p.directListeners[portName] = direct
+
+		case model.ProtoUDP:
+			pc, err := p.shared.AcquirePacket(p.domain, portCfg.ProxyPort)
+			if err != nil {
+				p.rollbackAcquired()
+				return err
+			}
+			if p.packetConns == nil {
+				p.packetConns = make(map[string]net.PacketConn)
+			}
+			p.packetConns[portName] = pc
 		}
-		p.vListeners[portName] = vl
 	}
 
 	p.started = true
-
+	p.stopCh = make(chan struct{})
+	p.forwarderDone = make(chan struct{})
 	go p.forwardEvents()
 
 	return nil
 }
 
-func (p *SharedProxy) Close() error {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-
-	for portName, vl := range p.vListeners {
-		if portCfg, ok := p.config.Ports[portName]; ok {
-			p.shared.Release(p.domain, portCfg.ProxyPort)
+// releaseAllPorts releases all acquired routes and closes all listeners.
+// Must be called with p.mtx held.
+func (p *SharedProxy) releaseAllPorts() {
+	for name, vl := range p.vListeners {
+		if portCfg, ok := p.config.Ports[name]; ok {
+			p.shared.Release(p.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
 		}
 		vl.Close()
 	}
+	for name, l := range p.directListeners {
+		if portCfg, ok := p.config.Ports[name]; ok {
+			p.shared.Release(p.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
+		}
+		l.Close()
+	}
+	for name, pc := range p.packetConns {
+		if portCfg, ok := p.config.Ports[name]; ok {
+			p.shared.ReleasePacket(p.domain, portCfg.ProxyPort)
+		}
+		_ = pc // already closed by ReleasePacket → unregisterPacketRoute
+	}
 	p.vListeners = nil
+	p.directListeners = nil
+	p.packetConns = nil
+}
+
+func (p *SharedProxy) rollbackAcquired() {
+	p.releaseAllPorts()
+}
+
+func (p *SharedProxy) Close() error {
+	p.mtx.Lock()
+	p.releaseAllPorts()
+	if p.stopCh != nil {
+		close(p.stopCh)
+	}
+	p.mtx.Unlock()
+
+	if p.forwarderDone != nil {
+		<-p.forwarderDone
+	}
 
 	p.closeOnce.Do(func() {
 		close(p.events)
@@ -93,27 +142,61 @@ func (p *SharedProxy) Close() error {
 }
 
 func (p *SharedProxy) GetListener(port string) (net.Listener, error) {
-	p.mtx.RLock()
-	vl, ok := p.vListeners[port]
-	p.mtx.RUnlock()
-	if ok {
-		return vl, nil
-	}
-
 	portCfg, ok := p.config.Ports[port]
 	if !ok {
 		return nil, ErrProxyPortNotFound
 	}
 
-	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
-	return p.shared.tsServer.Listen("tcp", addr)
+	switch portCfg.ProxyProtocol {
+	case model.ProtoHTTPS:
+		p.mtx.RLock()
+		vl, ok := p.vListeners[port]
+		p.mtx.RUnlock()
+		if !ok {
+			return nil, ErrProxyPortNotFound
+		}
+		return tls.NewListener(vl, &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				lc := p.shared.GetLocalClient()
+				if lc == nil {
+					return nil, errors.New("shared server local client not available")
+				}
+				certPEM, keyPEM, err := lc.CertPair(hello.Context(), p.domain)
+				if err != nil {
+					return nil, fmt.Errorf("tailscale CertPair for %s: %w", p.domain, err)
+				}
+				cert, err := tls.X509KeyPair(certPEM, keyPEM)
+				if err != nil {
+					return nil, fmt.Errorf("parse cert for %s: %w", p.domain, err)
+				}
+				return &cert, nil
+			},
+		}), nil
+
+	case model.ProtoHTTP:
+		p.mtx.RLock()
+		vl, ok := p.vListeners[port]
+		p.mtx.RUnlock()
+		if !ok {
+			return nil, ErrProxyPortNotFound
+		}
+		return vl, nil
+
+	default:
+		return nil, ErrProxyPortNotFound
+	}
 }
 
 func (p *SharedProxy) GetRawTCPListener(port string) (net.Listener, error) {
 	p.mtx.RLock()
+	l, ok := p.directListeners[port]
+	if ok {
+		p.mtx.RUnlock()
+		return l, nil
+	}
 	vl, ok := p.vListeners[port]
 	p.mtx.RUnlock()
-
 	if !ok {
 		return nil, ErrProxyPortNotFound
 	}
@@ -121,13 +204,13 @@ func (p *SharedProxy) GetRawTCPListener(port string) (net.Listener, error) {
 }
 
 func (p *SharedProxy) GetPacketConn(port string) (net.PacketConn, error) {
-	portCfg, ok := p.config.Ports[port]
+	p.mtx.RLock()
+	pc, ok := p.packetConns[port]
+	p.mtx.RUnlock()
 	if !ok {
 		return nil, ErrProxyPortNotFound
 	}
-
-	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
-	return p.shared.tsServer.ListenPacket("udp", addr)
+	return pc, nil
 }
 
 func (p *SharedProxy) GetURL() string {
@@ -151,6 +234,10 @@ func (p *SharedProxy) Whois(r *http.Request) model.Whois {
 	return p.shared.Whois(r)
 }
 
+func (p *SharedProxy) GetLocalClient() *local.Client {
+	return p.shared.GetLocalClient()
+}
+
 func (p *SharedProxy) primaryScheme() string {
 	for _, port := range p.config.Ports {
 		return port.ProxyProtocol
@@ -158,19 +245,28 @@ func (p *SharedProxy) primaryScheme() string {
 	return model.ProtoHTTPS
 }
 
-func (p *SharedProxy) needsSNI(portCfg *model.PortConfig) bool {
-	return portCfg.ProxyProtocol == model.ProtoHTTPS
-}
-
 func (p *SharedProxy) forwardEvents() {
+	defer close(p.forwarderDone)
+
 	serverEvents := p.shared.SubscribeEvents()
+	if serverEvents == nil {
+		return
+	}
 	defer p.shared.UnsubscribeEvents(serverEvents)
 
-	for evt := range serverEvents {
+	for {
 		select {
-		case p.events <- evt:
-		default:
-			p.log.Warn().Msg("dropping proxy event: no listener")
+		case evt, ok := <-serverEvents:
+			if !ok {
+				return
+			}
+			select {
+			case p.events <- evt:
+			default:
+				p.log.Warn().Msg("dropping proxy event: no listener")
+			}
+		case <-p.stopCh:
+			return
 		}
 	}
 }
