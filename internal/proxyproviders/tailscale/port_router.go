@@ -20,15 +20,15 @@ import (
 type RoutingMode int
 
 const (
-	RouteSNI      RoutingMode = iota
+	RouteSNI RoutingMode = iota
 	RouteHTTPHost
 )
 
 type PortRouter struct {
 	log       zerolog.Logger
+	listeners map[string]*VirtualListener
 	mode      RoutingMode
 	mu        sync.RWMutex
-	listeners map[string]*VirtualListener
 }
 
 func NewPortRouter(mode RoutingMode, log zerolog.Logger) *PortRouter {
@@ -159,27 +159,27 @@ func clientHelloServerName(br *bufio.Reader) (sni string) {
 	if hdr[0] != recordTypeHandshake {
 		return ""
 	}
-	recLen := int(hdr[3])<<8 | int(hdr[4])
+	recLen := int(hdr[3])<<8 | int(hdr[4]) //nolint:mnd
 	helloBytes, err := br.Peek(recordHeaderLen + recLen)
 	if err != nil {
 		return ""
 	}
-	tls.Server(sniSniffConn{r: bytes.NewReader(helloBytes)}, &tls.Config{
+	_ = tls.Server(sniSniffConn{r: bytes.NewReader(helloBytes)}, &tls.Config{
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 			sni = hello.ServerName
-			return nil, nil
+			return nil, nil //nolint:nilnil // required by GetConfigForClient API to stop handshake
 		},
-	}).Handshake()
+	}).Handshake() //nolint:errcheck // handshake only extracts SNI; error is irrelevant
 	return
 }
 
 type sniSniffConn struct {
-	r        io.Reader
+	r io.Reader
 	net.Conn
 }
 
 func (c sniSniffConn) Read(p []byte) (int, error) { return c.r.Read(p) }
-func (sniSniffConn) Write(p []byte) (int, error)  { return 0, io.EOF }
+func (sniSniffConn) Write(_ []byte) (int, error)  { return 0, io.EOF }
 
 func httpHostHeader(br *bufio.Reader) string {
 	const maxPeek = 4 << 10 // 4KB
@@ -200,15 +200,17 @@ func httpHostHeader(br *bufio.Reader) string {
 
 	// Look for the end of headers (\r\n\r\n or \n\n).
 	// If we don't find it within the first 4KB, we stop.
+	delimLen := 4 //nolint:mnd
 	eofHeaders := bytes.Index(b, crlfcrlf)
 	if eofHeaders == -1 {
 		eofHeaders = bytes.Index(b, lflf)
+		delimLen = 2 //nolint:mnd
 	}
 
 	if eofHeaders != -1 {
 		// Found end of headers. Use http.ReadRequest for robust parsing.
-		// We only pass the headers part to ReadRequest.
-		req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(b[:eofHeaders+4])))
+		// We only pass the headers part (including delimiter) to ReadRequest.
+		req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(b[:eofHeaders+delimLen])))
 		if err != nil {
 			return ""
 		}
