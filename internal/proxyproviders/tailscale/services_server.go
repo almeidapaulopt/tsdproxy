@@ -49,17 +49,17 @@ func (f tsnetServerFactory) Close(sl *tsnet.ServiceListener) error {
 
 // ServicesServerConfig holds the configuration for creating a ServicesServer.
 type ServicesServerConfig struct {
-	Log              zerolog.Logger
-	Hostname         string
-	DataDir          string
-	AuthKey          string
-	ControlURL       string
-	ClientID         string
-	ClientSecret     string
-	Tags             string
-	Ephemeral        bool
-	VIPServiceAPI    vipServiceAPI          // optional, nil = production default
-	ListenerFactory  serviceListenerFactory // optional, nil = production default
+	Log             zerolog.Logger
+	VIPServiceAPI   vipServiceAPI
+	ListenerFactory serviceListenerFactory
+	Hostname        string
+	DataDir         string
+	AuthKey         string
+	ControlURL      string
+	ClientID        string
+	ClientSecret    string
+	Tags            string
+	Ephemeral       bool
 }
 
 // serviceEntry tracks a single service listener.
@@ -80,11 +80,11 @@ const (
 
 // servicesRuntime holds all mutable state owned exclusively by the loop goroutine.
 type servicesRuntime struct {
+	factory   serviceListenerFactory
 	cancel    context.CancelFunc
-	tsServer  *tsnet.Server            // nil in test mode
-	listeners map[string]*serviceEntry // "serviceName:port" → entry
+	tsServer  *tsnet.Server
+	listeners map[string]*serviceEntry
 	refCount  int
-	factory   serviceListenerFactory // always set: real tsnet.Server or test mock
 }
 
 // Command types for the state machine.
@@ -127,20 +127,20 @@ func (servicesIdleTimeoutCmd) svcCmd() {}
 // ServicesServer manages a shared, ref-counted tsnet.Server for services mode.
 // All mutable state is managed by a single event-loop goroutine.
 type ServicesServer struct {
-	log              zerolog.Logger
-	cmds             chan servicesCmd
-	done             chan struct{}
-	hostname         string
-	datadir          string
-	authKey          string
-	controlURL       string
-	clientID         string
-	clientSecret     string
-	tags             string
-	closed           atomic.Bool
-	ephemeral        bool
-	vipAPI           vipServiceAPI          // nil = production default
-	listenerFactory  serviceListenerFactory // nil = production default
+	log             zerolog.Logger
+	listenerFactory serviceListenerFactory
+	vipAPI          vipServiceAPI
+	cmds            chan servicesCmd
+	done            chan struct{}
+	controlURL      string
+	authKey         string
+	clientID        string
+	clientSecret    string
+	tags            string
+	datadir         string
+	hostname        string
+	closed          atomic.Bool
+	ephemeral       bool
 }
 
 // NewServicesServer creates a ServicesServer and starts the event loop.

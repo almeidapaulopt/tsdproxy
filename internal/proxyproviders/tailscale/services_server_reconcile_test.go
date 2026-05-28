@@ -22,10 +22,10 @@ type vipCall struct {
 }
 
 type mockVIPAPI struct {
-	createOrUpdateCalls []vipCall
-	deleteCalls         []string
 	createOrUpdateErr   error
 	deleteErr           error
+	createOrUpdateCalls []vipCall
+	deleteCalls         []string
 }
 
 func (m *mockVIPAPI) createOrUpdateVIPService(serviceName string, ports []string) error {
@@ -75,7 +75,7 @@ func defaultFactory() *mockListenerFactory {
 	return &mockListenerFactory{
 		fn: func(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
 			callNum++
-			return newFakeServiceListener(fmt.Sprintf("%s.tailnet.ts.net", name)), nil
+			return newFakeServiceListener(name + ".tailnet.ts.net"), nil
 		},
 	}
 }
