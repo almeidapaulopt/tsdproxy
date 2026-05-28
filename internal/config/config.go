@@ -158,7 +158,7 @@ func InitializeConfig() error {
 			log.Error().Err(err).Msg("error loading defaults")
 		}
 
-		applyDockerHostnameDefault()
+		applyDockerDefaults()
 
 		Config.generateDefaultProviders()
 		if err := fileConfig.Save(); err != nil {
@@ -173,7 +173,7 @@ func InitializeConfig() error {
 		log.Error().Err(err).Msg("error loading defaults")
 	}
 
-	applyDockerHostnameDefault()
+	applyDockerDefaults()
 
 	// load auth keys from files
 	for _, d := range Config.Tailscale.Providers {
@@ -210,15 +210,25 @@ func InitializeConfig() error {
 	return nil
 }
 
-// applyDockerHostnameDefault overrides the HTTP hostname from 127.0.0.1 to
-// 0.0.0.0 when running inside a Docker container. Outside Docker the default
-// remains 127.0.0.1 per GHSA-j8rq-87gr-gm9q to avoid exposing management
-// endpoints on the network. Inside Docker, 127.0.0.1 is unreachable via
-// port mapping, so 0.0.0.0 is required.
-func applyDockerHostnameDefault() {
-	if isRunningInDocker() && Config.HTTP.Hostname == "127.0.0.1" {
+// applyDockerDefaults adjusts configuration defaults when running inside a
+// Docker container.
+//
+// Outside Docker the defaults remain conservative (127.0.0.1 hostname,
+// adminAllowLocalhost false) per GHSA-j8rq-87gr-gm9q. Inside Docker these
+// values are impractical: 127.0.0.1 is unreachable via port mapping and
+// port-mapped dashboard requests arrive from the Docker bridge gateway
+// (private IP) without a Tailscale identity.
+func applyDockerDefaults() {
+	if !isRunningInDocker() {
+		return
+	}
+	if Config.HTTP.Hostname == "127.0.0.1" {
 		Config.HTTP.Hostname = "0.0.0.0"
 		log.Info().Msg("running in Docker: defaulting http.hostname to 0.0.0.0")
+	}
+	if !Config.AdminAllowLocalhost {
+		Config.AdminAllowLocalhost = true
+		log.Info().Msg("running in Docker: enabling adminAllowLocalhost")
 	}
 }
 
