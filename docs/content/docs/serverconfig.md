@@ -31,6 +31,7 @@ docker:
     targetHostname: host.docker.internal # hostname or IP of docker server (ex: host.docker.internal or 172.31.0.1)
     defaultProxyProvider: default # Default proxy provider for this Docker server
     autoRestart: true # (optional) Enable automatic re-resolution on backend failure (default: true)
+    healthCheckEnabled: true # (optional) Enable health probes (default: true)
     healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
     healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
     healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
@@ -40,6 +41,7 @@ lists:
     defaultProxyProvider: tailscale1 # (Optional) Default proxy provider for this list
     defaultProxyAccessLog: true # (Optional) Enable access logs for this list
     autoRestart: true # (optional) Enable automatic re-resolution on backend failure (default: true)
+    healthCheckEnabled: true # (optional) Enable health probes (default: true)
     healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
     healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
     healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
@@ -189,10 +191,17 @@ docker:
   local:
     host: unix:///var/run/docker.sock
     autoRestart: true
+    healthCheckEnabled: true
     healthCheckInterval: 30
     healthCheckFailures: 3
     healthCheckCooldown: 0
 ```
+
+##### healthCheckEnabled
+
+Defaults to `true`. When set to `false`, health probes are completely disabled for
+all containers using this provider. Individual containers can override this with
+the `tsdproxy.health_check_enabled` Docker label. See [Health Check]({{< ref "/docs/operations/health-check#configuration" >}}) for details.
 
 ##### healthCheckInterval
 

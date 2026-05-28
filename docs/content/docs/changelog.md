@@ -6,6 +6,12 @@ weight: 500
 
 {{% steps %}}
 
+### 2.3.0
+
+#### New features
+
+- **`healthCheckEnabled` config option** — per-provider and per-container toggle to completely disable health probes. Set `healthCheckEnabled: false` in Docker or Lists provider config, or use the `tsdproxy.health_check_enabled` Docker label to disable health monitoring for individual containers. Defaults to `true`. See [Health Check]({{< ref "/docs/operations/health-check#configuration" >}}) for details.
+
 ### 2.2.0
 
 #### Breaking changes
