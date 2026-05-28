@@ -21,6 +21,7 @@ before:
 report_sizes: true
 
 release:
+  tag: dev
   make_latest: false
   mode: replace
   prerelease: true
