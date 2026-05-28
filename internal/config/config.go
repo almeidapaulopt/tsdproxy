@@ -177,7 +177,6 @@ func InitializeConfig() error {
 	if err := Config.loadConfigFile(fileConfig, *file); err != nil {
 		return err
 	}
-	}
 
 	// Load default values.
 	// Make sure to set default values after loading from file
@@ -322,7 +321,6 @@ func (c *config) loadTailscaleClientSecrets() error {
 	}
 
 	return nil
-}
 }
 
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
