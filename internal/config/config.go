@@ -119,12 +119,14 @@ type (
 		AuthKeyFile        string                    `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
 		ClientID           string                    `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
 		ClientSecret       secretstring.SecretString `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
+		ClientSecretFile   string                    `default:"" validate:"omitempty" yaml:"clientSecretFile,omitempty"`
 		Tags               string                    `default:"" validate:"omitempty" yaml:"tags,omitempty"`
 		ControlURL         string                    `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
 		Hostname           string                    `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
 		MaxCertConcurrency int64                     `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
 		PreventDuplicates  bool                      `default:"false" yaml:"preventDuplicates"`
 		Shared             bool                      `default:"false" yaml:"shared"`
+		Services           bool                      `default:"false" yaml:"services"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
@@ -227,6 +229,10 @@ func (c *config) loadSecretsFromFiles() error {
 		return err
 	}
 
+	if err := c.loadTailscaleClientSecrets(); err != nil {
+		return err
+	}
+
 	return c.loadDNSProviderTokens()
 }
 
@@ -298,6 +304,25 @@ func applyDockerHostnameDefault() {
 func isRunningInDocker() bool {
 	_, err := os.Stat("/.dockerenv")
 	return err == nil
+}
+
+func (c *config) loadTailscaleClientSecrets() error {
+	for name, d := range c.Tailscale.Providers {
+		if d == nil || d.ClientSecretFile == "" {
+			continue
+		}
+		secret, err := c.getAuthKeyFromFile(d.ClientSecretFile)
+		if err != nil {
+			return fmt.Errorf("error reading tailscale provider %q client secret file: %w", name, err)
+		}
+		if secret == "" {
+			return fmt.Errorf("tailscale provider %q client secret file %s is empty", name, d.ClientSecretFile)
+		}
+		d.ClientSecret = secretstring.SecretString(secret)
+	}
+
+	return nil
+}
 }
 
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {

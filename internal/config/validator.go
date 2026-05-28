@@ -137,11 +137,29 @@ func (c *config) validateProxyProviders() error {
 		if p == nil {
 			return fmt.Errorf("tailscale provider %q has nil configuration", name)
 		}
+		if p.Shared && p.Services {
+			return fmt.Errorf("tailscale provider %q: cannot use both shared and services mode", name)
+		}
 		if p.Shared {
 			if p.Hostname == "" {
 				return fmt.Errorf("tailscale provider %q: shared tsnet provider requires a hostname", name)
 			}
 			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("shared tsnet provider configured")
+		}
+		if p.Services {
+			if p.Hostname == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires a hostname", name)
+			}
+			if p.ClientID == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires clientId for VIP Services API", name)
+			}
+			if p.ClientSecret == "" && p.ClientSecretFile == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires clientSecret or clientSecretFile for VIP Services API", name)
+			}
+			if p.Tags == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires tags (service hosts must be tagged)", name)
+			}
+			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("services tsnet provider configured")
 		}
 	}
 	return nil
@@ -157,12 +175,12 @@ func (c *config) validateDNSProviders() error {
 		if cfg == nil {
 			continue
 		}
-	switch cfg.Provider {
-	case model.DNSProviderCloudflare:
-		if cfg.APIToken == "" {
-			return fmt.Errorf("dns provider %q: cloudflare requires an apiToken", name)
-		}
-	case model.DNSProviderMagicDNS:
+		switch cfg.Provider {
+		case model.DNSProviderCloudflare:
+			if cfg.APIToken == "" {
+				return fmt.Errorf("dns provider %q: cloudflare requires an apiToken", name)
+			}
+		case model.DNSProviderMagicDNS:
 			// no additional validation needed
 		default:
 			return fmt.Errorf("dns provider %q: unknown provider type %q", name, cfg.Provider)

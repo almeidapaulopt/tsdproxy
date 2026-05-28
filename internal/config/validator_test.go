@@ -46,3 +46,135 @@ func TestDomainProviderError(t *testing.T) {
 	assert.Contains(t, err.Error(), "app.example.com")
 	assert.Contains(t, err.Error(), "DNS")
 }
+
+func TestValidateProxyProviders_ServicesRequiresHostname(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"svc": {
+					Services: true,
+					Hostname: "",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "hostname")
+}
+
+func TestValidateProxyProviders_ServicesRequiresClientID(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"svc": {
+					Services: true,
+					Hostname: "myhost",
+					ClientID: "",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "clientId")
+}
+
+func TestValidateProxyProviders_ServicesRequiresClientSecret(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"svc": {
+					Services:         true,
+					Hostname:         "myhost",
+					ClientID:         "id-123",
+					ClientSecret:     "",
+					ClientSecretFile: "",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "clientSecret")
+}
+
+func TestValidateProxyProviders_ServicesAcceptsClientSecretFile(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"svc": { //nolint:gosec // G101: test fixtures, not real credentials
+					Services:         true,
+					Hostname:         "myhost",
+					ClientID:         "id-123",
+					ClientSecret:     "",
+					ClientSecretFile: "/run/secrets/ts_client_secret",
+					Tags:             "tag:proxy",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders()
+	assert.NoError(t, err)
+}
+
+func TestValidateProxyProviders_ServicesRequiresTags(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"svc": {
+					Services:     true,
+					Hostname:     "myhost",
+					ClientID:     "id-123",
+					ClientSecret: "secret-123",
+					Tags:         "",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "tags")
+}
+
+func TestValidateProxyProviders_ServicesAndSharedMutualExclusion(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"conflict": {
+					Shared:   true,
+					Services: true,
+					Hostname: "myhost",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "shared and services")
+}
+
+func TestValidateProxyProviders_ServicesValid(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"svc": {
+					Services:     true,
+					Hostname:     "myhost",
+					ClientID:     "id-123",
+					ClientSecret: "secret-123",
+					Tags:         "tag:proxy",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders()
+	assert.NoError(t, err)
+}
