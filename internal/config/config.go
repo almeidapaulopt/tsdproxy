@@ -94,6 +94,7 @@ type (
 		DefaultProxyProvider     string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
 		TryDockerInternalNetwork bool   `validate:"boolean" default:"false" yaml:"tryDockerInternalNetwork"`
 		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		HealthCheckEnabled       bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
 		HealthCheckInterval      int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
 		HealthCheckFailures      int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
 		HealthCheckCooldown      int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
@@ -122,10 +123,11 @@ type (
 		Filename              string `validate:"required,file" yaml:"filename"`
 		DefaultProxyProvider  string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
 		DefaultProxyAccessLog bool   `default:"true" validate:"boolean" yaml:"defaultProxyAccessLog"`
-		AutoRestart           bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
-		HealthCheckInterval   int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
-		HealthCheckFailures   int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
-		HealthCheckCooldown   int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
+		AutoRestart          bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		HealthCheckEnabled   bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		HealthCheckInterval  int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures  int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
+		HealthCheckCooldown  int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
 	}
 )
 

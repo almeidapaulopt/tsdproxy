@@ -335,6 +335,10 @@ func (proxy *Proxy) UnsubscribeLogs(ch chan string) {
 }
 
 func (proxy *Proxy) startHealthChecker() {
+	if !proxy.Config.HealthCheckEnabled {
+		return
+	}
+
 	// NOTE: Only the first non-redirect port (sorted by name) gets a health checker.
 	// If the proxy has multiple ports, only the first one is monitored.
 	keys := make([]string, 0, len(proxy.Config.Ports))
