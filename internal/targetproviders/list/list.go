@@ -256,6 +256,7 @@ func (c *Client) buildConfig(id string, p proxyConfig) (*model.Config, error) {
 	pcfg.ProxyAccessLog = model.DefaultProxyAccessLog
 	pcfg.IdentityHeaders = model.DefaultIdentityHeaders
 	pcfg.AutoRestart = c.config.AutoRestart
+	pcfg.HealthCheckEnabled = c.config.HealthCheckEnabled
 	pcfg.HealthCheckInterval = c.config.HealthCheckInterval
 	pcfg.HealthCheckFailures = c.config.HealthCheckFailures
 	pcfg.HealthCheckCooldown = c.config.HealthCheckCooldown

@@ -29,6 +29,7 @@ const (
 	// Identity / auth header injection (default: enabled)
 	LabelIdentityHeaders     = LabelPrefix + "identity_headers"
 	LabelAutoRestart         = LabelPrefix + "auto_restart"
+	LabelHealthCheckEnabled = LabelPrefix + "health_check_enabled"
 	LabelHealthCheckInterval = LabelPrefix + "health_check_interval"
 	LabelHealthCheckFailures = LabelPrefix + "health_check_failures"
 	LabelHealthCheckCooldown = LabelPrefix + "health_check_cooldown"
