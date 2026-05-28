@@ -36,10 +36,10 @@ type Provider struct {
 
 var _ dnsproviders.Provider = (*Provider)(nil)
 
-type cfResponse struct { //nolint:govet // mirrors Cloudflare API response
+type cfResponse struct {
+	ResultInfo *cfResultInfo   `json:"result_info,omitempty"` //nolint:tagliatelle // Cloudflare API uses snake_case
 	Result     json.RawMessage `json:"result"`
 	Errors     []cfError       `json:"errors"`
-	ResultInfo *cfResultInfo   `json:"result_info,omitempty"` //nolint:tagliatelle // Cloudflare API uses snake_case
 	Success    bool            `json:"success"`
 }
 
