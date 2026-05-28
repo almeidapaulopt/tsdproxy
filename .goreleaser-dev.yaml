@@ -20,8 +20,10 @@ before:
 
 report_sizes: true
 
+snapshot:
+  version_template: "{{ incpatch .Version }}-{{ .Env.LATEST }}"
+
 release:
-  tag: dev
   make_latest: false
   mode: replace
   prerelease: true
