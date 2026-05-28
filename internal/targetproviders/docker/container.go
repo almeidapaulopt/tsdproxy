@@ -45,6 +45,8 @@ type (
 		autodetect             bool
 		autoRestart            bool
 		providerAutoRestart    bool
+		healthCheckEnabled     bool
+		providerHealthEnabled  bool
 		healthCheckInterval    int
 		healthCheckFailures    int
 		healthCheckCooldown    int
@@ -83,6 +85,7 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 
 	c.autodetect = c.getLabelBool(LabelAutoDetect, providerAutoDetect)
 	c.autoRestart = c.getLabelBool(LabelAutoRestart, c.providerAutoRestart)
+	c.healthCheckEnabled = c.getLabelBool(LabelHealthCheckEnabled, c.providerHealthEnabled)
 	c.healthCheckInterval = c.getLabelInt(LabelHealthCheckInterval, c.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
 	c.healthCheckFailures = c.getLabelInt(LabelHealthCheckFailures, c.providerHealthFailures, 1, healthCheckMaxFailures)
 	c.healthCheckCooldown = c.getLabelInt(LabelHealthCheckCooldown, c.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
@@ -207,6 +210,7 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, model.DefaultProxyAccessLog)
 	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = c.autoRestart
+	pcfg.HealthCheckEnabled = c.healthCheckEnabled
 	pcfg.HealthCheckInterval = c.healthCheckInterval
 	pcfg.HealthCheckFailures = c.healthCheckFailures
 	pcfg.HealthCheckCooldown = c.healthCheckCooldown
@@ -546,8 +550,9 @@ func withProviderAutoRestart(autoRestart bool) ContainerOption {
 	}
 }
 
-func withProviderHealthCheck(interval, failures, cooldown int) ContainerOption {
+func withProviderHealthCheck(enabled bool, interval, failures, cooldown int) ContainerOption {
 	return func(c *container) {
+		c.providerHealthEnabled = enabled
 		c.providerHealthInterval = interval
 		c.providerHealthFailures = failures
 		c.providerHealthCooldown = cooldown

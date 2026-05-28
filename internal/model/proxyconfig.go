@@ -24,6 +24,7 @@ type (
 		ProxyAccessLog      bool      `default:"true" validate:"boolean"`
 		IdentityHeaders     bool      `default:"true" validate:"boolean"`
 		AutoRestart         bool      `default:"true" validate:"boolean"`
+		HealthCheckEnabled  bool      `default:"true" validate:"boolean"`
 		HealthCheckInterval int       `default:"30" validate:"numeric,min=1"`
 		HealthCheckFailures int       `default:"3" validate:"numeric,min=1"`
 		HealthCheckCooldown int       `default:"0" validate:"numeric,min=0"`

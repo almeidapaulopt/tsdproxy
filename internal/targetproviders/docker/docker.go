@@ -33,6 +33,7 @@ type (
 		defaultTargetHostname    string
 		host                     string
 		name                     string
+		healthCheckEnabled       bool
 		healthCheckInterval      int
 		healthCheckFailures      int
 		healthCheckCooldown      int
@@ -65,6 +66,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		defaultProxyProvider:     provider.DefaultProxyProvider,
 		tryDockerInternalNetwork: provider.TryDockerInternalNetwork,
 		autoRestart:              provider.AutoRestart,
+		healthCheckEnabled:       provider.HealthCheckEnabled,
 		healthCheckInterval:      provider.HealthCheckInterval,
 		healthCheckFailures:      provider.HealthCheckFailures,
 		healthCheckCooldown:      provider.HealthCheckCooldown,
@@ -145,7 +147,7 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 		withDefaultTargetHostname(c.defaultTargetHostname),
 		withTargetProviderName(c.name),
 		withProviderAutoRestart(c.autoRestart),
-		withProviderHealthCheck(c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
+		withProviderHealthCheck(c.healthCheckEnabled, c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
 	)
 
 	pcfg, err := ctn.newProxyConfig()
