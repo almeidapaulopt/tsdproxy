@@ -31,6 +31,7 @@ This is the only label you need. TSDProxy will use the container name as the Tai
 | `tsdproxy.tags` | — | Comma-separated Tailscale tags (OAuth only) |
 | `tsdproxy.identity_headers` | `"true"` | Inject identity headers into upstream requests. Set to `"false"` to disable. Client-supplied headers are always stripped. |
 | `tsdproxy.auto_restart` | `"true"` | Enable automatic re-resolution on backend failure |
+| `tsdproxy.health_check_enabled` | `"true"` | Enable health probes. Set to `"false"` to disable all health monitoring for this container |
 | `tsdproxy.health_check_interval` | `"30"` | Seconds between health probes |
 | `tsdproxy.health_check_failures` | `"3"` | Consecutive failures before re-resolution |
 | `tsdproxy.health_check_cooldown` | `"0"` | Fixed cooldown in seconds (0 = exponential backoff) |

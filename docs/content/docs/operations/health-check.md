@@ -83,6 +83,7 @@ Backend health monitoring can be configured per-provider (Docker or Lists) in
 | Setting | YAML (provider) | Docker Label | Default | Description |
 |---------|-----------------|-------------|---------|-------------|
 | Enable | `autoRestart` | `tsdproxy.auto_restart` | `true` | Enable/disable re-resolution on failure |
+| Enabled | `healthCheckEnabled` | `tsdproxy.health_check_enabled` | `true` | Enable/disable health probes entirely |
 | Interval | `healthCheckInterval` | `tsdproxy.health_check_interval` | `30` | Seconds between health probes |
 | Failures | `healthCheckFailures` | `tsdproxy.health_check_failures` | `3` | Consecutive failures before re-resolution |
 | Cooldown | `healthCheckCooldown` | `tsdproxy.health_check_cooldown` | `0` | Fixed cooldown in seconds (0 = exponential backoff) |
