@@ -52,12 +52,11 @@ type ServicesServerConfig struct {
 	Log             zerolog.Logger
 	VIPServiceAPI   vipServiceAPI
 	ListenerFactory serviceListenerFactory
+	APIClient       *tailscale.Client
 	Hostname        string
 	DataDir         string
 	AuthKey         string
 	ControlURL      string
-	ClientID        string
-	ClientSecret    string
 	Tags            string
 	Ephemeral       bool
 }
@@ -130,12 +129,11 @@ type ServicesServer struct {
 	log             zerolog.Logger
 	listenerFactory serviceListenerFactory
 	vipAPI          vipServiceAPI
+	apiClient       *tailscale.Client
 	cmds            chan servicesCmd
 	done            chan struct{}
 	controlURL      string
 	authKey         string
-	clientID        string
-	clientSecret    string
 	tags            string
 	datadir         string
 	hostname        string
@@ -154,11 +152,10 @@ func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 		log:             cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
 		cmds:            make(chan servicesCmd, 64), //nolint:mnd
 		done:            make(chan struct{}),
-		clientID:        cfg.ClientID,
-		clientSecret:    cfg.ClientSecret,
 		tags:            cfg.Tags,
 		vipAPI:          cfg.VIPServiceAPI,
 		listenerFactory: cfg.ListenerFactory,
+		apiClient:       cfg.APIClient,
 	}
 	go ss.loop()
 	return ss
@@ -463,17 +460,8 @@ func (ss *ServicesServer) stopRuntime(rt *servicesRuntime) {
 	}
 }
 
-// newAPIClient creates a Tailscale API client with OAuth credentials.
-func (ss *ServicesServer) newAPIClient() *tailscale.Client {
-	return &tailscale.Client{
-		Tailnet:   "-",
-		UserAgent: userAgent,
-		HTTP: tailscale.OAuthConfig{
-			ClientID:     ss.clientID,
-			ClientSecret: ss.clientSecret,
-			Scopes:       []string{"services"},
-		}.HTTPClient(),
-	}
+func (ss *ServicesServer) getAPIClient() *tailscale.Client {
+	return ss.apiClient
 }
 
 // createOrUpdateVIPService creates or updates a VIP Service via the Tailscale API.
@@ -488,7 +476,10 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
 	defer cancel()
 
-	client := ss.newAPIClient()
+	client := ss.getAPIClient()
+	if client == nil {
+		return errors.New("tailscale API client not configured")
+	}
 
 	return client.VIPServices().CreateOrUpdate(ctx, tailscale.VIPService{
 		Name:  serviceName,
@@ -509,7 +500,10 @@ func (ss *ServicesServer) deleteVIPServiceProd(serviceName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
 	defer cancel()
 
-	client := ss.newAPIClient()
+	client := ss.getAPIClient()
+	if client == nil {
+		return errors.New("tailscale API client not configured")
+	}
 
 	return client.VIPServices().Delete(ctx, serviceName)
 }

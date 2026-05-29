@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
 
@@ -30,10 +31,12 @@ type Client struct {
 	certSem           *semaphore.Weighted
 	sharedServer      *SharedServer
 	servicesServer    *ServicesServer
+	apiClient         *tailscale.Client
+	apiClientOnce     sync.Once
 	controlURL        string
 	clientID          string
-	clientSecret      string
-	AuthKey           string
+	clientSecret      secretstring.SecretString
+	AuthKey           secretstring.SecretString
 	datadir           string
 	tags              string
 	Hostname          string
@@ -72,9 +75,9 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	return &Client{
 		log:               log.With().Str("tailscale", name).Logger(),
 		Hostname:          name,
-		AuthKey:           strings.TrimSpace(provider.AuthKey.Value()),
+		AuthKey:           secretstring.SecretString(strings.TrimSpace(provider.AuthKey.Value())),
 		clientID:          strings.TrimSpace(provider.ClientID),
-		clientSecret:      strings.TrimSpace(provider.ClientSecret.Value()),
+		clientSecret:      secretstring.SecretString(strings.TrimSpace(provider.ClientSecret.Value())),
 		tags:              strings.TrimSpace(provider.Tags),
 		datadir:           datadir,
 		controlURL:        provider.ControlURL,
@@ -215,7 +218,7 @@ func (c *Client) cleanupStaleDevice(cfg *model.Config, datadir string) {
 		return
 	}
 
-	if c.clientID == "" || c.clientSecret == "" {
+	if c.clientID == "" || c.clientSecret.Value() == "" {
 		return
 	}
 
@@ -266,15 +269,18 @@ func (c *Client) cleanupStaleDevice(cfg *model.Config, datadir string) {
 }
 
 func (c *Client) newAPIClient() *tailscale.Client {
-	return &tailscale.Client{
-		Tailnet:   "-",
-		UserAgent: userAgent,
-		HTTP: tailscale.OAuthConfig{
-			ClientID:     c.clientID,
-			ClientSecret: c.clientSecret,
-			Scopes:       []string{"devices:core", "auth_keys"},
-		}.HTTPClient(),
-	}
+	c.apiClientOnce.Do(func() {
+		c.apiClient = &tailscale.Client{
+			Tailnet:   "-",
+			UserAgent: userAgent,
+			HTTP: tailscale.OAuthConfig{
+				ClientID:     c.clientID,
+				ClientSecret: c.clientSecret.Value(),
+				Scopes:       []string{"devices:core", "auth_keys", "services"},
+			}.HTTPClient(),
+		}
+	})
+	return c.apiClient
 }
 
 // getControlURL method returns the control URL
@@ -290,9 +296,9 @@ func (c *Client) getAuthkey(config *model.Config) (string, error) {
 		return config.Tailscale.ResolvedAuthKey, nil
 	}
 
-	authKey := config.Tailscale.AuthKey
+	authKey := config.Tailscale.AuthKey.Value()
 
-	if c.clientID != "" && c.clientSecret != "" {
+	if c.clientID != "" && c.clientSecret.Value() != "" {
 		oauthKey, err := c.getOAuth(config)
 		if err != nil {
 			return "", fmt.Errorf("getAuthkey: %w", err)
@@ -301,7 +307,7 @@ func (c *Client) getAuthkey(config *model.Config) (string, error) {
 	}
 
 	if authKey == "" {
-		authKey = c.AuthKey
+		authKey = c.AuthKey.Value()
 	}
 
 	if authKey == "" {
@@ -421,8 +427,7 @@ func (c *Client) newServiceProxy(config *model.Config) (proxyproviders.ProxyInte
 			AuthKey:      authKey,
 			ControlURL:   c.getControlURL(),
 			Ephemeral:    config.Tailscale.Ephemeral,
-			ClientID:     c.clientID,
-			ClientSecret: c.clientSecret,
+			APIClient:    c.newAPIClient(),
 			Tags:         c.resolveTags(config),
 			Log:          c.log,
 		})
