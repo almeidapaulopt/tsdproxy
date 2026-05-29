@@ -3,11 +3,14 @@ module github.com/almeidapaulopt/tsdproxy
 go 1.26.3
 
 require (
+	codeberg.org/miekg/dns v0.6.79
 	github.com/a-h/templ v0.3.1020
+	github.com/caddyserver/certmagic v0.25.3
 	github.com/creasty/defaults v1.8.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-playground/validator/v10 v10.30.2
 	github.com/google/uuid v1.6.0
+	github.com/libdns/libdns v1.1.1
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
 	github.com/prometheus/client_golang v1.23.2
@@ -40,6 +43,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/caddyserver/zerossl v0.1.5 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -78,6 +82,7 @@ require (
 	github.com/insomniacslk/dhcp v0.0.0-20250417080101-5f8cf70e8c5f // indirect
 	github.com/jsimonetti/rtnetlink v1.4.2 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
@@ -86,6 +91,7 @@ require (
 	github.com/mdlayher/genetlink v1.4.0 // indirect
 	github.com/mdlayher/netlink v1.11.2 // indirect
 	github.com/mdlayher/socket v0.6.0 // indirect
+	github.com/mholt/acmez/v3 v3.1.6 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -118,19 +124,25 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
+	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
+	go.uber.org/zap v1.27.1 // indirect
+	go.uber.org/zap/exp v0.3.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
 	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a // indirect
+	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/tools v0.45.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard/windows v1.0.1 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect

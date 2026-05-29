@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 type DefaultProxyProviderNotFoundError struct {
@@ -21,20 +24,41 @@ func (e *DefaultProxyProviderNotFoundError) Error() string {
 
 var ErrNoDefaultProxyProvider = errors.New("no default proxy provider")
 
+type DomainProviderError struct {
+	Domain    string
+	FieldType string
+}
+
+func (e *DomainProviderError) Error() string {
+	return fmt.Sprintf("domain %q set but %s provider not specified", e.Domain, e.FieldType)
+}
+
 // validate method  Validate configurations.
 func (c *config) validate() error {
-	println("Validating configuration...")
+	log.Info().Msg("Validating configuration...")
 	validate := validator.New()
 
 	if err := validate.Struct(Config); err != nil {
-		// validationErrors := err.(validator.ValidationErrors)
 		var validationErrors validator.ValidationErrors
 		if errors.As(err, &validationErrors) {
 			for _, e := range validationErrors {
-				fmt.Println(e)
+				log.Error().Str("namespace", e.Namespace()).Str("field", e.Field()).
+					Str("tag", e.Tag()).Msg("validation error")
 			}
 			return err
 		}
+	}
+
+	if err := c.validateProxyProviders(); err != nil {
+		return err
+	}
+
+	if err := c.validateDNSProviders(); err != nil {
+		return err
+	}
+
+	if err := c.validateTLSProviders(); err != nil {
+		return err
 	}
 
 	// Set default Proxy Provider if not set.
@@ -88,4 +112,119 @@ func (c *config) hasProxyProvider(name string) bool {
 		}
 	}
 	return false
+}
+
+// ValidateProxyConfig validates per-proxy domain/DNS/TLS provider requirements.
+// Returns error if domain is set but DNS or TLS provider is missing.
+func ValidateProxyConfig(domain, dnsProvider, tlsProvider, defaultDNSProvider, defaultTLSProvider string) error {
+	if domain == "" {
+		return nil
+	}
+	if dnsProvider == "" && defaultDNSProvider == "" {
+		return &DomainProviderError{Domain: domain, FieldType: "DNS"}
+	}
+	if tlsProvider == "" && defaultTLSProvider == "" {
+		return &DomainProviderError{Domain: domain, FieldType: "TLS"}
+	}
+	return nil
+}
+
+func (c *config) validateProxyProviders() error {
+	if len(c.Tailscale.Providers) == 0 {
+		return errors.New("no tailscale proxy providers configured")
+	}
+	for name, p := range c.Tailscale.Providers {
+		if p == nil {
+			return fmt.Errorf("tailscale provider %q has nil configuration", name)
+		}
+		if p.Shared && p.Services {
+			return fmt.Errorf("tailscale provider %q: cannot use both shared and services mode", name)
+		}
+		if p.Shared {
+			if p.Hostname == "" {
+				return fmt.Errorf("tailscale provider %q: shared tsnet provider requires a hostname", name)
+			}
+			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("shared tsnet provider configured")
+		}
+		if p.Services {
+			if p.Hostname == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires a hostname", name)
+			}
+			if p.ClientID == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires clientId for VIP Services API", name)
+			}
+			if p.ClientSecret == "" && p.ClientSecretFile == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires clientSecret or clientSecretFile for VIP Services API", name)
+			}
+			if p.Tags == "" {
+				return fmt.Errorf("tailscale provider %q: services mode requires tags (service hosts must be tagged)", name)
+			}
+			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("services tsnet provider configured")
+		}
+	}
+	return nil
+}
+
+func (c *config) validateDNSProviders() error {
+	if c.DefaultDNSProvider != "" {
+		if _, ok := c.DNSProviders[c.DefaultDNSProvider]; !ok {
+			return fmt.Errorf("defaultDNSProvider %q not found in dnsProviders", c.DefaultDNSProvider)
+		}
+	}
+	for name, cfg := range c.DNSProviders {
+		if cfg == nil {
+			continue
+		}
+		switch cfg.Provider {
+		case model.DNSProviderCloudflare:
+			if cfg.APIToken == "" {
+				return fmt.Errorf("dns provider %q: cloudflare requires an apiToken", name)
+			}
+		case model.DNSProviderMagicDNS:
+			// no additional validation needed
+		default:
+			return fmt.Errorf("dns provider %q: unknown provider type %q", name, cfg.Provider)
+		}
+	}
+	return nil
+}
+
+func (c *config) validateTLSProviders() error {
+	if c.DefaultTLSProvider != "" {
+		if _, ok := c.TLSProviders[c.DefaultTLSProvider]; !ok {
+			return fmt.Errorf("defaultTLSProvider %q not found in tlsProviders", c.DefaultTLSProvider)
+		}
+	}
+	for name, cfg := range c.TLSProviders {
+		if cfg == nil {
+			continue
+		}
+		switch cfg.Provider {
+		case model.TLSProviderTailscale:
+			// auto-created per proxy, valid
+		case model.TLSProviderACME:
+			if cfg.Email == "" {
+				return fmt.Errorf("tls provider %q: acme requires an email address", name)
+			}
+			// Verify a DNS provider capable of DNS-01 is configured
+			if c.DefaultDNSProvider == "" {
+				hasDNSProvider := false
+				for _, dnsCfg := range c.DNSProviders {
+					if dnsCfg != nil && dnsCfg.Provider == model.DNSProviderCloudflare {
+						hasDNSProvider = true
+						break
+					}
+				}
+				if !hasDNSProvider {
+					return fmt.Errorf(
+						"tls provider %q: acme requires a DNS provider for "+
+							"DNS-01 challenges (configure a cloudflare dnsProvider or set defaultDNSProvider)",
+						name)
+				}
+			}
+		default:
+			return fmt.Errorf("tls provider %q: unknown provider type %q", name, cfg.Provider)
+		}
+	}
+	return nil
 }

@@ -37,9 +37,12 @@ type (
 	configProxyList map[string]proxyConfig
 
 	proxyConfig struct {
-		Dashboard       model.Dashboard `validate:"dive" yaml:"dashboard"`
 		Ports           map[string]port `yaml:"ports"`
 		ProxyProvider   string          `yaml:"proxyProvider"`
+		Domain          string          `yaml:"domain"`
+		DNSProvider     string          `yaml:"dnsProvider"`
+		TLSProvider     string          `yaml:"tlsProvider"`
+		Dashboard       model.Dashboard `validate:"dive" yaml:"dashboard"`
 		Tailscale       model.Tailscale `yaml:"tailscale"`
 		IdentityHeaders bool            `default:"true" validate:"boolean" yaml:"identityHeaders"`
 	}
@@ -262,6 +265,9 @@ func (c *Client) buildConfig(id string, p proxyConfig) (*model.Config, error) {
 	pcfg.HealthCheckCooldown = c.config.HealthCheckCooldown
 	pcfg.Ports = c.getPorts(p.Ports)
 	pcfg.Dashboard = p.Dashboard
+	pcfg.Domain = p.Domain
+	pcfg.DNSProvider = p.DNSProvider
+	pcfg.TLSProvider = p.TLSProvider
 
 	return pcfg, nil
 }

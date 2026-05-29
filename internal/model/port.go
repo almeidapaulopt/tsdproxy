@@ -45,6 +45,12 @@ const (
 	ProtoTCP   = "tcp"
 	ProtoUDP   = "udp"
 
+	TLSProviderTailscale = "tailscale"
+	TLSProviderACME      = "acme"
+
+	DNSProviderCloudflare = "cloudflare"
+	DNSProviderMagicDNS   = "magicdns"
+
 	rangeKeyPrefix = "range_0"
 )
 
@@ -406,46 +412,43 @@ func ExpandPortRangeLabel(s string) (map[string]PortConfig, error) {
 		targetProtocol = targetParts[1]
 	}
 
-	var proxyPorts, targetPorts []int
-
-	if isPortRange(proxyParts[0]) {
-		start, end, err := parsePortRange(proxyParts[0])
-		if err != nil {
-			return nil, fmt.Errorf("invalid proxy port range: %w", err)
-		}
-		for p := start; p <= end; p++ {
-			proxyPorts = append(proxyPorts, p)
-		}
-	} else {
-		port, err := strconv.Atoi(proxyParts[0])
-		if err != nil {
-			return nil, fmt.Errorf("invalid proxy port: %w", err)
-		}
-		if err := validatePortRange(port); err != nil {
-			return nil, fmt.Errorf("invalid proxy port: %w", err)
-		}
-		proxyPorts = []int{port}
+	proxyPorts, err := parsePortList(proxyParts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid proxy port: %w", err)
 	}
 
-	if isPortRange(targetParts[0]) {
-		start, end, err := parsePortRange(targetParts[0])
-		if err != nil {
-			return nil, fmt.Errorf("invalid target port range: %w", err)
-		}
-		for p := start; p <= end; p++ {
-			targetPorts = append(targetPorts, p)
-		}
-	} else {
-		port, err := strconv.Atoi(targetParts[0])
-		if err != nil {
-			return nil, fmt.Errorf("invalid target port: %w", err)
-		}
-		if err := validatePortRange(port); err != nil {
-			return nil, fmt.Errorf("invalid target port: %w", err)
-		}
-		targetPorts = []int{port}
+	targetPorts, err := parsePortList(targetParts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid target port: %w", err)
 	}
 
+	return expandPortConfigs(proxyPorts, targetPorts, proxyProtocol, targetProtocol)
+}
+
+func parsePortList(s string) ([]int, error) {
+	if isPortRange(s) {
+		start, end, err := parsePortRange(s)
+		if err != nil {
+			return nil, err
+		}
+		ports := make([]int, 0, end-start+1)
+		for p := start; p <= end; p++ {
+			ports = append(ports, p)
+		}
+		return ports, nil
+	}
+
+	port, err := strconv.Atoi(s)
+	if err != nil {
+		return nil, err
+	}
+	if err := validatePortRange(port); err != nil {
+		return nil, err
+	}
+	return []int{port}, nil
+}
+
+func expandPortConfigs(proxyPorts, targetPorts []int, proxyProtocol, targetProtocol string) (map[string]PortConfig, error) {
 	if len(proxyPorts) > 1 && len(targetPorts) > 1 && len(proxyPorts) != len(targetPorts) {
 		return nil, fmt.Errorf("proxy range (%d ports) and target range (%d ports) must have the same length",
 			len(proxyPorts), len(targetPorts))

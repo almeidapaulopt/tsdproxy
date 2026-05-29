@@ -69,15 +69,15 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	defer newlog.Trace().Msg("End New Container")
 
 	c := &container{
-		ctx:          context.Background(),
-		log:          newlog,
-		id:           dcontainer.ID,
-		name:         dcontainer.Name,
-		hostname:     dcontainer.Config.Hostname,
-		networkMode:  dcontainer.HostConfig.NetworkMode,
-		image:        dcontainer.Config.Image,
-		labels:       dcontainer.Config.Labels,
-		ports:        make(map[string]string),
+		ctx:         context.Background(),
+		log:         newlog,
+		id:          dcontainer.ID,
+		name:        dcontainer.Name,
+		hostname:    dcontainer.Config.Hostname,
+		networkMode: dcontainer.HostConfig.NetworkMode,
+		image:       dcontainer.Config.Image,
+		labels:      dcontainer.Config.Labels,
+		ports:       make(map[string]string),
 	}
 
 	for _, opt := range opts {
@@ -208,6 +208,9 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	pcfg.TargetProvider = c.targetProviderName
 	pcfg.Tailscale = *tailscale
 	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, model.DefaultProxyProvider)
+	pcfg.Domain = c.getLabelString(LabelDomain, "")
+	pcfg.DNSProvider = c.getLabelString(LabelDNSProvider, "")
+	pcfg.TLSProvider = c.getLabelString(LabelTLSProvider, "")
 	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, config.Config.ProxyAccessLog)
 	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = c.autoRestart
@@ -338,7 +341,7 @@ func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 
 	authKey := c.getLabelString(LabelAuthKey, "")
 
-	authKey, err := c.getAuthKeyFromAuthFile(authKey)
+	authKeySecret, err := c.getAuthKeyFromAuthFile(authKey)
 	if err != nil {
 		return nil, fmt.Errorf("error setting auth key from file : %w", err)
 	}
@@ -349,7 +352,7 @@ func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 		Ephemeral:    c.getLabelBool(LabelEphemeral, model.DefaultTailscaleEphemeral),
 		RunWebClient: c.getLabelBool(LabelRunWebClient, model.DefaultTailscaleRunWebClient),
 		Verbose:      c.getLabelBool(LabelTsnetVerbose, model.DefaultTailscaleVerbose),
-		AuthKey:      authKey,
+		AuthKey:      authKeySecret,
 		Tags:         tags,
 	}, nil
 }

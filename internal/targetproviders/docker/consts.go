@@ -46,6 +46,11 @@ const (
 	LabelDashboardIcon     = LabelDashboardPrefix + "icon"
 	LabelDashboardCategory = LabelDashboardPrefix + "category"
 
+	// Custom domain / DNS / TLS labels
+	LabelDomain      = LabelPrefix + "domain"
+	LabelDNSProvider = LabelPrefix + "dnsprovider"
+	LabelTLSProvider = LabelPrefix + "tlsprovider"
+
 	// docker only defaults
 	DefaultTargetScheme = "http"
 

@@ -72,8 +72,8 @@ func newPortProxy(
 	//
 	tr := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: !pconfig.TLSValidate}, //nolint
-		MaxIdleConnsPerHost: 10,           //nolint:mnd
-		IdleConnTimeout:     30 * time.Second, //nolint:mnd
+		MaxIdleConnsPerHost: 10,                                                    //nolint:mnd
+		IdleConnTimeout:     30 * time.Second,                                      //nolint:mnd
 	}
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,
@@ -442,13 +442,13 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 			return nil, errors.New("no target configured for UDP port")
 		}
 
-		backendAddr, err := net.ResolveUDPAddr("udp", target.Host)
+		backendAddr, err := net.ResolveUDPAddr(model.ProtoUDP, target.Host)
 		if err != nil {
 			delete(clientMap, key)
 			return nil, fmt.Errorf("error resolving backend UDP address: %w", err)
 		}
 
-		conn, err := net.DialUDP("udp", nil, backendAddr)
+		conn, err := net.DialUDP(model.ProtoUDP, nil, backendAddr)
 		if err != nil {
 			delete(clientMap, key)
 			return nil, err

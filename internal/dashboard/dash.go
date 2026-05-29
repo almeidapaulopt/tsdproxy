@@ -36,8 +36,8 @@ type Dashboard struct {
 	prefs           *PreferencesStore
 	sseClients      map[string]*sseClient
 	stopCh          chan struct{}
-	mtx             sync.RWMutex
 	lastHealthState map[string]string
+	mtx             sync.RWMutex
 }
 
 func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.ProxyManager) *Dashboard {
@@ -400,11 +400,11 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		portURL := scheme + "://" + hostname
 
 		switch scheme {
-		case "https":
+		case model.ProtoHTTPS:
 			if target.ProxyPort != 443 { //nolint:mnd
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}
-		case "http":
+		case model.ProtoHTTP:
 			if target.ProxyPort != 80 { //nolint:mnd
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}
@@ -471,25 +471,144 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		Uptime:                formatDuration(p.GetUptime()),
 		Pinned:                pinned[name],
 		IsAdmin:               isAdmin,
+		Domain:                p.Config.Domain,
+		DNSStatus:             p.GetDNSStatus().String(),
+		TLSStatus:             p.GetTLSStatus().String(),
 	}
+}
+
+func (dash *Dashboard) validateLogStreamProxy(w http.ResponseWriter, r *http.Request) (string, *proxymanager.Proxy, bool) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "invalid proxy name", http.StatusBadRequest)
+		return "", nil, false
+	}
+
+	proxy, ok := dash.pm.GetProxy(name)
+	if !ok {
+		http.Error(w, "proxy not found", http.StatusNotFound)
+		return "", nil, false
+	}
+
+	if !proxy.Config.Dashboard.Visible {
+		http.Error(w, "proxy not found", http.StatusNotFound)
+		return "", nil, false
+	}
+
+	return name, proxy, true
+}
+
+func setupSSEHeaders(w http.ResponseWriter) bool {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	if _, ok := w.(http.Flusher); !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
+
+type logStreamer struct {
+	w              http.ResponseWriter
+	selector       string
+	scrollSelector string
+	trimSelector   string
+	safeID         string
+	maxLines       string
+}
+
+func newLogStreamer(w http.ResponseWriter, name string) *logStreamer {
+	safeID := dom.SafeID(name)
+	selector := "#log-lines-" + safeID
+	return &logStreamer{
+		w:              w,
+		selector:       selector,
+		scrollSelector: selector,
+		trimSelector:   selector,
+		safeID:         safeID,
+		maxLines:       strconv.Itoa(proxymanager.DefaultLogBufferSize),
+	}
+}
+
+func (s *logStreamer) writeAppend(cmp templ.Component) error {
+	return WriteSSEPartialComponent(s.w, s.selector, "beforeend", cmp)
+}
+
+func (s *logStreamer) writeRemove(sel string) error {
+	return WriteSSEPartialComponent(s.w, sel, "delete", nil)
+}
+
+func (s *logStreamer) writeClear() error {
+	return WriteSSEPartialComponent(s.w, s.selector, "innerHTML", nil)
+}
+
+func (s *logStreamer) renderInitialSnapshot(snapshot []string) error {
+	if err := s.writeClear(); err != nil {
+		return err
+	}
+	if len(snapshot) > 0 {
+		if err := s.writeAppend(pages.LogLines(snapshot)); err != nil {
+			return err
+		}
+		return WriteSSE(s.w, "scroll-logs", s.scrollSelector)
+	}
+	return s.writeAppend(pages.LogPlaceholder(s.safeID))
+}
+
+func (s *logStreamer) streamEvents(done <-chan struct{}, ch <-chan string, snapshot []string) {
+	placeholderRemoved := len(snapshot) > 0
+	for {
+		select {
+		case <-done:
+			return
+		case line, ok := <-ch:
+			if !ok {
+				return
+			}
+			if !placeholderRemoved {
+				if err := s.writeRemove("#log-placeholder-" + s.safeID); err != nil {
+					return
+				}
+				placeholderRemoved = true
+			}
+
+			lines := s.drainBatch(ch, line)
+			if err := s.writeAppend(pages.LogLines(lines)); err != nil {
+				return
+			}
+			if err := WriteSSE(s.w, "trim-logs", s.trimSelector+"\n"+s.maxLines); err != nil {
+				return
+			}
+			if err := WriteSSE(s.w, "scroll-logs", s.scrollSelector); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (s *logStreamer) drainBatch(ch <-chan string, first string) []string {
+	const maxBatchSize = 50
+
+	lines := []string{first}
+	for len(lines) < maxBatchSize {
+		select {
+		case l, ok := <-ch:
+			if !ok {
+				return lines
+			}
+			lines = append(lines, l)
+		default:
+			return lines
+		}
+	}
+	return lines
 }
 
 func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if name == "" {
-			http.Error(w, "invalid proxy name", http.StatusBadRequest)
-			return
-		}
-
-		proxy, ok := dash.pm.GetProxy(name)
+		name, proxy, ok := dash.validateLogStreamProxy(w, r)
 		if !ok {
-			http.Error(w, "proxy not found", http.StatusNotFound)
-			return
-		}
-
-		if !proxy.Config.Dashboard.Visible {
-			http.Error(w, "proxy not found", http.StatusNotFound)
 			return
 		}
 
@@ -500,92 +619,14 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 		}
 		defer proxy.UnsubscribeLogs(ch)
 
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		if _, ok := w.(http.Flusher); !ok {
-			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		if !setupSSEHeaders(w) {
 			return
 		}
 
-		safeID := dom.SafeID(name)
-		selector := "#log-lines-" + safeID
-		scrollSelector := selector
-		trimSelector := selector
-		maxLines := strconv.Itoa(proxymanager.DefaultLogBufferSize)
-
-		writeAppend := func(cmp templ.Component) error {
-			return WriteSSEPartialComponent(w, selector, "beforeend", cmp)
-		}
-
-		writeRemove := func(sel string) error {
-			return WriteSSEPartialComponent(w, sel, "delete", nil)
-		}
-
-		writeClear := func(sel string) error {
-			return WriteSSEPartialComponent(w, sel, "innerHTML", nil)
-		}
-
-		if err := writeClear(selector); err != nil {
+		streamer := newLogStreamer(w, name)
+		if err := streamer.renderInitialSnapshot(snapshot); err != nil {
 			return
 		}
-
-		if len(snapshot) > 0 {
-			if err := writeAppend(pages.LogLines(snapshot)); err != nil {
-				return
-			}
-			if err := WriteSSE(w, "scroll-logs", scrollSelector); err != nil {
-				return
-			}
-		} else {
-			if err := writeAppend(pages.LogPlaceholder(safeID)); err != nil {
-				return
-			}
-		}
-
-		placeholderRemoved := len(snapshot) > 0
-
-		for {
-			select {
-			case <-r.Context().Done():
-				return
-			case line, ok := <-ch:
-				if !ok {
-					return
-				}
-				if !placeholderRemoved {
-					if err := writeRemove("#log-placeholder-" + safeID); err != nil {
-						return
-					}
-					placeholderRemoved = true
-				}
-
-				const maxBatchSize = 50
-
-				lines := []string{line}
-			drain:
-				for len(lines) < maxBatchSize {
-					select {
-					case l, ok := <-ch:
-						if !ok {
-							break drain
-						}
-						lines = append(lines, l)
-					default:
-						break drain
-					}
-				}
-
-				if err := writeAppend(pages.LogLines(lines)); err != nil {
-					return
-				}
-				if err := WriteSSE(w, "trim-logs", trimSelector+"\n"+maxLines); err != nil {
-					return
-				}
-				if err := WriteSSE(w, "scroll-logs", scrollSelector); err != nil {
-					return
-				}
-			}
-		}
+		streamer.streamEvents(r.Context().Done(), ch, snapshot)
 	}
 }

@@ -6,9 +6,9 @@ package metrics
 import (
 	"bufio"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -60,7 +60,7 @@ func New() *Metrics {
 		),
 		ProxiesTotal: prometheus.NewGauge(
 			prometheus.GaugeOpts{
-				Name: "tsdproxy_proxies_total",
+				Name: "tsdproxy_proxies",
 				Help: "Total number of active proxies.",
 			},
 		),
@@ -103,7 +103,7 @@ func (m *Metrics) Middleware(proxyName, portName string) func(http.Handler) http
 			m.RequestDuration.With(prometheus.Labels{
 				labelProxy: proxyName,
 				labelPort:  portName,
-				"code":     fmt.Sprintf("%d", rec.statusCode),
+				"code":     strconv.Itoa(rec.statusCode),
 			}).Observe(time.Since(start).Seconds())
 		})
 	}

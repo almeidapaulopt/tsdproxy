@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	chanSizeSSEQueue        = 64
-	maxSSEClients           = 256
+	chanSizeSSEQueue      = 64
+	maxSSEClients         = 256
 	healthRefreshInterval = 10 * time.Second
 
 	EventNotify EventType = iota
@@ -38,18 +38,18 @@ type (
 		channel chan SSEMessage
 		done    chan struct{}
 		userID  string
-		isAdmin bool
 		connID  string
 		search  string
 		mtx     sync.Mutex
+		isAdmin bool
 	}
 
 	SSEMessage struct {
 		Comp    templ.Component
 		Message string
-		Type    EventType
 		Target  string
 		Swap    string
+		Type    EventType
 	}
 )
 
@@ -202,8 +202,8 @@ func (dash *Dashboard) updateClientSearch(userID, connID, search string) {
 type clientInfo struct {
 	client  *sseClient
 	userID  string
-	isAdmin bool
 	search  string
+	isAdmin bool
 }
 
 func (dash *Dashboard) snapshotClients() []clientInfo {
@@ -305,19 +305,19 @@ func (dash *Dashboard) handleStatusEvent(event model.ProxyEvent) {
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ProxyCard(data),
 					Target: "#proxy-" + safeName,
-				Swap:   swapOuterHTML,
+					Swap:   swapOuterHTML,
 				},
 				{
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ActionsPanel(data),
 					Target: actionsTarget,
-				Swap:   swapOuterHTML,
+					Swap:   swapOuterHTML,
 				},
 				{
 					Type:   EventHTMXCardUpdate,
 					Comp:   pages.ModalStatusBadge(data),
 					Target: "#modal-status-" + safeName,
-				Swap:   swapOuterHTML,
+					Swap:   swapOuterHTML,
 				},
 			},
 		})
@@ -404,15 +404,16 @@ func (dash *Dashboard) needsFullRender(clients []clientInfo, event model.ProxyEv
 }
 
 func (dash *Dashboard) sendStatusNotification(client *sseClient, event model.ProxyEvent) {
-	if event.Status == model.ProxyStatusStopped {
+	switch event.Status {
+	case model.ProxyStatusStopped:
 		client.send(SSEMessage{
 			Type:    EventNotify,
-			Message: fmt.Sprintf("%s\x00Stopped", event.ID),
+			Message: event.ID + "\x00Stopped",
 		})
-	} else if event.Status == model.ProxyStatusError {
+	case model.ProxyStatusError:
 		client.send(SSEMessage{
 			Type:    EventNotify,
-			Message: fmt.Sprintf("%s\x00Error", event.ID),
+			Message: event.ID + "\x00Error",
 		})
 	}
 }

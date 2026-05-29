@@ -117,7 +117,7 @@ func (c *Client) ReResolve(id string) (*model.Config, error) {
 }
 
 func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
 	defer cancel()
 
 	dcontainerResult, err := c.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})

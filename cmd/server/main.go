@@ -45,11 +45,14 @@ func InitializeApp() (*WebApp, error) {
 	if err != nil {
 		return nil, err
 	}
+	config.Config.ClearSecrets()
 
 	// Write HTTP port to data dir for the healthcheck binary to read.
 	portFile := filepath.Join(config.Config.Tailscale.DataDir, ".http-port")
-	os.MkdirAll(config.Config.Tailscale.DataDir, 0o700)
-	if err := os.WriteFile(portFile, []byte(strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)), 0o600); err != nil {
+	if err := os.MkdirAll(config.Config.Tailscale.DataDir, 0o700); err != nil { //nolint:mnd
+		return nil, fmt.Errorf("create data dir: %w", err)
+	}
+	if err := os.WriteFile(portFile, []byte(strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)), 0o600); err != nil { //nolint:mnd
 		fmt.Fprintf(os.Stderr, "warning: failed to write healthcheck port file: %v\n", err)
 	}
 

@@ -22,6 +22,8 @@ const (
 	envClientID     = "TS_CLIENT_ID"
 	envClientSecret = "TS_CLIENT_SECRET"
 	envTags         = "TS_TAGS"
+	envCFApiToken   = "CF_API_TOKEN"
+	envCFDomain     = "CF_DOMAIN"
 
 	proxyStartupTimeout    = 120 * time.Second
 	proxyReadyPollInterval = 1 * time.Second
@@ -43,6 +45,8 @@ var (
 	tsTags          string
 	tsdproxyBinPath string
 	projectRoot     string
+	cfApiToken      string
+	cfDomain        string
 )
 
 func TestMain(m *testing.M) {
@@ -57,6 +61,8 @@ func TestMain(m *testing.M) {
 	if tsTags == "" {
 		tsTags = "tag:tsdproxy-e2e"
 	}
+	cfApiToken = os.Getenv(envCFApiToken)
+	cfDomain = os.Getenv(envCFDomain)
 
 	os.RemoveAll(e2eBaseDir)
 	os.MkdirAll(e2eBaseDir, 0o755)
@@ -122,6 +128,13 @@ func requireOAuth(t *testing.T) {
 	t.Helper()
 	if tsClientID == "" || tsClientSecret == "" {
 		t.Skip("TS_CLIENT_ID and TS_CLIENT_SECRET must be set for OAuth tests")
+	}
+}
+
+func requireCloudflare(t *testing.T) {
+	t.Helper()
+	if cfApiToken == "" || cfDomain == "" {
+		t.Skip("CF_API_TOKEN and CF_DOMAIN must be set for Cloudflare DNS + ACME tests")
 	}
 }
 

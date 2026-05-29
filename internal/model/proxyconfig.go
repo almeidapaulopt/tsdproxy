@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/creasty/defaults"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 type (
@@ -19,6 +21,9 @@ type (
 		TargetImage         string
 		ProxyProvider       string
 		Hostname            string
+		Domain              string    `validate:"omitempty,fqdn" yaml:"domain"`
+		DNSProvider         string    `validate:"omitempty" yaml:"dnsProvider"`
+		TLSProvider         string    `validate:"omitempty" yaml:"tlsProvider"`
 		Dashboard           Dashboard `validate:"dive"`
 		Tailscale           Tailscale `validate:"dive"`
 		ProxyAccessLog      bool      `default:"true" validate:"boolean"`
@@ -32,12 +37,12 @@ type (
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider
 	Tailscale struct {
-		Tags            string `yaml:"tags"`
-		AuthKey         string `yaml:"authKey"`
-		ResolvedAuthKey string `yaml:"-"` // pre-resolved by ResolveAuthKey, skips OAuth in getAuthkey
-		Ephemeral       bool   `default:"false" validate:"boolean" yaml:"ephemeral"`
-		RunWebClient    bool   `default:"false" validate:"boolean" yaml:"runWebClient"`
-		Verbose         bool   `default:"false" validate:"boolean" yaml:"verbose"`
+		Tags            string                    `yaml:"tags"`
+		AuthKey         secretstring.SecretString `yaml:"authKey"`
+		ResolvedAuthKey string                    `yaml:"-"` // pre-resolved by ResolveAuthKey, skips OAuth in getAuthkey
+		Ephemeral       bool                      `default:"false" validate:"boolean" yaml:"ephemeral"`
+		RunWebClient    bool                      `default:"false" validate:"boolean" yaml:"runWebClient"`
+		Verbose         bool                      `default:"false" validate:"boolean" yaml:"verbose"`
 	}
 
 	Dashboard struct {

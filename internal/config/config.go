@@ -14,6 +14,8 @@ import (
 
 	"github.com/creasty/defaults"
 	"github.com/rs/zerolog/log"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 // ValidateKeyFilePath resolves symlinks and verifies the path points to a
@@ -46,19 +48,24 @@ type (
 	// config stores complete configuration.
 	//
 	config struct {
-		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
+		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
 		Lists                map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
+		TLSProviders         map[string]*TLSProviderConfig          `yaml:"tlsProviders"`
+		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
 		Tailscale            TailscaleProxyProviderConfig           `yaml:"tailscale"`
 		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
 		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
-		APIKey               string                                 `yaml:"apiKey,omitempty"`
-		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
-		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
+		APIKey               secretstring.SecretString              `yaml:"apiKey,omitempty"`
+		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"` //nolint:tagliatelle
+		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"` //nolint:tagliatelle
 		Admins               []string                               `yaml:"admins,omitempty"`
-		Log                  LogConfig                              `yaml:"log"`
 		HTTP                 HTTPConfig                             `yaml:"http"`
+		Log                  LogConfig                              `yaml:"log"`
+		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
+		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
 		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
 		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
+		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"` //nolint:tagliatelle
 	}
 
 	WebhookConfig struct {
@@ -108,14 +115,18 @@ type (
 
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
-		AuthKey            string `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
-		AuthKeyFile        string `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
-		ClientID           string `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
-		ClientSecret       string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
-		Tags               string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
-		ControlURL         string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
-		PreventDuplicates  bool   `default:"false" yaml:"preventDuplicates"`
-		MaxCertConcurrency int64  `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
+		AuthKey            secretstring.SecretString `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
+		AuthKeyFile        string                    `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
+		ClientID           string                    `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
+		ClientSecret       secretstring.SecretString `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
+		ClientSecretFile   string                    `default:"" validate:"omitempty" yaml:"clientSecretFile,omitempty"`
+		Tags               string                    `default:"" validate:"omitempty" yaml:"tags,omitempty"`
+		ControlURL         string                    `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
+		Hostname           string                    `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
+		MaxCertConcurrency int64                     `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
+		PreventDuplicates  bool                      `default:"false" yaml:"preventDuplicates"`
+		Shared             bool                      `default:"false" yaml:"shared"`
+		Services           bool                      `default:"false" yaml:"services"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
@@ -129,6 +140,19 @@ type (
 		HealthCheckFailures  int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
 		HealthCheckCooldown  int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
 	}
+
+	DNSProviderConfig struct {
+		Provider     string                    `validate:"required,oneof=cloudflare magicdns" yaml:"provider"`
+		APIToken     secretstring.SecretString `yaml:"apiToken,omitempty"`
+		APITokenFile string                    `yaml:"apiTokenFile,omitempty"`
+	}
+
+	TLSProviderConfig struct {
+		Provider    string `validate:"required,oneof=tailscale acme" yaml:"provider"`
+		Email       string `yaml:"email,omitempty"`
+		CA          string `default:"https://acme-v02.api.letsencrypt.org/directory" yaml:"ca,omitempty"`
+		CertStorage string `yaml:"certStorage,omitempty"`
+	}
 )
 
 // Config  is a global variable to store configuration.
@@ -140,6 +164,8 @@ func InitializeConfig() error {
 	Config.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 	Config.Docker = make(map[string]*DockerTargetProviderConfig)
 	Config.Lists = make(map[string]*ListTargetProviderConfig)
+	Config.DNSProviders = make(map[string]*DNSProviderConfig)
+	Config.TLSProviders = make(map[string]*TLSProviderConfig)
 
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
@@ -148,22 +174,8 @@ func InitializeConfig() error {
 
 	log.Info().Str("file", *file).Msg("loading configuration")
 
-	if err := fileConfig.Load(); err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		log.Info().Str("file", *file).Msg("generating default configuration")
-
-		if err := defaults.Set(Config); err != nil {
-			log.Error().Err(err).Msg("error loading defaults")
-		}
-
-		applyDockerDefaults()
-
-		Config.generateDefaultProviders()
-		if err := fileConfig.Save(); err != nil {
-			return err
-		}
+	if err := Config.loadConfigFile(fileConfig, *file); err != nil {
+		return err
 	}
 
 	// Load default values.
@@ -175,31 +187,8 @@ func InitializeConfig() error {
 
 	applyDockerDefaults()
 
-	// load auth keys from files
-	for _, d := range Config.Tailscale.Providers {
-		if d != nil && d.ClientSecret != "" && d.ClientID != "" {
-			continue
-		}
-
-		if d != nil && d.AuthKeyFile != "" {
-			authkey, err := Config.getAuthKeyFromFile(d.AuthKeyFile)
-			if err != nil {
-				return err
-			}
-			d.AuthKey = authkey
-		}
-	}
-
-	// load API key from file
-	if Config.APIKeyFile != "" {
-		key, err := Config.getAuthKeyFromFile(Config.APIKeyFile)
-		if err != nil {
-			return fmt.Errorf("error reading API key file: %w", err)
-		}
-		if key == "" {
-			return fmt.Errorf("API key file %q is empty", Config.APIKeyFile)
-		}
-		Config.APIKey = key
+	if err := Config.loadSecretsFromFiles(); err != nil {
+		return err
 	}
 
 	// validate config
@@ -238,6 +227,114 @@ func isRunningInDocker() bool {
 	return err == nil
 }
 
+func (c *config) loadConfigFile(fileConfig *File, path string) error {
+	if err := fileConfig.Load(); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		log.Info().Str("file", path).Msg("generating default configuration")
+
+		if err := defaults.Set(c); err != nil {
+			log.Error().Err(err).Msg("error loading defaults")
+		}
+
+		applyDockerDefaults()
+
+		c.generateDefaultProviders()
+		if err := fileConfig.Save(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *config) loadSecretsFromFiles() error {
+	if err := c.loadTailscaleAuthKeys(); err != nil {
+		return err
+	}
+
+	if err := c.loadAPIKey(); err != nil {
+		return err
+	}
+
+	if err := c.loadTailscaleClientSecrets(); err != nil {
+		return err
+	}
+
+	return c.loadDNSProviderTokens()
+}
+
+func (c *config) loadTailscaleAuthKeys() error {
+	for _, d := range c.Tailscale.Providers {
+		if d == nil || (d.ClientSecret != "" && d.ClientID != "") {
+			continue
+		}
+
+		if d.AuthKeyFile != "" {
+			authkey, err := c.getAuthKeyFromFile(d.AuthKeyFile)
+			if err != nil {
+				return err
+			}
+			d.AuthKey = secretstring.SecretString(authkey)
+		}
+	}
+
+	return nil
+}
+
+func (c *config) loadAPIKey() error {
+	if c.APIKeyFile == "" {
+		return nil
+	}
+
+	key, err := c.getAuthKeyFromFile(c.APIKeyFile)
+	if err != nil {
+		return fmt.Errorf("error reading API key file: %w", err)
+	}
+
+	if key == "" {
+		return fmt.Errorf("API key file %q is empty", c.APIKeyFile)
+	}
+
+	c.APIKey = secretstring.SecretString(key)
+
+	return nil
+}
+
+func (c *config) loadDNSProviderTokens() error {
+	for name, d := range c.DNSProviders {
+		if d == nil || d.APITokenFile == "" {
+			continue
+		}
+		token, err := c.getAuthKeyFromFile(d.APITokenFile)
+		if err != nil {
+			return fmt.Errorf("error reading DNS provider %q API token file: %w", name, err)
+		}
+		d.APIToken = secretstring.SecretString(token)
+	}
+
+	return nil
+}
+
+func (c *config) loadTailscaleClientSecrets() error {
+	for name, d := range c.Tailscale.Providers {
+		if d == nil || d.ClientSecretFile == "" {
+			continue
+		}
+		secret, err := c.getAuthKeyFromFile(d.ClientSecretFile)
+		if err != nil {
+			return fmt.Errorf("error reading tailscale provider %q client secret file: %w", name, err)
+		}
+		if secret == "" {
+			return fmt.Errorf("tailscale provider %q client secret file %s is empty", name, d.ClientSecretFile)
+		}
+		d.ClientSecret = secretstring.SecretString(secret)
+	}
+
+	return nil
+}
+
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	resolved, err := ValidateKeyFilePath(authKeyFile)
 	if err != nil {
@@ -247,5 +344,22 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}
+	defer clear(data) // zero secret buffer after use
 	return strings.TrimSpace(string(data)), nil
+}
+
+// ClearSecrets wipes sensitive fields from memory after configuration is loaded.
+func (c *config) ClearSecrets() {
+	c.APIKey = ""
+	for _, p := range c.Tailscale.Providers {
+		if p != nil {
+			p.AuthKey = ""
+			p.ClientSecret = ""
+		}
+	}
+	for _, d := range c.DNSProviders {
+		if d != nil {
+			d.APIToken = ""
+		}
+	}
 }

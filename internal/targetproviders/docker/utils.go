@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 // getLabelBool method returns a bool from a container label.
@@ -59,10 +60,10 @@ func (c *container) getLabelInt(label string, defaultValue, minVal, maxVal int) 
 }
 
 // getAuthKeyFromAuthFile method returns a auth key from a file.
-func (c *container) getAuthKeyFromAuthFile(authKey string) (string, error) {
+func (c *container) getAuthKeyFromAuthFile(authKey string) (secretstring.SecretString, error) {
 	authKeyFile, ok := c.labels[LabelAuthKeyFile]
 	if !ok || authKeyFile == "" {
-		return authKey, nil
+		return secretstring.SecretString(authKey), nil
 	}
 
 	resolved, err := config.ValidateKeyFilePath(authKeyFile)
@@ -74,5 +75,6 @@ func (c *container) getAuthKeyFromAuthFile(authKey string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read auth key from file: %w", err)
 	}
-	return strings.TrimSpace(string(temp)), nil
+	defer clear(temp)
+	return secretstring.SecretString(strings.TrimSpace(string(temp))), nil
 }

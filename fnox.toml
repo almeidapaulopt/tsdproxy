@@ -6,4 +6,8 @@ service = "tsdproxy"
 prefix = "tsdproxy"
 
 [secrets]
-TS_AUTHKEY= { provider = "keychain", value = "TS_AUTHKEY" }
+TS_AUTHKEY      = { provider = "keychain", value = "TS_AUTHKEY" }
+TS_CLIENT_ID    = { provider = "keychain", value = "TS_CLIENT_ID" }
+TS_CLIENT_SECRET= { provider = "keychain", value = "TS_CLIENT_SECRET" }
+CF_API_TOKEN    = { provider = "keychain", value = "CF_API_TOKEN" }
+CF_DOMAIN       = { provider = "keychain", value = "CF_DOMAIN" }
