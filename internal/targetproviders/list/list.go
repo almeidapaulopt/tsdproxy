@@ -256,7 +256,7 @@ func (c *Client) buildConfig(id string, p proxyConfig) (*model.Config, error) {
 	pcfg.TargetProvider = c.name
 	pcfg.Tailscale = p.Tailscale
 	pcfg.ProxyProvider = proxyProvider
-	pcfg.ProxyAccessLog = model.DefaultProxyAccessLog
+	pcfg.ProxyAccessLog = c.config.DefaultProxyAccessLog
 	pcfg.IdentityHeaders = model.DefaultIdentityHeaders
 	pcfg.AutoRestart = c.config.AutoRestart
 	pcfg.HealthCheckEnabled = c.config.HealthCheckEnabled

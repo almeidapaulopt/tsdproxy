@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/web"
 
@@ -210,7 +211,7 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	pcfg.Domain = c.getLabelString(LabelDomain, "")
 	pcfg.DNSProvider = c.getLabelString(LabelDNSProvider, "")
 	pcfg.TLSProvider = c.getLabelString(LabelTLSProvider, "")
-	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, model.DefaultProxyAccessLog)
+	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, config.Config.ProxyAccessLog)
 	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = c.autoRestart
 	pcfg.HealthCheckEnabled = c.healthCheckEnabled

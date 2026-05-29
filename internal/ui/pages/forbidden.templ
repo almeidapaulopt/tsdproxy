@@ -13,9 +13,17 @@ templ ForbiddenPage(message string) {
 		<link rel="stylesheet" href="/styles.css" type="text/css" />
 	</head>
 	<body class="min-h-screen flex items-center justify-center bg-base-300">
-		<div class="card bg-base-200 shadow-xl rounded-2xl p-10 max-w-md text-center">
+		<div class="card bg-base-200 shadow-xl rounded-2xl p-10 max-w-lg text-center">
 			<h1 class="text-2xl font-bold text-base-content mb-2">{ message }</h1>
-			<p class="text-base-content/50 mb-6">Access requires a Tailscale connection.</p>
+			<p class="text-base-content/70 mb-4">Access requires a Tailscale connection.</p>
+			<div class="text-left text-sm text-base-content/60 bg-base-300 rounded-lg p-4 mb-6">
+				<p class="font-semibold text-base-content/80 mb-2">How to resolve:</p>
+				<ul class="list-disc list-inside space-y-1">
+					<li>Access this page through a Tailscale proxy URL (e.g. <code class="badge badge-ghost badge-sm font-mono">https://dash.tailnet.ts.net</code>)</li>
+					<li>Or add <code class="badge badge-ghost badge-sm font-mono">adminAllowLocalhost: true</code> to your tsdproxy.yaml config</li>
+					<li>Or set a Tailscale <code class="badge badge-ghost badge-sm font-mono">authKey</code> or <code class="badge badge-ghost badge-sm font-mono">clientId</code>/<code class="badge badge-ghost badge-sm font-mono">clientSecret</code> in config</li>
+				</ul>
+			</div>
 			<span class="badge badge-ghost font-mono text-sm">tsdproxy</span>
 		</div>
 	</body>

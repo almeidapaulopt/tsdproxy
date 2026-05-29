@@ -185,7 +185,7 @@ func InitializeConfig() error {
 		log.Error().Err(err).Msg("error loading defaults")
 	}
 
-	applyDockerHostnameDefault()
+	applyDockerDefaults()
 
 	if err := Config.loadSecretsFromFiles(); err != nil {
 		return err
@@ -199,6 +199,34 @@ func InitializeConfig() error {
 	return nil
 }
 
+// applyDockerDefaults adjusts configuration defaults when running inside a
+// Docker container.
+//
+// Outside Docker the defaults remain conservative (127.0.0.1 hostname,
+// adminAllowLocalhost false) per GHSA-j8rq-87gr-gm9q. Inside Docker these
+// values are impractical: 127.0.0.1 is unreachable via port mapping and
+// port-mapped dashboard requests arrive from the Docker bridge gateway
+// (private IP) without a Tailscale identity.
+func applyDockerDefaults() {
+	if !isRunningInDocker() {
+		return
+	}
+	if Config.HTTP.Hostname == "127.0.0.1" {
+		Config.HTTP.Hostname = "0.0.0.0"
+		log.Info().Msg("running in Docker: defaulting http.hostname to 0.0.0.0")
+	}
+	if !Config.AdminAllowLocalhost {
+		Config.AdminAllowLocalhost = true
+		log.Info().Msg("running in Docker: enabling adminAllowLocalhost")
+	}
+}
+
+// isRunningInDocker returns true if the process is running inside a Docker container.
+func isRunningInDocker() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
+}
+
 func (c *config) loadConfigFile(fileConfig *File, path string) error {
 	if err := fileConfig.Load(); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -209,6 +237,8 @@ func (c *config) loadConfigFile(fileConfig *File, path string) error {
 		if err := defaults.Set(c); err != nil {
 			log.Error().Err(err).Msg("error loading defaults")
 		}
+
+		applyDockerDefaults()
 
 		c.generateDefaultProviders()
 		if err := fileConfig.Save(); err != nil {
@@ -285,24 +315,6 @@ func (c *config) loadDNSProviderTokens() error {
 	}
 
 	return nil
-}
-
-// applyDockerHostnameDefault overrides the HTTP hostname from 127.0.0.1 to
-// 0.0.0.0 when running inside a Docker container. Outside Docker the default
-// remains 127.0.0.1 per GHSA-j8rq-87gr-gm9q to avoid exposing management
-// endpoints on the network. Inside Docker, 127.0.0.1 is unreachable via
-// port mapping, so 0.0.0.0 is required.
-func applyDockerHostnameDefault() {
-	if isRunningInDocker() && Config.HTTP.Hostname == "127.0.0.1" {
-		Config.HTTP.Hostname = "0.0.0.0"
-		log.Info().Msg("running in Docker: defaulting http.hostname to 0.0.0.0")
-	}
-}
-
-// isRunningInDocker returns true if the process is running inside a Docker container.
-func isRunningInDocker() bool {
-	_, err := os.Stat("/.dockerenv")
-	return err == nil
 }
 
 func (c *config) loadTailscaleClientSecrets() error {

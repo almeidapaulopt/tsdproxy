@@ -72,3 +72,5 @@ jobs:
           TAILSCALE_VERSION: ${{ env.TAILSCALE_VERSION }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           AUR_KEY: ${{ secrets.AUR_KEY }}
+          LATEST_TAG: ${{ env.LATEST_TAG }}
+          DISABLE_PACKAGE_MANAGERS: ${{ env.DISABLE_PACKAGE_MANAGERS }}
