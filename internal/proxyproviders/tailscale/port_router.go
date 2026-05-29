@@ -101,12 +101,21 @@ func (r *PortRouter) handleConn(conn net.Conn) {
 
 	br := bufio.NewReaderSize(conn, 16389) //nolint:mnd // 5-byte header + 16384 body = max TLS record
 
+	var consumed []byte // bytes consumed from br during sniffing, must be replayed
 	var hostname string
+
 	switch r.mode {
 	case RouteSNI:
 		hostname = clientHelloServerName(br)
+		// SNI uses Peek, so nothing consumed; all bytes are still in br's buffer.
+		consumed, _ = br.Peek(br.Buffered())
 	case RouteHTTPHost:
-		hostname = httpHostHeader(br)
+		hostname, consumed = httpHostHeader(br)
+		// HTTP reads from br to accumulate headers; consumed holds everything read so far.
+		// Any remaining buffered bytes beyond what we Read must also be replayed.
+		if remaining, _ := br.Peek(br.Buffered()); len(remaining) > 0 {
+			consumed = append(consumed, remaining...)
+		}
 	}
 
 	if hostname == "" {
@@ -126,10 +135,9 @@ func (r *PortRouter) handleConn(conn net.Conn) {
 		return
 	}
 
-	peeked, _ := br.Peek(br.Buffered())
-	wrapped := &peekConn{
+	wrapped := &readerConn{
 		Conn:   conn,
-		reader: io.MultiReader(bytes.NewReader(peeked), conn),
+		reader: io.MultiReader(bytes.NewReader(consumed), conn),
 	}
 
 	if !vl.Dispatch(wrapped) {
@@ -137,13 +145,23 @@ func (r *PortRouter) handleConn(conn net.Conn) {
 	}
 }
 
-type peekConn struct {
+// readerConn wraps a net.Conn with a custom io.Reader for replaying peeked bytes.
+// Also used by clientHelloServerName to feed TLS handshake bytes to tls.Server.
+type readerConn struct {
 	net.Conn
 	reader io.Reader
 }
 
-func (c *peekConn) Read(b []byte) (int, error) {
-	return c.reader.Read(b)
+func (c *readerConn) Read(b []byte) (int, error) { return c.reader.Read(b) }
+
+// Write delegates to the underlying Conn when present. When readerConn is
+// used for TLS ClientHello sniffing (no Conn), Write returns io.EOF to
+// satisfy the tls.Config handshake callback without writing to the wire.
+func (c *readerConn) Write(b []byte) (int, error) {
+	if c.Conn != nil {
+		return c.Conn.Write(b)
+	}
+	return 0, io.EOF
 }
 
 // SNI and HTTP Host sniffing logic adapted from github.com/inetaf/tcpproxy
@@ -164,7 +182,7 @@ func clientHelloServerName(br *bufio.Reader) (sni string) {
 	if err != nil {
 		return ""
 	}
-	_ = tls.Server(sniSniffConn{r: bytes.NewReader(helloBytes)}, &tls.Config{
+	_ = tls.Server(&readerConn{reader: bytes.NewReader(helloBytes)}, &tls.Config{
 		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 			sni = hello.ServerName
 			return nil, nil //nolint:nilnil // required by GetConfigForClient API to stop handshake
@@ -173,53 +191,45 @@ func clientHelloServerName(br *bufio.Reader) (sni string) {
 	return
 }
 
-type sniSniffConn struct {
-	r io.Reader
-	net.Conn
-}
+func httpHostHeader(br *bufio.Reader) (hostname string, consumed []byte) {
+	const maxTotal = 4 << 10 // 4KB upper bound
 
-func (c sniSniffConn) Read(p []byte) (int, error) { return c.r.Read(p) }
-func (sniSniffConn) Write(_ []byte) (int, error)  { return 0, io.EOF }
+	var buf bytes.Buffer
+	tmp := make([]byte, 256) //nolint:mnd
 
-func httpHostHeader(br *bufio.Reader) string {
-	const maxPeek = 4 << 10 // 4KB
-
-	// Peek up to 4KB of data to find the Host header.
-	// br.Peek returns what's available without blocking if it's less than maxPeek.
-	b, err := br.Peek(maxPeek)
-	if err != nil && len(b) == 0 {
-		return ""
-	}
-
-	if len(b) > 0 {
-		// HTTP methods are always uppercase A-Z.
-		if b[0] < 'A' || b[0] > 'Z' {
-			return ""
+	for buf.Len() < maxTotal {
+		n, err := br.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
 		}
-	}
+		b := buf.Bytes()
 
-	// Look for the end of headers (\r\n\r\n or \n\n).
-	// If we don't find it within the first 4KB, we stop.
-	delimLen := 4 //nolint:mnd
-	eofHeaders := bytes.Index(b, crlfcrlf)
-	if eofHeaders == -1 {
-		eofHeaders = bytes.Index(b, lflf)
-		delimLen = 2 //nolint:mnd
-	}
+		if len(b) > 0 && (b[0] < 'A' || b[0] > 'Z') {
+			return "", nil
+		}
 
-	if eofHeaders != -1 {
-		// Found end of headers. Use http.ReadRequest for robust parsing.
-		// We only pass the headers part (including delimiter) to ReadRequest.
-		req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(b[:eofHeaders+delimLen])))
+		delimLen := 4 //nolint:mnd
+		eofHeaders := bytes.Index(b, crlfcrlf)
+		if eofHeaders == -1 {
+			eofHeaders = bytes.Index(b, lflf)
+			delimLen = 2 //nolint:mnd
+		}
+
+		if eofHeaders != -1 {
+			req, reqErr := http.ReadRequest(bufio.NewReader(bytes.NewReader(b[:eofHeaders+delimLen])))
+			if reqErr == nil {
+				return req.Host, b
+			}
+			return "", nil
+		}
+
 		if err != nil {
-			return ""
+			return httpHostHeaderFromBytes(b), b
 		}
-		return req.Host
 	}
 
-	// End of headers not found in the peeked buffer.
-	// Fallback to a simpler search if the buffer is full but we didn't find the end.
-	return httpHostHeaderFromBytes(b)
+	b := buf.Bytes()
+	return httpHostHeaderFromBytes(b), b
 }
 
 var (

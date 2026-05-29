@@ -266,9 +266,12 @@ func TestHTTPHostHeader_CRLFDelimiter(t *testing.T) {
 	raw := "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n"
 	br := bufio.NewReaderSize(bytes.NewReader([]byte(raw)), 16384)
 
-	host := httpHostHeader(br)
+	host, consumed := httpHostHeader(br)
 	if host != "example.com" {
 		t.Fatalf("expected %q, got %q", "example.com", host)
+	}
+	if string(consumed) != raw {
+		t.Fatalf("expected consumed %q, got %q", raw, string(consumed))
 	}
 }
 
@@ -278,9 +281,12 @@ func TestHTTPHostHeader_LFDelimiter(t *testing.T) {
 	raw := "GET / HTTP/1.1\nHost: example.com\nUser-Agent: test\n\n"
 	br := bufio.NewReaderSize(bytes.NewReader([]byte(raw)), 16384)
 
-	host := httpHostHeader(br)
+	host, consumed := httpHostHeader(br)
 	if host != "example.com" {
 		t.Fatalf("expected %q, got %q", "example.com", host)
+	}
+	if string(consumed) != raw {
+		t.Fatalf("expected consumed %q, got %q", raw, string(consumed))
 	}
 }
 
@@ -290,9 +296,12 @@ func TestHTTPHostHeader_MultipleHostHeaders(t *testing.T) {
 	raw := "GET / HTTP/1.1\r\nHost: first.com\r\nHost: second.com\r\n\r\n"
 	br := bufio.NewReaderSize(bytes.NewReader([]byte(raw)), 16384)
 
-	host := httpHostHeader(br)
+	host, consumed := httpHostHeader(br)
 	if host != "" {
 		t.Fatalf("expected empty host (ReadRequest rejects duplicate Host), got %q", host)
+	}
+	if len(consumed) != 0 {
+		t.Fatalf("expected empty consumed on invalid headers, got %d bytes", len(consumed))
 	}
 }
 
@@ -302,9 +311,12 @@ func TestHTTPHostHeader_EmptyHost(t *testing.T) {
 	raw := "GET / HTTP/1.1\r\nHost:\r\n\r\n"
 	br := bufio.NewReaderSize(bytes.NewReader([]byte(raw)), 16384)
 
-	host := httpHostHeader(br)
+	host, consumed := httpHostHeader(br)
 	if host != "" {
 		t.Fatalf("expected empty host, got %q", host)
+	}
+	if string(consumed) != raw {
+		t.Fatalf("expected consumed %q, got %q", raw, string(consumed))
 	}
 }
 
@@ -314,9 +326,12 @@ func TestHTTPHostHeader_NoHeadersEnd(t *testing.T) {
 	raw := "GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test"
 	br := bufio.NewReaderSize(bytes.NewReader([]byte(raw)), 16384)
 
-	host := httpHostHeader(br)
+	host, consumed := httpHostHeader(br)
 	if host != "example.com" {
 		t.Fatalf("expected %q (fallback), got %q", "example.com", host)
+	}
+	if string(consumed) != raw {
+		t.Fatalf("expected consumed %q, got %q", raw, string(consumed))
 	}
 }
 
