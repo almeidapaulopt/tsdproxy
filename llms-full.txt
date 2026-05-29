@@ -682,7 +682,7 @@ The `tailscale_funnel` option exposes the service publicly through Tailscale's F
 - **Error wrapping**: Use `fmt.Errorf("context: %w", err)` consistently.
 - **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context.
 - **Unit tests**: Co-located `*_test.go` files, run with `go test ./...`.
-- **E2E tests**: Build tag `//go:build e2e`, run with `go test -tags=e2e ./e2e/`. Requires `TS_AUTHKEY` or `TS_AUTHKEY_FILE`.
+- **E2E tests**: Build tag `//go:build e2e`, run with `go test -tags=e2e ./e2e/`. Requires `TSDPROXY_E2E_AUTHKEY` or `TSDPROXY_E2E_AUTHKEY_FILE`.
 - **Frontend build**: `web/` uses Bun + Vite. Output goes to `web/dist/`, embedded in binary via `statigz` + brotli.
 - **UI framework**: `templ` for server-rendered components. `datastar` for client-side SSE DOM merging.
 - **Config live-reload**: `internal/config/configfile.go` uses fsnotify to watch config file changes.

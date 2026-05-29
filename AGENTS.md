@@ -150,7 +150,7 @@ Steps 4–5 skipped for host-network containers.
 - **Error handling**: Three-tier: `fmt.Errorf("context: %w", err)` wrapping → sentinel `ErrFoo` vars → custom `XxxError` types
 - **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context. `"module"` or `"component"` key. Trace for function boundaries, Debug for lifecycle, Info for state changes, Error with `.Err(err)`.
 - **Unit tests**: Co-located `*_test.go` files, run with `go test ./...` (or `make test` using gotestsum)
-- **E2E tests**: `e2e/` — `//go:build e2e`, testcontainers + real Tailscale. Env vars: `TS_AUTHKEY`/`TS_AUTHKEY_FILE`, `TS_CLIENT_ID`/`TS_CLIENT_SECRET`, `TS_TAGS`
+- **E2E tests**: `e2e/` — `//go:build e2e`, testcontainers + real Tailscale. Env vars: `TSDPROXY_E2E_AUTHKEY`/`TSDPROXY_E2E_AUTHKEY_FILE`, `TSDPROXY_E2E_CLIENTID`/`TSDPROXY_E2E_CLIENTSECRET`, `TS_TAGS`
 - **Frontend build**: `web/` uses Bun + Vite; `web/dist/` embedded via `go:embed` + statigz + brotli
 - **UI framework**: `templ` for server-rendered HTML; htmx 4 + `hx-sse` for live updates
 - **Import aliases**: Descriptive when packages collide: `cloudflaredns`, `magicdns`, `acmetls`, `tailscaletls`, `tsproxy`
@@ -190,7 +190,7 @@ make run                    # Build + run (needs make bootstrap first)
 # Testing
 make test                   # Run all unit tests (gotestsum -race -buildvcs)
 make test/cover             # Tests with coverage report
-make test/e2e               # E2E tests with gotestsum -tags=e2e (needs TS_AUTHKEY)
+make test/e2e               # E2E tests with gotestsum -tags=e2e (needs TSDPROXY_E2E_AUTHKEY)
 
 # Quality
 make audit                  # Full audit: golangci-lint, staticcheck, go vet, deadcode, govulncheck, gosec

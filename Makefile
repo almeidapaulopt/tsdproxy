@@ -71,7 +71,7 @@ test/cover:
 	gotestsum -- -race -buildvcs -coverprofile=./tmp/coverage.out ./...
 	go tool cover -html=./tmp/coverage.out
 
-## test/e2e: run end-to-end tests (requires Docker and TS_AUTHKEY)
+## test/e2e: run end-to-end tests (requires Docker and TSDPROXY_E2E_AUTHKEY)
 .PHONY: test/e2e
 test/e2e:
 	cd e2e && gotestsum -f testname -- -v -tags=e2e -timeout=0 -count=1 ./...
