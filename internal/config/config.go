@@ -262,7 +262,13 @@ func (c *config) loadSecretsFromFiles() error {
 		return err
 	}
 
-	return c.loadDNSProviderTokens()
+	if err := c.loadDNSProviderTokens(); err != nil {
+		return err
+	}
+
+	c.loadTailscaleEnvOverrides()
+
+	return nil
 }
 
 func (c *config) loadTailscaleAuthKeys() error {
@@ -333,6 +339,31 @@ func (c *config) loadTailscaleClientSecrets() error {
 	}
 
 	return nil
+}
+
+// loadTailscaleEnvOverrides checks for TSDPROXY_TAILSCALE_<NAME>_CLIENTID and
+// TSDPROXY_TAILSCALE_<NAME>_CLIENTSECRET environment variables and overrides
+// the corresponding config fields if they are empty. This allows users to
+// supply OAuth credentials without hardcoding them in the YAML config file.
+//
+// Env var names are derived from the Tailscale provider name:
+//
+//	provider "default"  → TSDPROXY_TAILSCALE_DEFAULT_CLIENTID
+//	provider "my-eu-prod" → TSDPROXY_TAILSCALE_MY-EU-PROD_CLIENTSECRET
+func (c *config) loadTailscaleEnvOverrides() {
+	for name, d := range c.Tailscale.Providers {
+		if d == nil {
+			continue
+		}
+		prefix := "TSDPROXY_TAILSCALE_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+
+		if val, ok := os.LookupEnv(prefix + "_CLIENTID"); ok && d.ClientID == "" {
+			d.ClientID = val
+		}
+		if val, ok := os.LookupEnv(prefix + "_CLIENTSECRET"); ok && d.ClientSecret == "" {
+			d.ClientSecret = secretstring.SecretString(val)
+		}
+	}
 }
 
 func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
