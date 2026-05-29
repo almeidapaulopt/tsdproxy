@@ -340,7 +340,7 @@ func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 
 	authKey := c.getLabelString(LabelAuthKey, "")
 
-	authKey, err := c.getAuthKeyFromAuthFile(authKey)
+	authKeySecret, err := c.getAuthKeyFromAuthFile(authKey)
 	if err != nil {
 		return nil, fmt.Errorf("error setting auth key from file : %w", err)
 	}
@@ -351,7 +351,7 @@ func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 		Ephemeral:    c.getLabelBool(LabelEphemeral, model.DefaultTailscaleEphemeral),
 		RunWebClient: c.getLabelBool(LabelRunWebClient, model.DefaultTailscaleRunWebClient),
 		Verbose:      c.getLabelBool(LabelTsnetVerbose, model.DefaultTailscaleVerbose),
-		AuthKey:      authKey,
+		AuthKey:      authKeySecret,
 		Tags:         tags,
 	}, nil
 }
