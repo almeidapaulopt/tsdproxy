@@ -54,7 +54,6 @@ jobs:
         run: |
           MAJOR=$(echo "${GITHUB_REF#refs/tags/v}" | cut -d. -f1)
           HIGHEST=$(git tag -l 'v[0-9]*' | sed 's/v//' | cut -d. -f1 | sort -n | tail -1)
-          echo "DISABLE_PACKAGE_MANAGERS=false" >> $GITHUB_ENV
           if [ "$MAJOR" -ge "${HIGHEST:-0}" ]; then
             echo "LATEST_TAG=latest" >> $GITHUB_ENV
           else
