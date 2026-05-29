@@ -27,8 +27,8 @@ require (
 	golang.org/x/sync v0.20.0
 	golang.org/x/time v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
-	tailscale.com v1.98.3
 	tailscale.com/client/tailscale/v2 v2.10.0
+	tailscale.com v1.98.4
 )
 
 require (
