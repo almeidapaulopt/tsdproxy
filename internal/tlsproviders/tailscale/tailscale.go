@@ -15,20 +15,25 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
+	"golang.org/x/sync/semaphore"
 )
 
 // Provider implements tlsproviders.Provider using Tailscale's CertPair.
 // Only works for MagicDNS domains (*.ts.net).
 // The local client may be set lazily via SetLocalClient after creation.
 type Provider struct {
-	lc *local.Client
-	mu sync.RWMutex
+	lc      *local.Client
+	mu      sync.RWMutex
+	certSem *semaphore.Weighted
 }
 
 var _ tlsproviders.Provider = (*Provider)(nil)
 
 func New(lc *local.Client) *Provider {
-	return &Provider{lc: lc}
+	return &Provider{
+		lc:      lc,
+		certSem: semaphore.NewWeighted(model.DefaultMaxCertConcurrency),
+	}
 }
 
 // SetLocalClient updates the Tailscale local client. Safe to call concurrently.
@@ -57,6 +62,10 @@ func (p *Provider) Provision(ctx context.Context, domain string) error {
 	if lc == nil {
 		return errors.New("tailscale tls: local client is nil")
 	}
+	if err := p.certSem.Acquire(ctx, 1); err != nil {
+		return fmt.Errorf("tailscale tls: cert semaphore for %s: %w", domain, err)
+	}
+	defer p.certSem.Release(1)
 	_, _, err := lc.CertPair(ctx, domain)
 	if err != nil {
 		return fmt.Errorf("tailscale tls: certpair for %s: %w", domain, err)
@@ -69,6 +78,10 @@ func (p *Provider) GetCertificate(ctx context.Context, domain string) (tls.Certi
 	if lc == nil {
 		return tls.Certificate{}, errors.New("tailscale tls: local client is nil")
 	}
+	if err := p.certSem.Acquire(ctx, 1); err != nil {
+		return tls.Certificate{}, fmt.Errorf("tailscale tls: cert semaphore for %s: %w", domain, err)
+	}
+	defer p.certSem.Release(1)
 	certPEM, keyPEM, err := lc.CertPair(ctx, domain)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("tailscale tls: get cert for %s: %w", domain, err)
