@@ -16,6 +16,14 @@ tailscale:
     default:
       controlUrl: https://controlplane.tailscale.com
       # authKeyFile: dev/KEY_FILE
+    services:
+      services: true
+      hostname: tsdproxy-svc
+      tags: tag:tsdproxy
+      controlUrl: https://controlplane.tailscale.com
+      # clientId and clientSecret provided via env vars:
+      #   TSDPROXY_TAILSCALE_SERVICES_CLIENTID
+      #   TSDPROXY_TAILSCALE_SERVICES_CLIENTSECRET
   dataDir: dev/data/
 http:
   hostname: 0.0.0.0
