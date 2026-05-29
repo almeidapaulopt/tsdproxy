@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	envAuthKey      = "TS_AUTHKEY"
-	envAuthKeyFile  = "TS_AUTHKEY_FILE"
-	envClientID     = "TS_CLIENT_ID"
-	envClientSecret = "TS_CLIENT_SECRET"
+	envAuthKey      = "TSDPROXY_E2E_AUTHKEY"
+	envAuthKeyFile  = "TSDPROXY_E2E_AUTHKEY_FILE"
+	envClientID     = "TSDPROXY_E2E_CLIENTID"
+	envClientSecret = "TSDPROXY_E2E_CLIENTSECRET"
 	envTags         = "TS_TAGS"
 	envCFApiToken   = "CF_API_TOKEN"
 	envCFDomain     = "CF_DOMAIN"
@@ -120,14 +120,14 @@ func requireTailscaleAuth(t *testing.T) string {
 		return strings.TrimSpace(string(data))
 	}
 
-	t.Skip("TS_AUTHKEY or TS_AUTHKEY_FILE must be set for Tailscale tests")
+	t.Skip("TSDPROXY_E2E_AUTHKEY or TSDPROXY_E2E_AUTHKEY_FILE must be set for Tailscale tests")
 	return ""
 }
 
 func requireOAuth(t *testing.T) {
 	t.Helper()
 	if tsClientID == "" || tsClientSecret == "" {
-		t.Skip("TS_CLIENT_ID and TS_CLIENT_SECRET must be set for OAuth tests")
+		t.Skip("TSDPROXY_E2E_CLIENTID and TSDPROXY_E2E_CLIENTSECRET must be set for OAuth tests")
 	}
 }
 

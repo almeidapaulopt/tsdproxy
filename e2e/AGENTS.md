@@ -40,10 +40,10 @@ e2e/
 ```bash
 make test/e2e                      # gotestsum -tags=e2e -timeout=0
 go test -tags=e2e -timeout=0 ./e2e/
-TS_AUTHKEY=tskey-auth-xxx go test -tags=e2e -run TestBasicProxy ./e2e/
+TSDPROXY_E2E_AUTHKEY=tskey-auth-xxx go test -tags=e2e -run TestBasicProxy ./e2e/
 ```
 
-Required: `TS_AUTHKEY` or `TS_AUTHKEY_FILE`. Optional: `TS_CLIENT_ID` + `TS_CLIENT_SECRET` (OAuth tests), `TS_TAGS` (default: `tag:tsdproxy-e2e`).
+Required: `TSDPROXY_E2E_AUTHKEY` or `TSDPROXY_E2E_AUTHKEY_FILE`. Optional: `TSDPROXY_E2E_CLIENTID` + `TSDPROXY_E2E_CLIENTSECRET` (OAuth tests), `TS_TAGS` (default: `tag:tsdproxy-e2e`).
 
 ## TEST INFRASTRUCTURE
 
@@ -66,6 +66,6 @@ Required: `TS_AUTHKEY` or `TS_AUTHKEY_FILE`. Optional: `TS_CLIENT_ID` + `TS_CLIE
 - `TestMain` cleans `tsdproxy.e2e=true` containers before suite. Crashed runs may leave stale ones.
 - ACME rate limits: rapid re-runs with same hostnames hit Let's Encrypt limits.
 - `requireTailscaleAuth` calls `t.Skip()` without auth key. Tests silently skip in CI.
-- `requireOAuth` skips without `TS_CLIENT_ID`/`TS_CLIENT_SECRET`.
+- `requireOAuth` skips without `TSDPROXY_E2E_CLIENTID`/`TSDPROXY_E2E_CLIENTSECRET`.
 - Tailscale machine names must be unique. Timestamp-based hostnames for tsnet clients.
 - `proxyStartupTimeout` 120s. First-run Tailscale auth + cert can be slow.

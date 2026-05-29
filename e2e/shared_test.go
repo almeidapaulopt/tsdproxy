@@ -199,7 +199,7 @@ func verifySharedHTTPS(t *testing.T, ctx context.Context, client *TSNetClient, s
 // TestSharedModeRestartCycle tests the shared tsnet server lifecycle:
 // start proxies → verify → stop all → verify unreachable → start new proxies → verify.
 // Uses HTTP routing (RouteHTTPHost) to avoid external DNS/TLS dependencies,
-// so only TS_AUTHKEY is required (same as TestBasicProxy).
+// so only TSDPROXY_E2E_AUTHKEY is required (same as TestBasicProxy).
 func TestSharedModeRestartCycle(t *testing.T) {
 	authKey := requireTailscaleAuth(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -319,7 +319,7 @@ proxyAccessLog: true
 // and ACME TLS provisioning (staging CA). Verifies SNI routing, DNS record
 // creation, and TLS certificate provisioning end-to-end.
 //
-// Requires: CF_API_TOKEN, CF_DOMAIN, TS_AUTHKEY.
+// Requires: CF_API_TOKEN, CF_DOMAIN, TSDPROXY_E2E_AUTHKEY.
 func TestSharedModeHTTPSWithCloudflare(t *testing.T) {
 	requireCloudflare(t)
 	authKey := requireTailscaleAuth(t)
