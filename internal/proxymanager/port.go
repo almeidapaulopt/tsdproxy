@@ -383,83 +383,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 	clientMap := make(map[string]*clientEntry)
 	var mapMtx sync.Mutex
 
-	defer func() {
-		mapMtx.Lock()
-		for _, entry := range clientMap {
-			if entry.conn != nil {
-				entry.conn.Close()
-			}
-		}
-		mapMtx.Unlock()
-	}()
-
-	getBackendConn := func(clientAddr net.Addr) (*net.UDPConn, error) {
-		mapMtx.Lock()
-		defer mapMtx.Unlock()
-
-		key := clientAddr.String()
-		if entry, ok := clientMap[key]; ok {
-			entry.lastSeen = time.Now()
-			if !entry.limiter.Allow() {
-				p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
-				return nil, errRateLimited
-			}
-			return entry.conn, nil
-		}
-
-		entry := &clientEntry{
-			lastSeen: time.Now(),
-			limiter:  rate.NewLimiter(udpPerSourceRate, udpPerSourceBurst),
-		}
-		clientMap[key] = entry
-
-		if !entry.limiter.Allow() {
-			p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
-			return nil, errRateLimited
-		}
-
-		if len(clientMap) >= udpMaxClients {
-			var oldestKey string
-			var oldestTime time.Time
-			for k, v := range clientMap {
-				if oldestKey == "" || v.lastSeen.Before(oldestTime) {
-					oldestKey = k
-					oldestTime = v.lastSeen
-				}
-			}
-			if oldest, ok := clientMap[oldestKey]; ok {
-				if oldest.conn != nil {
-					oldest.conn.Close()
-				}
-				delete(clientMap, oldestKey)
-			}
-		}
-
-		// Resolve target for each new client connection so re-resolution takes effect.
-		target := p.pconfig.GetFirstTarget()
-		if target.Host == "" {
-			delete(clientMap, key)
-			return nil, errors.New("no target configured for UDP port")
-		}
-
-		backendAddr, err := net.ResolveUDPAddr(model.ProtoUDP, target.Host)
-		if err != nil {
-			delete(clientMap, key)
-			return nil, fmt.Errorf("error resolving backend UDP address: %w", err)
-		}
-
-		conn, err := net.DialUDP(model.ProtoUDP, nil, backendAddr)
-		if err != nil {
-			delete(clientMap, key)
-			return nil, err
-		}
-
-		entry.conn = conn
-
-		go p.relayBackendToClient(entry, pc, clientAddr, &mapMtx, clientMap)
-
-		return conn, nil
-	}
+	defer closeAllClients(clientMap, &mapMtx)
 
 	for {
 		n, clientAddr, err := pc.ReadFrom(buf)
@@ -471,7 +395,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 			return
 		}
 
-		backend, err := getBackendConn(clientAddr)
+		backend, err := p.getOrCreateBackendConn(clientAddr, clientMap, &mapMtx, pc)
 		if err != nil {
 			if errors.Is(err, errRateLimited) {
 				continue
@@ -490,6 +414,96 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 			}
 			p.log.Error().Err(err).Msg("error writing to backend")
 		}
+	}
+}
+
+func closeAllClients(clientMap map[string]*clientEntry, mapMtx *sync.Mutex) {
+	mapMtx.Lock()
+	for _, entry := range clientMap {
+		if entry.conn != nil {
+			entry.conn.Close()
+		}
+	}
+	mapMtx.Unlock()
+}
+
+// getOrCreateBackendConn returns an existing or new backend UDP connection for the client.
+// Caller must NOT hold mapMtx.
+func (p *udpPort) getOrCreateBackendConn(
+	clientAddr net.Addr,
+	clientMap map[string]*clientEntry,
+	mapMtx *sync.Mutex,
+	pc net.PacketConn,
+) (*net.UDPConn, error) {
+	//
+	mapMtx.Lock()
+	defer mapMtx.Unlock()
+
+	key := clientAddr.String()
+	if entry, ok := clientMap[key]; ok {
+		entry.lastSeen = time.Now()
+		if !entry.limiter.Allow() {
+			p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
+			return nil, errRateLimited
+		}
+		return entry.conn, nil
+	}
+
+	entry := &clientEntry{
+		lastSeen: time.Now(),
+		limiter:  rate.NewLimiter(udpPerSourceRate, udpPerSourceBurst),
+	}
+	clientMap[key] = entry
+
+	if !entry.limiter.Allow() {
+		p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
+		return nil, errRateLimited
+	}
+
+	if len(clientMap) >= udpMaxClients {
+		evictOldestClient(clientMap)
+	}
+
+	// Resolve target for each new client connection so re-resolution takes effect.
+	target := p.pconfig.GetFirstTarget()
+	if target.Host == "" {
+		delete(clientMap, key)
+		return nil, errors.New("no target configured for UDP port")
+	}
+
+	backendAddr, err := net.ResolveUDPAddr(model.ProtoUDP, target.Host)
+	if err != nil {
+		delete(clientMap, key)
+		return nil, fmt.Errorf("error resolving backend UDP address: %w", err)
+	}
+
+	conn, err := net.DialUDP(model.ProtoUDP, nil, backendAddr)
+	if err != nil {
+		delete(clientMap, key)
+		return nil, err
+	}
+
+	entry.conn = conn
+
+	go p.relayBackendToClient(entry, pc, clientAddr, mapMtx, clientMap)
+
+	return conn, nil
+}
+
+func evictOldestClient(clientMap map[string]*clientEntry) {
+	var oldestKey string
+	var oldestTime time.Time
+	for k, v := range clientMap {
+		if oldestKey == "" || v.lastSeen.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.lastSeen
+		}
+	}
+	if oldest, ok := clientMap[oldestKey]; ok {
+		if oldest.conn != nil {
+			oldest.conn.Close()
+		}
+		delete(clientMap, oldestKey)
 	}
 }
 
