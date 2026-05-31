@@ -270,20 +270,10 @@ func (ss *ServicesServer) loop() {
 		case releaseServiceCmd:
 			state, rt = ss.handleReleaseService(c, state, rt)
 			if state == servicesIdle && rt != nil {
-				capturedGen := rt.gen
-				idleTimer = time.AfterFunc(servicesIdleTimeout, func() {
-					select {
-					case ss.cmds <- servicesIdleTimeoutCmd{gen: capturedGen}:
-					case <-ss.done:
-					}
-				})
+				idleTimer = ss.scheduleIdleTimer(rt)
 			}
 		case servicesIdleTimeoutCmd:
-			if state == servicesIdle && rt != nil && c.gen == rt.gen {
-				ss.log.Info().Msg("services server idle timeout, stopping")
-				ss.stopRuntime(rt)
-				rt = nil
-			}
+			rt = ss.handleIdleTimeout(c, state, rt)
 		case servicesWatchUpdateCmd:
 			ss.handleWatchUpdate(c, rt)
 		case servicesGetAuthURLCmd:
@@ -297,6 +287,26 @@ func (ss *ServicesServer) loop() {
 			return
 		}
 	}
+}
+
+// scheduleIdleTimer starts the idle-shutdown timer. Must be called from the loop goroutine.
+func (ss *ServicesServer) scheduleIdleTimer(rt *servicesRuntime) *time.Timer {
+	capturedGen := rt.gen
+	return time.AfterFunc(servicesIdleTimeout, func() {
+		select {
+		case ss.cmds <- servicesIdleTimeoutCmd{gen: capturedGen}:
+		case <-ss.done:
+		}
+	})
+}
+
+func (ss *ServicesServer) handleIdleTimeout(c servicesIdleTimeoutCmd, state servicesState, rt *servicesRuntime) *servicesRuntime {
+	if state == servicesIdle && rt != nil && c.gen == rt.gen {
+		ss.log.Info().Msg("services server idle timeout, stopping")
+		ss.stopRuntime(rt)
+		return nil
+	}
+	return rt
 }
 
 func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
@@ -378,38 +388,44 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 }
 
 func (ss *ServicesServer) handleReleaseService(c releaseServiceCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
-	if state == servicesRunning && rt != nil {
-		key := serviceKey(c.serviceName, c.port)
-		if entry, ok := rt.listeners[key]; ok {
-			rt.factory.Close(entry.listener)
-			delete(rt.listeners, key)
-			rt.refCount--
+	c.reply <- nil
 
-			remainingPorts := ss.collectExistingServicePorts(rt, c.serviceName)
-			if len(remainingPorts) == 0 {
-				if err := ss.deleteVIPService(c.serviceName); err != nil {
-					ss.log.Warn().Err(err).Str("service", c.serviceName).Msg("failed to delete VIP service")
-				}
-			} else {
-				if err := ss.createOrUpdateVIPService(c.serviceName, remainingPorts); err != nil {
-					ss.log.Warn().Err(err).Str("service", c.serviceName).Msg("failed to update VIP service after port release")
-				}
-			}
+	if state != servicesRunning || rt == nil {
+		return state, rt
+	}
 
-			ss.log.Info().
-				Str("service", c.serviceName).
-				Uint16("port", c.port).
-				Msg("service released")
-		}
-
-		c.reply <- nil
-
+	key := serviceKey(c.serviceName, c.port)
+	entry, ok := rt.listeners[key]
+	if !ok {
 		if rt.refCount <= 0 {
 			return servicesIdle, rt
 		}
 		return state, rt
 	}
-	c.reply <- nil
+
+	rt.factory.Close(entry.listener)
+	delete(rt.listeners, key)
+	rt.refCount--
+
+	remainingPorts := ss.collectExistingServicePorts(rt, c.serviceName)
+	if len(remainingPorts) == 0 {
+		if err := ss.deleteVIPService(c.serviceName); err != nil {
+			ss.log.Warn().Err(err).Str("service", c.serviceName).Msg("failed to delete VIP service")
+		}
+	} else {
+		if err := ss.createOrUpdateVIPService(c.serviceName, remainingPorts); err != nil {
+			ss.log.Warn().Err(err).Str("service", c.serviceName).Msg("failed to update VIP service after port release")
+		}
+	}
+
+	ss.log.Info().
+		Str("service", c.serviceName).
+		Uint16("port", c.port).
+		Msg("service released")
+
+	if rt.refCount <= 0 {
+		return servicesIdle, rt
+	}
 	return state, rt
 }
 
@@ -481,7 +497,7 @@ func (ss *ServicesServer) Whois(r *http.Request) model.Whois {
 		return model.Whois{}
 	}
 
-	return cachedWhoisFromAddr(ss.whoisCache, lc, r.Context(), peerIP)
+	return cachedWhoisFromAddr(r.Context(), ss.whoisCache, lc, peerIP)
 }
 
 // trustedPeerIP derives the peer IP to use for Whois lookup.
@@ -630,9 +646,9 @@ func (ss *ServicesServer) startRuntimeLegacy() *servicesRuntime {
 	}
 
 	if ss.deviceReconciler != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
-		ss.deviceReconciler.Reconcile(ctx, ss.hostname, ss.tags)
-		cancel()
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+		ss.deviceReconciler.Reconcile(reconcileCtx, ss.hostname, ss.tags)
+		reconcileCancel()
 	}
 
 	if err := tsServer.Start(); err != nil {
@@ -912,7 +928,6 @@ func (ss *ServicesServer) reconcileVIPServiceOnFailure(rt *servicesRuntime, serv
 func serviceKey(serviceName string, port uint16) string {
 	return fmt.Sprintf("%s:%d", serviceName, port)
 }
-
 
 // isNotFound returns true if the error indicates the requested resource
 // does not exist (HTTP 404 or equivalent). Used to distinguish confirmed

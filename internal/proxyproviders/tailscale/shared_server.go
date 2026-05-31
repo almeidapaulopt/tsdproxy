@@ -287,70 +287,90 @@ func (ss *SharedServer) loop() {
 	var idleTimer *time.Timer
 
 	for cmd := range ss.cmds {
-		// Cancel idle timer only for state-mutating commands.
-		// Read-only commands (watchUpdate, certDone, getURL, getLocalClient,
-		// subscribe, unsubscribe) must not disrupt the idle countdown.
-		switch cmd.(type) {
-		case acquireCmd, acquirePacketCmd, releaseCmd, releasePacketCmd,
-			closeCmd, idleTimeoutCmd:
-			if idleTimer != nil {
-				idleTimer.Stop()
-				idleTimer = nil
-			}
-		}
+		idleTimer = ss.cancelIdleTimer(cmd, idleTimer)
 
-		switch c := cmd.(type) {
-		case acquireCmd:
-			state, rt = ss.handleAcquire(c, state, rt, &nextGen)
-		case releaseCmd:
-			state, rt = ss.handleRelease(c, state, rt)
-			if state == sharedIdle && rt != nil {
-				capturedGen := rt.gen
-				idleTimer = time.AfterFunc(sharedIdleTimeout, func() {
-					select {
-					case ss.cmds <- idleTimeoutCmd{gen: capturedGen}:
-					case <-ss.done:
-					}
-				})
-			}
-		case acquirePacketCmd:
-			state, rt = ss.handleAcquirePacket(c, state, rt, &nextGen)
-		case releasePacketCmd:
-			state, rt = ss.handleReleasePacket(c, state, rt)
-			if state == sharedIdle && rt != nil {
-				capturedGen := rt.gen
-				idleTimer = time.AfterFunc(sharedIdleTimeout, func() {
-					select {
-					case ss.cmds <- idleTimeoutCmd{gen: capturedGen}:
-					case <-ss.done:
-					}
-				})
-			}
-		case idleTimeoutCmd:
-			if state == sharedIdle && rt != nil && c.gen == rt.gen {
-				ss.log.Info().Msg("shared server idle timeout, stopping")
-				ss.stopRuntime(rt)
-				rt = nil
-			}
-		case closeCmd:
-			ss.handleClose(c, state, rt)
+		var stop bool
+		state, rt, idleTimer, stop = ss.dispatchCommand(cmd, state, rt, &nextGen, idleTimer)
+		if stop {
 			return
-		case watchUpdateCmd:
-			ss.handleWatchUpdate(c, rt)
-		case certDoneCmd:
-			ss.handleCertDone(c, rt)
-		case getURLCmd:
-			ss.handleGetURL(c, rt)
-		case getAuthURLCmd:
-			ss.handleGetAuthURL(c, rt)
-		case getLocalClientCmd:
-			ss.handleGetLocalClient(c, rt)
-		case subscribeCmd:
-			rt = ss.handleSubscribe(c, rt)
-		case unsubscribeCmd:
-			ss.handleUnsubscribe(c, rt)
 		}
 	}
+}
+
+func (ss *SharedServer) cancelIdleTimer(cmd sharedCmd, idleTimer *time.Timer) *time.Timer {
+	switch cmd.(type) {
+	case acquireCmd, acquirePacketCmd, releaseCmd, releasePacketCmd,
+		closeCmd, idleTimeoutCmd:
+		if idleTimer != nil {
+			idleTimer.Stop()
+			return nil
+		}
+	}
+	return idleTimer
+}
+
+func (ss *SharedServer) scheduleIdleTimeout(state sharedState, rt *sharedRuntime) *time.Timer {
+	if state != sharedIdle || rt == nil {
+		return nil
+	}
+	capturedGen := rt.gen
+	return time.AfterFunc(sharedIdleTimeout, func() {
+		select {
+		case ss.cmds <- idleTimeoutCmd{gen: capturedGen}:
+		case <-ss.done:
+		}
+	})
+}
+
+func (ss *SharedServer) handleIdleTimeout(c idleTimeoutCmd, state sharedState, rt *sharedRuntime) *sharedRuntime {
+	if state == sharedIdle && rt != nil && c.gen == rt.gen {
+		ss.log.Info().Msg("shared server idle timeout, stopping")
+		ss.stopRuntime(rt)
+		return nil
+	}
+	return rt
+}
+
+func (ss *SharedServer) dispatchCommand(
+	cmd sharedCmd,
+	state sharedState,
+	rt *sharedRuntime,
+	nextGen *int,
+	idleTimer *time.Timer,
+) (sharedState, *sharedRuntime, *time.Timer, bool) {
+	//
+	switch c := cmd.(type) {
+	case acquireCmd:
+		state, rt = ss.handleAcquire(c, state, rt, nextGen)
+	case releaseCmd:
+		state, rt = ss.handleRelease(c, state, rt)
+		idleTimer = ss.scheduleIdleTimeout(state, rt)
+	case acquirePacketCmd:
+		state, rt = ss.handleAcquirePacket(c, state, rt, nextGen)
+	case releasePacketCmd:
+		state, rt = ss.handleReleasePacket(c, state, rt)
+		idleTimer = ss.scheduleIdleTimeout(state, rt)
+	case idleTimeoutCmd:
+		rt = ss.handleIdleTimeout(c, state, rt)
+	case closeCmd:
+		ss.handleClose(c, state, rt)
+		return state, rt, nil, true
+	case watchUpdateCmd:
+		ss.handleWatchUpdate(c, rt)
+	case certDoneCmd:
+		ss.handleCertDone(c, rt)
+	case getURLCmd:
+		ss.handleGetURL(c, rt)
+	case getAuthURLCmd:
+		ss.handleGetAuthURL(c, rt)
+	case getLocalClientCmd:
+		ss.handleGetLocalClient(c, rt)
+	case subscribeCmd:
+		rt = ss.handleSubscribe(c, rt)
+	case unsubscribeCmd:
+		ss.handleUnsubscribe(c, rt)
+	}
+	return state, rt, idleTimer, false
 }
 
 func (ss *SharedServer) handleAcquire(c acquireCmd, state sharedState, rt *sharedRuntime, nextGen *int) (sharedState, *sharedRuntime) {
@@ -929,5 +949,5 @@ func (ss *SharedServer) Whois(r *http.Request) model.Whois {
 	if r == nil {
 		return model.Whois{}
 	}
-	return cachedWhoisFromAddr(ss.whoisCache, ss.GetLocalClient(), r.Context(), r.RemoteAddr)
+	return cachedWhoisFromAddr(r.Context(), ss.whoisCache, ss.GetLocalClient(), r.RemoteAddr)
 }
