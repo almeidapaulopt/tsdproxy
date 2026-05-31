@@ -23,7 +23,7 @@ type NodeRuntime struct {
 }
 
 // NewNodeRuntime creates a NodeRuntime from a started tsnet.Server.
-func NewNodeRuntime(server *tsnet.Server, lc *local.Client, ctx context.Context, cancel context.CancelFunc) *NodeRuntime {
+func NewNodeRuntime(ctx context.Context, server *tsnet.Server, lc *local.Client, cancel context.CancelFunc) *NodeRuntime {
 	return &NodeRuntime{
 		Server:      server,
 		LocalClient: lc,

@@ -15,7 +15,7 @@ import (
 // using the local tailscaled client. addr can be "ip:port" or a bare
 // Tailscale IP. Returns a zero-value Whois if the lookup fails or the
 // peer is a tagged node (tagged nodes are rejected to prevent spoofing).
-func whoisFromAddr(lc *local.Client, ctx context.Context, addr string) model.Whois {
+func whoisFromAddr(ctx context.Context, lc *local.Client, addr string) model.Whois {
 	if lc == nil {
 		return model.Whois{}
 	}
@@ -48,9 +48,9 @@ func whoisFromAddr(lc *local.Client, ctx context.Context, addr string) model.Who
 // using the local tailscaled client, with TTL cache + singleflight.
 // Cache hits return immediately; cache misses are deduplicated via
 // singleflight so only one WhoIs RPC runs per IP at a time.
-func cachedWhoisFromAddr(cache *WhoisCache, lc *local.Client, ctx context.Context, addr string) model.Whois {
+func cachedWhoisFromAddr(ctx context.Context, cache *WhoisCache, lc *local.Client, addr string) model.Whois {
 	if cache == nil || lc == nil {
-		return whoisFromAddr(lc, ctx, addr)
+		return whoisFromAddr(ctx, lc, addr)
 	}
 
 	ip := NormalizeIP(addr)
@@ -59,7 +59,7 @@ func cachedWhoisFromAddr(cache *WhoisCache, lc *local.Client, ctx context.Contex
 	}
 
 	who, err := cache.Lookup(ip, func() (model.Whois, error) {
-		return whoisFromAddr(lc, ctx, addr), nil
+		return whoisFromAddr(ctx, lc, addr), nil
 	})
 	if err != nil {
 		return model.Whois{}

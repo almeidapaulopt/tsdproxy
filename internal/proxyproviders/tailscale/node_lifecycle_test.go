@@ -139,7 +139,7 @@ func TestNewNodeRuntime_SetsFields(t *testing.T) {
 	defer cancel()
 
 	srv := &tsnet.Server{Hostname: "test"}
-	rt := NewNodeRuntime(srv, nil, ctx, cancel)
+	rt := NewNodeRuntime(ctx, srv, nil, cancel)
 
 	assert.Equal(t, srv, rt.Server)
 	assert.Nil(t, rt.LocalClient)
@@ -153,7 +153,7 @@ func TestNodeRuntime_CancelStopsContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	srv := &tsnet.Server{Hostname: "test"}
-	rt := NewNodeRuntime(srv, nil, ctx, cancel)
+	rt := NewNodeRuntime(ctx, srv, nil, cancel)
 
 	assert.NoError(t, ctx.Err(), "context should not be canceled yet")
 

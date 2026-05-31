@@ -111,8 +111,8 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 		tsServer.Logf = func(format string, args ...any) { nl.log.Info().Msgf(format, args...) }
 	}
 
-	if err := nl.startWithRetry(tsServer); err != nil {
-		return nil, fmt.Errorf("node lifecycle: start tsnet: %w", err)
+	if startErr := nl.startWithRetry(tsServer); startErr != nil {
+		return nil, fmt.Errorf("node lifecycle: start tsnet: %w", startErr)
 	}
 
 	lc, err := tsServer.LocalClient()
@@ -123,7 +123,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 
 	rtCtx, cancel := context.WithCancel(context.Background())
 
-	rt := NewNodeRuntime(tsServer, lc, rtCtx, cancel)
+	rt := NewNodeRuntime(rtCtx, tsServer, lc, cancel)
 
 	watchDone := make(chan struct{})
 	watcher := NewStatusWatcher(StatusWatcherConfig{
