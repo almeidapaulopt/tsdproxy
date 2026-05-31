@@ -47,6 +47,7 @@ func BuildDashboardView(
 	search string,
 	isAdmin bool,
 ) pages.DashboardView {
+	//
 	pinned := pinnedSet(prefs)
 
 	var items []pages.ProxyViewItem

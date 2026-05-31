@@ -372,6 +372,45 @@ func (dash *Dashboard) buildDashboardViewData(prefs model.Preferences, search st
 	}
 }
 
+func buildPortEntries(ports model.PortConfigList, hostname string) []pages.PortEntry {
+	entries := make([]pages.PortEntry, 0, len(ports))
+	for _, target := range ports {
+		scheme := target.ProxyProtocol
+		portURL := scheme + "://" + hostname
+
+		switch scheme {
+		case model.ProtoHTTPS:
+			if target.ProxyPort != 443 { //nolint:mnd
+				portURL += ":" + strconv.Itoa(target.ProxyPort)
+			}
+		case model.ProtoHTTP:
+			if target.ProxyPort != 80 { //nolint:mnd
+				portURL += ":" + strconv.Itoa(target.ProxyPort)
+			}
+		default:
+			portURL += ":" + strconv.Itoa(target.ProxyPort)
+		}
+
+		entries = append(entries, pages.PortEntry{
+			PortConfig: target,
+			URL:        portURL,
+			TargetURL:  target.GetFirstTarget().String(),
+		})
+	}
+	return entries
+}
+
+func formatHealthStatus(health proxymanager.HealthResult) (string, string) {
+	if health.Status == 0 {
+		return "", ""
+	}
+	healthLatency := ""
+	if health.Latency > 0 {
+		healthLatency = fmt.Sprintf("(%dms)", health.Latency.Milliseconds())
+	}
+	return health.Status.String(), healthLatency
+}
+
 func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool, isAdmin bool) pages.ProxyData {
 	status := p.GetStatus()
 	proxyURL := p.GetURL()
@@ -394,32 +433,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 	hostname = strings.TrimPrefix(hostname, "tcp://")
 	hostname = strings.TrimPrefix(hostname, "udp://")
 
-	ports := make([]pages.PortEntry, 0, len(p.Config.Ports))
-	for _, target := range p.Config.Ports {
-		scheme := target.ProxyProtocol
-		portURL := scheme + "://" + hostname
-
-		switch scheme {
-		case model.ProtoHTTPS:
-			if target.ProxyPort != 443 { //nolint:mnd
-				portURL += ":" + strconv.Itoa(target.ProxyPort)
-			}
-		case model.ProtoHTTP:
-			if target.ProxyPort != 80 { //nolint:mnd
-				portURL += ":" + strconv.Itoa(target.ProxyPort)
-			}
-		default:
-			portURL += ":" + strconv.Itoa(target.ProxyPort)
-		}
-
-		targetURL := target.GetFirstTarget().String()
-
-		ports = append(ports, pages.PortEntry{
-			PortConfig: target,
-			URL:        portURL,
-			TargetURL:  targetURL,
-		})
-	}
+	ports := buildPortEntries(p.Config.Ports, hostname)
 
 	authURL := ""
 	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval {
@@ -428,14 +442,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 
 	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusRunning
 
-	health := p.GetHealth()
-	healthStatus := health.Status.String()
-	healthLatency := ""
-	if health.Status == 0 {
-		healthStatus = ""
-	} else if health.Latency > 0 {
-		healthLatency = fmt.Sprintf("(%dms)", health.Latency.Milliseconds())
-	}
+	healthStatus, healthLatency := formatHealthStatus(p.GetHealth())
 
 	statusHistory := p.GetStatusHistory()
 	history := make([]pages.StatusHistoryEntry, len(statusHistory))
