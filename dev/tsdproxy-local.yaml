@@ -2,7 +2,7 @@ defaultProxyProvider: default
 docker:
   local:
     host: unix:///var/run/docker.sock
-    targetHostname: 172.31.0.1
+    targetHostname: 172.17.0.1
   # server:
   #   host: tcp://192.168.1.110:2375
   #   TargetHostname: 192.168.1.110
@@ -15,13 +15,15 @@ tailscale:
   providers:
     default:
       controlUrl: https://controlplane.tailscale.com
+      tags: tag:example
       # authKeyFile: dev/KEY_FILE
     services:
       services: true
       hostname: tsdproxy-svc
-      tags: tag:tsdproxy
+      tags: tag:example
       controlUrl: https://controlplane.tailscale.com
-      # clientId and clientSecret provided via env vars:
+      autoApproveDevices: true
+      # OAuth credentials provided via env vars (avoids hardcoding in YAML):
       #   TSDPROXY_TAILSCALE_SERVICES_CLIENTID
       #   TSDPROXY_TAILSCALE_SERVICES_CLIENTSECRET
   dataDir: dev/data/

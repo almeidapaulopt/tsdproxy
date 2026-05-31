@@ -10,6 +10,7 @@ tailscale:
       authkey: your-authkey # define authkey here
       authkeyfile: "/run/secrets/authkey" # use this to load authkey from file. If this is defined, Authkey is ignored
       controlurl: https://controlplane.tailscale.com # use this to override the default control URL
+      autoApproveDevices: true
   datadir: /data/
 http:
   hostname: 0.0.0.0
