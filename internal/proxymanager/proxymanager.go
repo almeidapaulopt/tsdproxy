@@ -652,7 +652,9 @@ func (pm *ProxyManager) addProxyProvider(provider proxyproviders.Provider, name 
 }
 
 // closeAndRemoveProxy closes and removes any proxy with the given hostname.
-func (pm *ProxyManager) closeAndRemoveProxy(hostname string) {
+// If newProxyProvider is provided and differs from the old proxy's provider,
+// a warning is logged since the old Tailscale machine may remain in the tailnet.
+func (pm *ProxyManager) closeAndRemoveProxy(hostname string, newProxyProvider ...string) {
 	pm.mtx.Lock()
 	old, exists := pm.Proxies[hostname]
 	if exists {
@@ -661,6 +663,14 @@ func (pm *ProxyManager) closeAndRemoveProxy(hostname string) {
 	pm.mtx.Unlock()
 
 	if old != nil {
+		if len(newProxyProvider) > 0 && old.Config.ProxyProvider != newProxyProvider[0] {
+			pm.log.Warn().
+				Str("proxy", hostname).
+				Str("old_provider", old.Config.ProxyProvider).
+				Str("new_provider", newProxyProvider[0]).
+				Msg("Proxy provider changed — the old Tailscale machine may need manual cleanup in the admin console")
+		}
+
 		old.setupWg.Wait()
 		pm.cleanupDomainForProxy(old)
 		old.Close()
@@ -773,7 +783,7 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	// Close old proxy before NewProxy() — the provider's NewProxy() mutates
 	// the shared state dir (cleanStaleState, saveStateMeta). The old tsnet
 	// server must be fully stopped before those filesystem operations run.
-	pm.closeAndRemoveProxy(proxyConfig.Hostname)
+	pm.closeAndRemoveProxy(proxyConfig.Hostname, proxyConfig.ProxyProvider)
 
 	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics)
 	if err != nil {
