@@ -7,12 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
@@ -21,8 +19,6 @@ import (
 
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
-	"tailscale.com/client/tailscale/v2"
-	"tailscale.com/tsnet"
 )
 
 // Client struct implements proxyprovider for tailscale
@@ -31,11 +27,10 @@ type Client struct {
 	certSem           *semaphore.Weighted
 	sharedServer      *SharedServer
 	servicesServer    *ServicesServer
-	apiClient         *tailscale.Client
-	apiClientOnce     sync.Once
+	apiFactory        *APIClientFactory
+	stateMgr          *StateManager
+	deviceReconciler  *DeviceReconciler
 	controlURL        string
-	clientID          string
-	clientSecret      secretstring.SecretString
 	AuthKey           secretstring.SecretString
 	datadir           string
 	tags              string
@@ -45,12 +40,7 @@ type Client struct {
 	preventDuplicates bool
 	shared            bool
 	services          bool
-}
-
-// stateMeta tracks the configuration used to create the current tsnet state,
-// so incompatible config changes can be detected and stale state cleaned up.
-type stateMeta struct {
-	Ephemeral bool `yaml:"ephemeral"`
+	autoApprove       bool
 }
 
 const userAgent = "tsdproxy"
@@ -72,12 +62,20 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		concurrency = model.DefaultMaxCertConcurrency
 	}
 
+	apiFactory := NewAPIClientFactory(
+		strings.TrimSpace(provider.ClientID),
+		strings.TrimSpace(provider.ClientSecret.Value()),
+	)
+
+	clientLog := log.With().Str("tailscale", name).Logger()
+
 	return &Client{
-		log:               log.With().Str("tailscale", name).Logger(),
+		log:               clientLog,
 		Hostname:          name,
 		AuthKey:           secretstring.SecretString(strings.TrimSpace(provider.AuthKey.Value())),
-		clientID:          strings.TrimSpace(provider.ClientID),
-		clientSecret:      secretstring.SecretString(strings.TrimSpace(provider.ClientSecret.Value())),
+		apiFactory:        apiFactory,
+		stateMgr:          NewStateManager(clientLog),
+		deviceReconciler:  NewDeviceReconciler(clientLog, apiFactory),
 		tags:              strings.TrimSpace(provider.Tags),
 		datadir:           datadir,
 		controlURL:        provider.ControlURL,
@@ -86,14 +84,33 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		shared:            provider.Shared,
 		services:          provider.Services,
 		sharedHostname:    strings.TrimSpace(provider.Hostname),
+		autoApprove:       provider.AutoApproveDevices,
 	}, nil
 }
 
 // ResolveAuthKey resolves the authentication key for the given config.
-// Performs OAuth token exchange if configured. Side-effect-free with
-// respect to local tsnet state.
+// Performs OAuth token exchange if configured (per-proxy mode only).
+// Shared and services modes return static keys without OAuth.
 func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
-	authKey, err := c.getAuthkey(cfg)
+	// Shared and services modes manage their own auth keys during server startup.
+	// Generating a key here wastes one-time OAuth keys and may hit rate limits.
+	if c.shared || c.services {
+		authKey := cfg.Tailscale.ResolvedAuthKey
+		if authKey == "" {
+			authKey = cfg.Tailscale.AuthKey.Value()
+		}
+		if authKey == "" {
+			authKey = c.AuthKey.Value()
+		}
+		return authKey, nil
+	}
+
+	authMgr := NewAuthManager(c.log, c.apiFactory, cfg.Tailscale.Ephemeral)
+	authKey, err := authMgr.ResolveKey(context.Background(), AuthConfig{
+		ResolvedAuthKey: cfg.Tailscale.ResolvedAuthKey,
+		ProxyAuthKey:    cfg.Tailscale.AuthKey,
+		ProviderAuthKey: c.AuthKey,
+	}, c.resolveTags(cfg))
 	if err != nil {
 		return "", fmt.Errorf("ResolveAuthKey: %w", err)
 	}
@@ -101,7 +118,6 @@ func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
 }
 
 // NewProxy method implements proxyprovider NewProxy method.
-// If resolvedAuthKey is empty, auth key resolution is performed internally.
 func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, error) {
 	if c.shared {
 		return c.newSharedProxy(config)
@@ -115,172 +131,46 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		Msg("Setting up tailscale server")
 
 	log := c.log.With().Str("Hostname", config.Hostname).Logger()
-
 	datadir := path.Join(c.datadir, config.Hostname)
 
-	stateExists := c.tsnetStateExists(datadir)
-	c.cleanStaleState(config, datadir)
-	c.cleanupStaleDevice(config, datadir)
-	c.saveStateMeta(config, datadir)
-
-	if stateExists {
-		c.log.Info().Str("hostname", config.Hostname).Msg("Reusing existing tsnet node")
-	} else {
-		c.log.Info().Str("hostname", config.Hostname).Msg("Creating new tsnet node")
-	}
-
-	authKey, err := c.getAuthkey(config)
-	if err != nil {
-		return nil, fmt.Errorf("tailscale NewProxy: %w", err)
-	}
-
-	tserver := &tsnet.Server{
+	nodeCfg := NodeConfig{
 		Hostname:     config.Hostname,
-		AuthKey:      authKey,
-		Dir:          datadir,
+		DataDir:      datadir,
+		ControlURL:   c.getControlURL(),
+		Tags:         c.resolveTags(config),
 		Ephemeral:    config.Tailscale.Ephemeral,
 		RunWebClient: config.Tailscale.RunWebClient,
-		UserLogf: func(format string, args ...any) {
-			log.Info().Msgf(format, args...)
-		},
-		Logf: func(format string, args ...any) {
-			log.Trace().Msgf(format, args...)
-		},
-
-		ControlURL: c.getControlURL(),
+		Verbose:      config.Tailscale.Verbose,
+		Mode:         ModePerProxy,
 	}
 
-	// if verbose is set, use the info log level
-	if config.Tailscale.Verbose {
-		tserver.Logf = func(format string, args ...any) {
-			log.Info().Msgf(format, args...)
-		}
+	var deviceReconciler *DeviceReconciler
+	if c.preventDuplicates {
+		deviceReconciler = c.deviceReconciler
 	}
+
+	lifecycle := NewNodeLifecycle(log, NodeLifecycleConfig{
+		NodeConfig: nodeCfg,
+		AuthConfig: AuthConfig{
+			ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
+			ProxyAuthKey:    config.Tailscale.AuthKey,
+			ProviderAuthKey: c.AuthKey,
+		},
+		CertSem:          c.certSem,
+		AuthManager:      NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral),
+		StateManager:     c.stateMgr,
+		DeviceReconciler: deviceReconciler,
+		Retry:            NewRetryPolicy(),
+	})
 
 	return &Proxy{
-		log:      log,
-		config:   config,
-		tsServer: tserver,
-		certSem:  c.certSem,
-		events:   make(chan model.ProxyEvent, 10), //nolint:mnd
+		log:        log,
+		config:     config,
+		certSem:    c.certSem,
+		lifecycle:  lifecycle,
+		events:     make(chan model.ProxyEvent, 10), //nolint:mnd
+		whoisCache: NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}, nil
-}
-
-// cleanStaleState removes tsnet state files when configuration has changed
-// in ways that make existing state incompatible (e.g. ephemeral flag change).
-// Without this cleanup, tsnet reuses stale state that conflicts with the new
-// configuration, leaving the node permanently stuck in NeedsLogin.
-func (c *Client) cleanStaleState(cfg *model.Config, datadir string) {
-	stateFile := filepath.Join(datadir, "tailscaled.state")
-	info, err := os.Stat(stateFile)
-	if err != nil || info.IsDir() {
-		return
-	}
-
-	cached := new(stateMeta)
-	file := config.NewConfigFile(c.log, path.Join(datadir, "tsdproxy.yaml"), cached)
-	if err := file.Load(); err != nil {
-		return
-	}
-
-	if cached.Ephemeral != cfg.Tailscale.Ephemeral {
-		c.log.Info().
-			Bool("previous_ephemeral", cached.Ephemeral).
-			Bool("current_ephemeral", cfg.Tailscale.Ephemeral).
-			Msg("ephemeral setting changed, clearing stale tsnet state")
-
-		if err := os.RemoveAll(datadir); err != nil {
-			c.log.Error().Err(err).Msg("failed to clear stale tsnet state")
-		}
-	}
-}
-
-func (c *Client) saveStateMeta(cfg *model.Config, datadir string) {
-	meta := &stateMeta{Ephemeral: cfg.Tailscale.Ephemeral}
-	file := config.NewConfigFile(c.log, path.Join(datadir, "tsdproxy.yaml"), meta)
-	if err := file.Save(); err != nil {
-		c.log.Error().Err(err).Msg("failed to save state metadata")
-	}
-}
-
-func (c *Client) tsnetStateExists(datadir string) bool {
-	info, err := os.Stat(filepath.Join(datadir, "tailscaled.state"))
-	return err == nil && !info.IsDir()
-}
-
-// cleanupStaleDevice checks if a Tailscale device with the same hostname
-// already exists in the tailnet and removes it when tsnet state is missing.
-// This prevents duplicate machines (the "-1" suffix problem) when the
-// datadir was lost (e.g. non-persistent Docker volume).
-// Only runs when OAuth credentials are configured (required for API access).
-func (c *Client) cleanupStaleDevice(cfg *model.Config, datadir string) {
-	if !c.preventDuplicates {
-		return
-	}
-
-	if c.clientID == "" || c.clientSecret.Value() == "" {
-		return
-	}
-
-	if c.tsnetStateExists(datadir) {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
-	defer cancel()
-
-	tsclient := c.newAPIClient()
-
-	tags := c.resolveTags(cfg)
-	if tags == "" {
-		return
-	}
-
-	tagList := strings.Split(tags, ",")
-	devices, err := tsclient.Devices().List(ctx, tailscale.WithFilter("tags", tagList))
-	if err != nil {
-		c.log.Warn().Err(err).Msg("failed to list tailnet devices, skipping stale device cleanup")
-		return
-	}
-
-	for _, d := range devices {
-		if d.Hostname != cfg.Hostname {
-			continue
-		}
-		if d.ConnectedToControl {
-			c.log.Warn().
-				Str("hostname", d.Hostname).
-				Str("node_id", d.NodeID).
-				Msg("device with same hostname is currently online, skipping cleanup")
-			continue
-		}
-
-		c.log.Info().
-			Str("hostname", d.Hostname).
-			Str("node_id", d.NodeID).
-			Msg("removing stale device from tailnet to prevent duplicate")
-
-		if err := tsclient.Devices().Delete(ctx, d.NodeID); err != nil {
-			c.log.Error().Err(err).
-				Str("hostname", d.Hostname).
-				Msg("failed to delete stale device")
-		}
-	}
-}
-
-func (c *Client) newAPIClient() *tailscale.Client {
-	c.apiClientOnce.Do(func() {
-		c.apiClient = &tailscale.Client{
-			Tailnet:   "-",
-			UserAgent: userAgent,
-			HTTP: tailscale.OAuthConfig{
-				ClientID:     c.clientID,
-				ClientSecret: c.clientSecret.Value(),
-				Scopes:       []string{"devices:core", "auth_keys", "services"},
-			}.HTTPClient(),
-		}
-	})
-	return c.apiClient
 }
 
 // getControlURL method returns the control URL
@@ -289,72 +179,6 @@ func (c *Client) getControlURL() string {
 		return model.DefaultTailscaleControlURL
 	}
 	return c.controlURL
-}
-
-func (c *Client) getAuthkey(config *model.Config) (string, error) {
-	if config.Tailscale.ResolvedAuthKey != "" {
-		return config.Tailscale.ResolvedAuthKey, nil
-	}
-
-	authKey := config.Tailscale.AuthKey.Value()
-
-	if c.clientID != "" && c.clientSecret.Value() != "" {
-		oauthKey, err := c.getOAuth(config)
-		if err != nil {
-			return "", fmt.Errorf("getAuthkey: %w", err)
-		}
-		authKey = oauthKey
-	}
-
-	if authKey == "" {
-		authKey = c.AuthKey.Value()
-	}
-
-	if authKey == "" {
-		c.log.Info().
-			Str("hostname", config.Hostname).
-			Msg("No auth key configured, interactive login will be required")
-	}
-
-	return authKey, nil
-}
-
-func (c *Client) getOAuth(cfg *model.Config) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
-	defer cancel()
-
-	tsclient := c.newAPIClient()
-
-	temptags := c.resolveTags(cfg)
-
-	if temptags == "" {
-		return "", errors.New("must define tags to use OAuth")
-	}
-
-	capabilities := tailscale.KeyCapabilities{}
-	capabilities.Devices.Create.Ephemeral = cfg.Tailscale.Ephemeral
-	capabilities.Devices.Create.Reusable = false
-	capabilities.Devices.Create.Preauthorized = true
-	capabilities.Devices.Create.Tags = strings.Split(temptags, ",")
-
-	ckr := tailscale.CreateKeyRequest{
-		Capabilities: capabilities,
-		Description:  userAgent,
-	}
-
-	authkey, err := tsclient.Keys().Create(ctx, ckr)
-	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid or not permitted") {
-			return "", fmt.Errorf(
-				"OAuth token rejected for tags %v — ensure the tag is assigned to your OAuth client in the Tailscale admin console (Access Controls → OAuth clients) and listed in ACL tagOwners. Original error: %w",
-				capabilities.Devices.Create.Tags, err,
-			)
-		}
-		return "", fmt.Errorf("unable to get OAuth token: %w", err)
-	}
-
-	return authkey.Key, nil
 }
 
 // resolveTags returns the tags from the proxy config, falling back to the provider config.
@@ -371,19 +195,43 @@ func (c *Client) newSharedProxy(config *model.Config) (proxyproviders.ProxyInter
 	defer c.sharedMu.Unlock()
 
 	if c.sharedServer == nil {
-		authKey, err := c.getAuthkey(config)
-		if err != nil {
-			return nil, fmt.Errorf("shared proxy auth key: %w", err)
+		authMgr := NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral)
+
+		var deviceReconciler *DeviceReconciler
+		if c.preventDuplicates {
+			deviceReconciler = c.deviceReconciler
+		}
+
+		lifecycleCfg := &NodeLifecycleConfig{
+			NodeConfig: NodeConfig{
+				Hostname:      c.sharedHostname,
+				DataDir:       path.Join(c.datadir, c.sharedHostname),
+				ControlURL:    c.getControlURL(),
+				Tags:          c.resolveTags(config),
+				AdvertiseTags: cleanTags(c.resolveTags(config)),
+				Ephemeral:     config.Tailscale.Ephemeral,
+				Mode:          ModeShared,
+			},
+			AuthConfig: AuthConfig{
+				ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
+				ProxyAuthKey:    config.Tailscale.AuthKey,
+				ProviderAuthKey: c.AuthKey,
+			},
+			CertSem:          c.certSem,
+			AuthManager:      authMgr,
+			StateManager:     c.stateMgr,
+			DeviceReconciler: deviceReconciler,
+			Retry:            NewRetryPolicy(),
 		}
 
 		c.sharedServer = NewSharedServer(SharedServerConfig{
-			Hostname:   c.sharedHostname,
-			DataDir:    path.Join(c.datadir, c.sharedHostname),
-			AuthKey:    authKey,
-			ControlURL: c.getControlURL(),
-			Ephemeral:  config.Tailscale.Ephemeral,
-			CertSem:    c.certSem,
-			Log:        c.log,
+			Hostname:        c.sharedHostname,
+			DataDir:         path.Join(c.datadir, c.sharedHostname),
+			ControlURL:      c.getControlURL(),
+			Ephemeral:       config.Tailscale.Ephemeral,
+			CertSem:         c.certSem,
+			Log:             c.log,
+			LifecycleConfig: lifecycleCfg,
 		})
 	} else if config.Tailscale.Ephemeral != c.sharedServer.ephemeral {
 		c.log.Warn().
@@ -416,20 +264,49 @@ func (c *Client) newServiceProxy(config *model.Config) (proxyproviders.ProxyInte
 	}
 
 	if c.servicesServer == nil {
-		authKey, err := c.getAuthkey(config)
-		if err != nil {
-			return nil, fmt.Errorf("services proxy auth key: %w", err)
+		authMgr := NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral)
+
+		tags := c.resolveTags(config)
+
+		var deviceReconciler *DeviceReconciler
+		if c.preventDuplicates {
+			deviceReconciler = c.deviceReconciler
+		}
+
+		lifecycleCfg := &NodeLifecycleConfig{
+			NodeConfig: NodeConfig{
+				Hostname:      c.sharedHostname,
+				DataDir:       path.Join(c.datadir, c.sharedHostname),
+				ControlURL:    c.getControlURL(),
+				Tags:          tags,
+				AdvertiseTags: cleanTags(tags),
+				Ephemeral:     config.Tailscale.Ephemeral,
+				Mode:          ModeServices,
+			},
+			AuthConfig: AuthConfig{
+				ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
+				ProxyAuthKey:    config.Tailscale.AuthKey,
+				ProviderAuthKey: c.AuthKey,
+			},
+			CertSem:          c.certSem,
+			AuthManager:      authMgr,
+			StateManager:     c.stateMgr,
+			DeviceReconciler: deviceReconciler,
+			Retry:            NewRetryPolicy(),
 		}
 
 		c.servicesServer = NewServicesServer(ServicesServerConfig{
-			Hostname:     c.sharedHostname,
-			DataDir:      path.Join(c.datadir, c.sharedHostname),
-			AuthKey:      authKey,
-			ControlURL:   c.getControlURL(),
-			Ephemeral:    config.Tailscale.Ephemeral,
-			APIClient:    c.newAPIClient(),
-			Tags:         c.resolveTags(config),
-			Log:          c.log,
+			Hostname:           c.sharedHostname,
+			DataDir:            path.Join(c.datadir, c.sharedHostname),
+			ControlURL:         c.getControlURL(),
+			Ephemeral:          config.Tailscale.Ephemeral,
+			APIFactory:         c.apiFactory,
+			AuthManager:        authMgr,
+			Tags:               tags,
+			Log:                c.log,
+			DeviceReconciler:   deviceReconciler,
+			LifecycleConfig:    lifecycleCfg,
+			AutoApproveDevices: c.autoApprove,
 		})
 	} else if config.Tailscale.Ephemeral != c.servicesServer.ephemeral {
 		c.log.Warn().

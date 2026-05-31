@@ -29,6 +29,35 @@ func TestServicesServerCloseIsTerminal(t *testing.T) {
 	}
 }
 
+func TestServicesServerGetAuthURLInitiallyEmpty(t *testing.T) {
+	t.Parallel()
+
+	ss := NewServicesServer(ServicesServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	url := ss.GetAuthURL()
+	if url != "" {
+		t.Fatalf("GetAuthURL should return empty string before any auth event, got %q", url)
+	}
+}
+
+func TestServicesServerGetAuthURLFromWatchUpdate(t *testing.T) {
+	ss := NewServicesServer(ServicesServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	ss.cmds <- servicesWatchUpdateCmd{authURL: "https://login.tailscale.com/a/svcauth"}
+
+	if url := ss.GetAuthURL(); url != "https://login.tailscale.com/a/svcauth" {
+		t.Fatalf("GetAuthURL should return auth URL from watchUpdate, got %q", url)
+	}
+}
+
 func TestServicesServerWhoisReturnsEmpty(t *testing.T) {
 	t.Parallel()
 

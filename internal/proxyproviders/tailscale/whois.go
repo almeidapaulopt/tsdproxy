@@ -4,21 +4,22 @@
 package tailscale
 
 import (
-	"net/http"
+	"context"
 
 	"tailscale.com/client/local"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-// whoisFromLocalClient resolves the Tailscale identity for the request's
-// remote address using the given local client. Returns a zero-value Whois
-// if the client is nil, the lookup fails, or the peer is a tagged node.
-func whoisFromLocalClient(lc *local.Client, r *http.Request) model.Whois {
+// whoisFromAddr resolves the Tailscale identity for the given address
+// using the local tailscaled client. addr can be "ip:port" or a bare
+// Tailscale IP. Returns a zero-value Whois if the lookup fails or the
+// peer is a tagged node (tagged nodes are rejected to prevent spoofing).
+func whoisFromAddr(lc *local.Client, ctx context.Context, addr string) model.Whois {
 	if lc == nil {
 		return model.Whois{}
 	}
-	who, err := lc.WhoIs(r.Context(), r.RemoteAddr)
+	who, err := lc.WhoIs(ctx, addr)
 	if err != nil {
 		return model.Whois{}
 	}
@@ -41,4 +42,27 @@ func whoisFromLocalClient(lc *local.Client, r *http.Request) model.Whois {
 		ID:            who.UserProfile.ID.String(),
 		ProfilePicURL: who.UserProfile.ProfilePicURL,
 	}
+}
+
+// cachedWhoisFromAddr resolves the Tailscale identity for the given address
+// using the local tailscaled client, with TTL cache + singleflight.
+// Cache hits return immediately; cache misses are deduplicated via
+// singleflight so only one WhoIs RPC runs per IP at a time.
+func cachedWhoisFromAddr(cache *WhoisCache, lc *local.Client, ctx context.Context, addr string) model.Whois {
+	if cache == nil || lc == nil {
+		return whoisFromAddr(lc, ctx, addr)
+	}
+
+	ip := NormalizeIP(addr)
+	if ip == "" {
+		return model.Whois{}
+	}
+
+	who, err := cache.Lookup(ip, func() (model.Whois, error) {
+		return whoisFromAddr(lc, ctx, addr), nil
+	})
+	if err != nil {
+		return model.Whois{}
+	}
+	return who
 }

@@ -80,6 +80,45 @@ func TestSharedServerGetURLInitiallyEmpty(t *testing.T) {
 	}
 }
 
+func TestSharedServerGetAuthURLInitiallyEmpty(t *testing.T) {
+	t.Parallel()
+
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	url := ss.GetAuthURL()
+	if url != "" {
+		t.Fatalf("GetAuthURL should return empty string before any auth event, got %q", url)
+	}
+}
+
+func TestSharedServerGetAuthURLFromWatchUpdate(t *testing.T) {
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	ch := ss.SubscribeEvents()
+
+	ss.cmds <- watchUpdateCmd{
+		gen:     0,
+		authURL: "https://login.tailscale.com/a/testauth",
+		evt:     model.ProxyEvent{Status: model.ProxyStatusAuthenticating},
+	}
+
+	<-ch // consume forwarded event
+
+	if url := ss.GetAuthURL(); url != "https://login.tailscale.com/a/testauth" {
+		t.Fatalf("GetAuthURL should return auth URL from watchUpdate, got %q", url)
+	}
+
+	ss.UnsubscribeEvents(ch)
+}
+
 func TestSharedServerMultipleSubscribers(t *testing.T) {
 	ss := NewSharedServer(SharedServerConfig{
 		Hostname: "test-server",

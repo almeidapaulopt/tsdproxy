@@ -1,0 +1,162 @@
+// SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
+// SPDX-License-Identifier: MIT
+
+package tailscale
+
+import (
+	"context"
+	"errors"
+	"net"
+	"strings"
+	"time"
+
+	"github.com/rs/zerolog"
+	"tailscale.com/client/local"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
+)
+
+const pollInterval = 2 * time.Second
+
+// NodeEvent represents a classified Tailscale node status change.
+type NodeEvent struct {
+	URL          string
+	AuthURL      string
+	ErrorCode    string
+	ErrorMessage string
+	Status       model.ProxyStatus
+}
+
+// StatusWatcherConfig holds the configuration for creating a StatusWatcher.
+type StatusWatcherConfig struct {
+	Log          zerolog.Logger
+	OnEvent      func(NodeEvent)
+	OnDone       func()
+	PollInterval time.Duration // zero defaults to pollInterval (2s)
+}
+
+type statusSource interface {
+	getStatus(ctx context.Context) (backendState string, authURL string, dnsName string, selfOK bool, err error)
+}
+
+type realStatusSource struct {
+	lc *local.Client
+}
+
+func (s *realStatusSource) getStatus(ctx context.Context) (string, string, string, bool, error) {
+	status, err := s.lc.Status(ctx)
+	if err != nil {
+		return "", "", "", false, err
+	}
+	dnsName := ""
+	selfOK := status.Self != nil
+	if selfOK {
+		dnsName = strings.TrimRight(status.Self.DNSName, ".")
+	}
+	return status.BackendState, status.AuthURL, dnsName, selfOK, nil
+}
+
+// StatusWatcher monitors the Tailscale backend state by polling lc.Status()
+// and classifies changes into NodeEvents.
+type StatusWatcher struct {
+	log          zerolog.Logger
+	onEvent      func(NodeEvent)
+	onDone       func()
+	source       statusSource // nil means use realStatusSource
+	pollInterval time.Duration
+}
+
+// NewStatusWatcher creates a new StatusWatcher.
+func NewStatusWatcher(cfg StatusWatcherConfig) *StatusWatcher {
+	onDone := cfg.OnDone
+	if onDone == nil {
+		onDone = func() {}
+	}
+	return &StatusWatcher{
+		log:          cfg.Log,
+		onEvent:      cfg.OnEvent,
+		onDone:       onDone,
+		pollInterval: cfg.PollInterval,
+	}
+}
+
+// Watch polls the Tailscale backend status until ctx is canceled or a fatal
+// error occurs. Always calls onDone when finished.
+func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
+	defer w.onDone()
+
+	source := w.source
+	if source == nil {
+		if lc == nil {
+			w.log.Error().Msg("status watcher: local client is nil")
+			return
+		}
+		source = &realStatusSource{lc: lc}
+	}
+
+	interval := w.pollInterval
+	if interval <= 0 {
+		interval = pollInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		backendState, authURL, dnsName, selfOK, err := source.getStatus(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return
+			}
+			if errors.Is(err, net.ErrClosed) {
+				w.log.Debug().Msg("status watcher: status connection closed, retrying")
+				continue
+			}
+			// Transient errors: retry with a brief pause to avoid tight loop.
+			w.log.Warn().Err(err).Msg("status watcher: transient error, retrying")
+			select {
+			case <-time.After(1 * time.Second):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+
+		evt := classifyState(backendState, authURL, dnsName)
+		if evt.Status == model.ProxyStatusRunning && !selfOK {
+			w.log.Warn().Msg("status watcher: Self is nil, skipping")
+			continue
+		}
+
+		w.onEvent(evt)
+	}
+}
+
+// classifyState maps a Tailscale backend state to a NodeEvent.
+// authURL and dnsName may be empty.
+func classifyState(backendState string, authURL string, dnsName string) NodeEvent {
+	switch backendState {
+	case "NeedsLogin":
+		if authURL == "" {
+			return NodeEvent{Status: model.ProxyStatusError, ErrorMessage: "needs reauthentication: no auth URL available, the auth key may be invalid or expired"}
+		}
+		return NodeEvent{Status: model.ProxyStatusAuthenticating, AuthURL: authURL}
+	case "NoState":
+		return NodeEvent{Status: model.ProxyStatusStarting}
+	case "Stopped":
+		return NodeEvent{Status: model.ProxyStatusStopped}
+	case "Starting":
+		return NodeEvent{Status: model.ProxyStatusStarting}
+	case "NeedsMachineAuth":
+		return NodeEvent{Status: model.ProxyStatusAwaitingApproval, AuthURL: authURL}
+	case "Running":
+		return NodeEvent{Status: model.ProxyStatusRunning, URL: dnsName}
+	default:
+		return NodeEvent{Status: model.ProxyStatusError, ErrorMessage: "unknown state: " + backendState}
+	}
+}

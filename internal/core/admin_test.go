@@ -3,7 +3,11 @@
 
 package core
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
+)
 
 func TestIsLocalhost(t *testing.T) {
 	tests := []struct {
@@ -25,7 +29,7 @@ func TestIsLocalhost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsLocalhost(tt.remoteAddr); got != tt.want {
+			if got := model.IsLocalhost(tt.remoteAddr); got != tt.want {
 				t.Errorf("IsLocalhost(%q) = %v, want %v", tt.remoteAddr, got, tt.want)
 			}
 		})

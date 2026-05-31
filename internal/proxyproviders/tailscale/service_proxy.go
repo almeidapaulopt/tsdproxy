@@ -58,8 +58,9 @@ func (p *ServiceProxy) Start(_ context.Context) error {
 			listener, err = p.services.Acquire(p.serviceName, uint16(portCfg.ProxyPort), false, false) //nolint:gosec // port limits validated in config
 		case model.ProtoTCP:
 			listener, err = p.services.Acquire(p.serviceName, uint16(portCfg.ProxyPort), false, true) //nolint:gosec // port limits validated in config
-		default:
-			return fmt.Errorf("services mode does not support protocol %q", portCfg.ProxyProtocol)
+	default:
+		p.rollbackAcquired()
+		return fmt.Errorf("services mode does not support protocol %q", portCfg.ProxyProtocol)
 		}
 
 		if err != nil {
@@ -136,15 +137,21 @@ func (p *ServiceProxy) GetPacketConn(_ string) (net.PacketConn, error) {
 }
 
 func (p *ServiceProxy) GetURL() string {
-	if p.fqdn == "" {
+	p.mtx.RLock()
+	fqdn := p.fqdn
+	p.mtx.RUnlock()
+	if fqdn == "" {
 		return ""
 	}
 	scheme := p.primaryScheme()
-	return scheme + "://" + p.fqdn
+	return scheme + "://" + fqdn
 }
 
 func (p *ServiceProxy) GetAuthURL() string {
-	return ""
+	if p.services == nil {
+		return ""
+	}
+	return p.services.GetAuthURL()
 }
 
 func (p *ServiceProxy) WatchEvents() chan model.ProxyEvent {

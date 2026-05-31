@@ -17,10 +17,30 @@ import (
 func TestServiceProxyGetAuthURLReturnsEmpty(t *testing.T) {
 	t.Parallel()
 
+	// ServiceProxy with nil services server returns empty.
 	p := &ServiceProxy{}
 
 	if url := p.GetAuthURL(); url != "" {
-		t.Fatalf("GetAuthURL should return empty string, got %q", url)
+		t.Fatalf("GetAuthURL should return empty string with nil services, got %q", url)
+	}
+}
+
+func TestServiceProxyGetAuthURLDelegatesToServer(t *testing.T) {
+	ss := NewServicesServer(ServicesServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	// Send auth URL via command channel.
+	ss.cmds <- servicesWatchUpdateCmd{authURL: "https://login.tailscale.com/a/xyz789"}
+
+	p := &ServiceProxy{
+		services: ss,
+	}
+
+	if url := p.GetAuthURL(); url != "https://login.tailscale.com/a/xyz789" {
+		t.Fatalf("GetAuthURL should return auth URL from services server, got %q", url)
 	}
 }
 

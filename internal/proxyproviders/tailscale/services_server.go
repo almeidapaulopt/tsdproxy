@@ -7,12 +7,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
+	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/v2"
 	"tailscale.com/tsnet"
 
@@ -49,16 +53,21 @@ func (f tsnetServerFactory) Close(sl *tsnet.ServiceListener) error {
 
 // ServicesServerConfig holds the configuration for creating a ServicesServer.
 type ServicesServerConfig struct {
-	Log             zerolog.Logger
-	VIPServiceAPI   vipServiceAPI
-	ListenerFactory serviceListenerFactory
-	APIClient       *tailscale.Client
-	Hostname        string
-	DataDir         string
-	AuthKey         string
-	ControlURL      string
-	Tags            string
-	Ephemeral       bool
+	Log                zerolog.Logger
+	VIPServiceAPI      vipServiceAPI
+	ListenerFactory    serviceListenerFactory
+	APIClient          *tailscale.Client
+	APIFactory         *APIClientFactory
+	AuthManager        *AuthManager
+	DeviceReconciler   *DeviceReconciler
+	LifecycleConfig    *NodeLifecycleConfig
+	Hostname           string
+	DataDir            string
+	AuthKey            string
+	ControlURL         string
+	Tags               string
+	Ephemeral          bool
+	AutoApproveDevices bool
 }
 
 // serviceEntry tracks a single service listener.
@@ -83,7 +92,9 @@ type servicesRuntime struct {
 	cancel    context.CancelFunc
 	tsServer  *tsnet.Server
 	listeners map[string]*serviceEntry
+	lifecycle *NodeLifecycle
 	refCount  int
+	gen       int
 }
 
 // Command types for the state machine.
@@ -119,46 +130,88 @@ type servicesCloseCmd struct {
 
 func (servicesCloseCmd) svcCmd() {}
 
-type servicesIdleTimeoutCmd struct{}
+type servicesIdleTimeoutCmd struct {
+	gen int
+}
 
 func (servicesIdleTimeoutCmd) svcCmd() {}
+
+type servicesWatchUpdateCmd struct {
+	authURL string
+}
+
+func (servicesWatchUpdateCmd) svcCmd() {}
+
+type servicesGetAuthURLCmd struct {
+	reply chan string
+}
+
+func (servicesGetAuthURLCmd) svcCmd() {}
 
 // ServicesServer manages a shared, ref-counted tsnet.Server for services mode.
 // All mutable state is managed by a single event-loop goroutine.
 type ServicesServer struct {
-	log             zerolog.Logger
-	listenerFactory serviceListenerFactory
-	vipAPI          vipServiceAPI
-	apiClient       *tailscale.Client
-	cmds            chan servicesCmd
-	done            chan struct{}
-	controlURL      string
-	authKey         string
-	tags            string
-	datadir         string
-	hostname        string
-	closed          atomic.Bool
-	ephemeral       bool
+	log                zerolog.Logger
+	listenerFactory    serviceListenerFactory
+	vipAPI             vipServiceAPI
+	localClient        atomic.Pointer[local.Client]
+	apiClient          *tailscale.Client
+	apiFactory         *APIClientFactory
+	authManager        *AuthManager
+	deviceReconciler   *DeviceReconciler
+	lifecycleCfg       *NodeLifecycleConfig
+	cmds               chan servicesCmd
+	done               chan struct{}
+	whoisCache         *WhoisCache
+	controlURL         string
+	datadir            string
+	hostname           string
+	tags               string
+	authKey            string
+	authURL            string
+	closed             atomic.Bool
+	ephemeral          bool
+	autoApproveDevices bool
 }
 
 // NewServicesServer creates a ServicesServer and starts the event loop.
 func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 	ss := &ServicesServer{
-		hostname:        cfg.Hostname,
-		datadir:         cfg.DataDir,
-		authKey:         cfg.AuthKey,
-		controlURL:      cfg.ControlURL,
-		ephemeral:       cfg.Ephemeral,
-		log:             cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
-		cmds:            make(chan servicesCmd, 64), //nolint:mnd
-		done:            make(chan struct{}),
-		tags:            cfg.Tags,
-		vipAPI:          cfg.VIPServiceAPI,
-		listenerFactory: cfg.ListenerFactory,
-		apiClient:       cfg.APIClient,
+		hostname:           cfg.Hostname,
+		datadir:            cfg.DataDir,
+		authKey:            cfg.AuthKey,
+		controlURL:         cfg.ControlURL,
+		ephemeral:          cfg.Ephemeral,
+		autoApproveDevices: cfg.AutoApproveDevices,
+		log:                cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
+		cmds:               make(chan servicesCmd, 64), //nolint:mnd
+		done:               make(chan struct{}),
+		tags:               cfg.Tags,
+		vipAPI:             cfg.VIPServiceAPI,
+		listenerFactory:    cfg.ListenerFactory,
+		apiClient:          cfg.APIClient,
+		apiFactory:         cfg.APIFactory,
+		authManager:        cfg.AuthManager,
+		deviceReconciler:   cfg.DeviceReconciler,
+		lifecycleCfg:       cfg.LifecycleConfig,
+		whoisCache:         NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}
 	go ss.loop()
 	return ss
+}
+
+// sendProducer sends a command from a producer goroutine (bridge goroutine).
+// It aborts if the loop has exited or the producer's context was canceled,
+// preventing deadlock when the loop is blocked.
+func (ss *ServicesServer) sendProducer(ctx context.Context, cmd servicesCmd) bool {
+	select {
+	case ss.cmds <- cmd:
+		return true
+	case <-ss.done:
+		return false
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // sendPublic sends a command from a public method.
@@ -196,6 +249,7 @@ func (ss *ServicesServer) loop() {
 	state := servicesIdle
 	var rt *servicesRuntime
 	var idleTimer *time.Timer
+	var nextGen int
 
 	for cmd := range ss.cmds {
 		switch cmd.(type) {
@@ -209,22 +263,31 @@ func (ss *ServicesServer) loop() {
 		switch c := cmd.(type) {
 		case acquireServiceCmd:
 			state, rt = ss.handleAcquireService(c, state, rt)
+			if rt != nil && rt.gen == 0 {
+				rt.gen = nextGen
+				nextGen++
+			}
 		case releaseServiceCmd:
 			state, rt = ss.handleReleaseService(c, state, rt)
 			if state == servicesIdle && rt != nil {
+				capturedGen := rt.gen
 				idleTimer = time.AfterFunc(servicesIdleTimeout, func() {
 					select {
-					case ss.cmds <- servicesIdleTimeoutCmd{}:
+					case ss.cmds <- servicesIdleTimeoutCmd{gen: capturedGen}:
 					case <-ss.done:
 					}
 				})
 			}
 		case servicesIdleTimeoutCmd:
-			if state == servicesIdle && rt != nil {
+			if state == servicesIdle && rt != nil && c.gen == rt.gen {
 				ss.log.Info().Msg("services server idle timeout, stopping")
 				ss.stopRuntime(rt)
 				rt = nil
 			}
+		case servicesWatchUpdateCmd:
+			ss.handleWatchUpdate(c, rt)
+		case servicesGetAuthURLCmd:
+			ss.handleGetAuthURL(c, rt)
 		case servicesCloseCmd:
 			if rt != nil {
 				ss.stopRuntime(rt)
@@ -296,6 +359,13 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 
 	rt.listeners[key] = &serviceEntry{listener: listener, serviceName: c.serviceName, port: c.port}
 	rt.refCount++
+
+	if ss.autoApproveDevices {
+		if err := ss.approveServiceDevice(rt, c.serviceName); err != nil {
+			ss.log.Warn().Err(err).Str("service", c.serviceName).
+				Msg("failed to auto-approve service device; manual approval required in Tailscale admin console")
+		}
+	}
 
 	ss.log.Info().
 		Str("service", c.serviceName).
@@ -383,14 +453,136 @@ func (ss *ServicesServer) Close() {
 	_, _ = servicesSendAndWait(ss, cmd, cmd.reply)
 }
 
-// Whois returns identity information. Services mode has limited WhoIs support.
-func (ss *ServicesServer) Whois(_ *http.Request) model.Whois {
-	// WhoIs is broken in ServiceModeHTTP (tailscale/tailscale#19215).
-	return model.Whois{}
+// Whois resolves identity from the request. For VIP-proxied requests the
+// RemoteAddr is localhost, but X-Forwarded-For carries the original peer's
+// Tailscale IP (set by the VIP proxy's addProxyForwardedHeaders). Falls
+// back to empty identity when neither path succeeds.
+func (ss *ServicesServer) Whois(r *http.Request) model.Whois {
+	if r == nil {
+		return model.Whois{}
+	}
+
+	lc := ss.localClient.Load()
+	if lc == nil {
+		return model.Whois{}
+	}
+
+	peerIP := ss.trustedPeerIP(r)
+
+	ss.log.Debug().
+		Bool("has_local_client", lc != nil).
+		Str("remote_addr", r.RemoteAddr).
+		Bool("is_localhost", isLocalhost(r.RemoteAddr)).
+		Str("x_forwarded_for", r.Header.Get("X-Forwarded-For")).
+		Str("peer_ip", peerIP).
+		Msg("service whois")
+
+	if peerIP == "" {
+		return model.Whois{}
+	}
+
+	return cachedWhoisFromAddr(ss.whoisCache, lc, r.Context(), peerIP)
+}
+
+// trustedPeerIP derives the peer IP to use for Whois lookup.
+// For non-localhost RemoteAddr the address is returned directly.
+// For localhost (VIP proxy hop), only a single valid IP in X-Forwarded-For
+// is accepted — anything else returns "" to avoid a doomed WhoIs(127.0.0.1).
+//
+// Security note: the XFF trust boundary assumes that no untrusted process
+// can reach the VIP service listener on loopback. If the tsnet listener is
+// ever exposed beyond the local machine, XFF spoofing becomes possible.
+func (ss *ServicesServer) trustedPeerIP(r *http.Request) string {
+	if !isLocalhost(r.RemoteAddr) {
+		return NormalizeIP(r.RemoteAddr)
+	}
+
+	// Reject if multiple X-Forwarded-For headers are present — a single
+	// trusted proxy hop should produce exactly one header. Multiple
+	// headers indicate header spoofing (Go's Header.Get merges them
+	// with commas, hiding the attack).
+	xffVals := r.Header.Values("X-Forwarded-For")
+	if len(xffVals) != 1 {
+		return ""
+	}
+
+	xff := xffVals[0]
+
+	// Only trust a single IP in XFF — a comma-separated chain is
+	// unexpected from the VIP proxy's addProxyForwardedHeaders.
+	if strings.IndexByte(xff, ',') >= 0 {
+		return ""
+	}
+
+	ip := NormalizeIP(strings.TrimSpace(xff))
+	if ip == "" {
+		return ""
+	}
+
+	// Reject loopback IPs from XFF — a loopback value means either a
+	// misconfigured proxy or a spoof attempt. Either way, WhoIs would fail.
+	if parsed := net.ParseIP(ip); parsed != nil && parsed.IsLoopback() {
+		return ""
+	}
+
+	return ip
+}
+
+func isLocalhost(remoteAddr string) bool {
+	return model.IsLocalhost(remoteAddr)
 }
 
 // startRuntime creates a new tsnet.Server and starts it.
+// When lifecycleCfg is set, uses NodeLifecycle for full lifecycle management.
 func (ss *ServicesServer) startRuntime() *servicesRuntime {
+	if ss.lifecycleCfg != nil {
+		return ss.startRuntimeWithLifecycle()
+	}
+	return ss.startRuntimeLegacy()
+}
+
+func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
+	// Test mode: use injected listener factory without creating a real tsnet.Server.
+	if ss.listenerFactory != nil {
+		_, cancel := context.WithCancel(context.Background())
+		return &servicesRuntime{
+			cancel:    cancel,
+			listeners: make(map[string]*serviceEntry),
+			factory:   ss.listenerFactory,
+		}
+	}
+
+	lifecycle := NewNodeLifecycle(
+		ss.log.With().Str("component", "lifecycle").Logger(),
+		*ss.lifecycleCfg,
+	)
+
+	nodeRt, err := lifecycle.Start(context.Background())
+	if err != nil {
+		ss.log.Error().Err(err).Msg("failed to start services tsnet server via lifecycle")
+		return nil
+	}
+
+	if lc, err := nodeRt.Server.LocalClient(); err == nil {
+		ss.localClient.Store(lc)
+	}
+
+	rt := &servicesRuntime{
+		cancel:    nodeRt.Cancel,
+		tsServer:  nodeRt.Server,
+		listeners: make(map[string]*serviceEntry),
+		factory:   tsnetServerFactory{nodeRt.Server},
+		lifecycle: lifecycle,
+	}
+
+	go ss.bridgeLifecycleEvents(nodeRt.Ctx, lifecycle)
+
+	return rt
+}
+
+// startRuntimeLegacy is the startup path for tests that inject a listenerFactory
+// without a full NodeLifecycle. Production always uses startRuntimeWithLifecycle.
+func (ss *ServicesServer) startRuntimeLegacy() *servicesRuntime {
 	_, cancel := context.WithCancel(context.Background())
 
 	// Test mode: use injected listener factory without creating a real tsnet.Server.
@@ -424,10 +616,33 @@ func (ss *ServicesServer) startRuntime() *servicesRuntime {
 		Logf:          func(format string, args ...any) { ss.log.Trace().Msgf(format, args...) },
 	}
 
+	// Generate a fresh OAuth auth key on each startup. The OAuth key is one-time
+	// (Reusable=false), so the cached ss.authKey is stale after the first use.
+	// A fresh key ensures tsnet can authenticate even if the node's saved state
+	// requires re-auth (e.g. tailscaled.state was deleted or is stale).
+	if ss.authManager != nil {
+		if newKey, err := ss.authManager.GenerateOAuthKey(context.Background(), ss.tags); err != nil {
+			ss.log.Warn().Err(err).Msg("failed to generate fresh auth key, using cached key")
+		} else if newKey != "" {
+			tsServer.AuthKey = newKey
+			ss.log.Debug().Msg("using freshly generated OAuth auth key")
+		}
+	}
+
+	if ss.deviceReconciler != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+		ss.deviceReconciler.Reconcile(ctx, ss.hostname, ss.tags)
+		cancel()
+	}
+
 	if err := tsServer.Start(); err != nil {
 		ss.log.Error().Err(err).Msg("failed to start services tsnet server")
 		cancel()
 		return nil
+	}
+
+	if lc, err := tsServer.LocalClient(); err == nil {
+		ss.localClient.Store(lc)
 	}
 
 	return &servicesRuntime{
@@ -451,17 +666,64 @@ func (ss *ServicesServer) stopRuntime(rt *servicesRuntime) {
 		delete(rt.listeners, key)
 	}
 
-	if rt.tsServer != nil {
+	if rt.lifecycle != nil {
+		if err := rt.lifecycle.Close(); err != nil {
+			ss.log.Warn().Err(err).Msg("error stopping lifecycle")
+		}
+	} else if rt.tsServer != nil {
 		rt.tsServer.Close()
 	}
 
 	if rt.cancel != nil {
 		rt.cancel()
 	}
+
+	// Clear stale localClient so Whois() doesn't use a closed client.
+	ss.localClient.Store(nil)
+	// Clear stale authURL from previous runtime.
+	ss.authURL = ""
+}
+
+func (ss *ServicesServer) bridgeLifecycleEvents(ctx context.Context, lifecycle *NodeLifecycle) {
+	events := lifecycle.WatchEvents()
+	for evt := range events {
+		if ctx.Err() != nil {
+			return
+		}
+		if evt.AuthURL != "" {
+			ss.sendProducer(ctx, servicesWatchUpdateCmd{authURL: evt.AuthURL})
+		}
+	}
+}
+
+func (ss *ServicesServer) handleWatchUpdate(c servicesWatchUpdateCmd, _ *servicesRuntime) {
+	if c.authURL != "" {
+		ss.authURL = c.authURL
+	}
+}
+
+func (ss *ServicesServer) handleGetAuthURL(c servicesGetAuthURLCmd, _ *servicesRuntime) {
+	c.reply <- ss.authURL
+}
+
+// GetAuthURL returns the current auth URL, or empty string if not needed.
+func (ss *ServicesServer) GetAuthURL() string {
+	cmd := servicesGetAuthURLCmd{reply: make(chan string, 1)}
+	v, ok := servicesSendAndWait(ss, cmd, cmd.reply)
+	if !ok {
+		return ""
+	}
+	return v
 }
 
 func (ss *ServicesServer) getAPIClient() *tailscale.Client {
-	return ss.apiClient
+	if ss.apiClient != nil {
+		return ss.apiClient
+	}
+	if ss.apiFactory != nil {
+		return ss.apiFactory.NewClient(ScopesServices()...)
+	}
+	return nil
 }
 
 // createOrUpdateVIPService creates or updates a VIP Service via the Tailscale API.
@@ -473,16 +735,49 @@ func (ss *ServicesServer) createOrUpdateVIPService(serviceName string, ports []s
 }
 
 func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
-	defer cancel()
-
 	client := ss.getAPIClient()
 	if client == nil {
 		return errors.New("tailscale API client not configured")
 	}
 
-	return client.VIPServices().CreateOrUpdate(ctx, tailscale.VIPService{
+	// Tailscale VIP Service API requires existing Addrs in PUT updates.
+	// First attempt a simple create; if the API rejects it for missing Addrs,
+	// GET the existing service and retry with Addrs included.
+	firstCtx, firstCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	err := client.VIPServices().CreateOrUpdate(firstCtx, tailscale.VIPService{
 		Name:  serviceName,
+		Ports: ports,
+		Tags:  cleanTags(ss.tags),
+	})
+	firstCancel()
+	if err == nil || !strings.Contains(err.Error(), "addrs must contain") {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	defer cancel()
+
+	existing, getErr := client.VIPServices().Get(ctx, serviceName)
+	if getErr != nil {
+		if !isNotFound(getErr) {
+			return fmt.Errorf("get existing VIP service %q: %w", serviceName, getErr)
+		}
+		// Service confirmed not-found — create directly without delete.
+		ss.log.Debug().Str("service", serviceName).Msg("VIP service not found, creating fresh")
+		createCtx, createCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+		defer createCancel()
+		return client.VIPServices().CreateOrUpdate(createCtx, tailscale.VIPService{
+			Name:  serviceName,
+			Ports: ports,
+			Tags:  cleanTags(ss.tags),
+		})
+	}
+
+	updateCtx, updateCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	defer updateCancel()
+	return client.VIPServices().CreateOrUpdate(updateCtx, tailscale.VIPService{
+		Name:  serviceName,
+		Addrs: existing.Addrs,
 		Ports: ports,
 		Tags:  cleanTags(ss.tags),
 	})
@@ -508,6 +803,68 @@ func (ss *ServicesServer) deleteVIPServiceProd(serviceName string) error {
 	return client.VIPServices().Delete(ctx, serviceName)
 }
 
+func (ss *ServicesServer) approveServiceDevice(rt *servicesRuntime, serviceName string) error {
+	if rt.tsServer == nil {
+		return nil
+	}
+
+	client := ss.getAPIClient()
+	if client == nil {
+		return errors.New("tailscale API client not configured")
+	}
+
+	lc, err := rt.tsServer.LocalClient()
+	if err != nil {
+		return fmt.Errorf("get local client: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	defer cancel()
+
+	status, err := lc.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("get node status: %w", err)
+	}
+	if status.Self == nil {
+		return errors.New("no self in node status")
+	}
+
+	nodeID := string(status.Self.ID)
+	if nodeID == "" {
+		return errors.New("empty node ID in status")
+	}
+
+	// Trigger client lazy init (sets BaseURL from default).
+	client.VIPServices()
+
+	// Endpoint: POST /api/v2/tailnet/{tailnet}/services/{svc}/device/{nodeId}/approved
+	u := client.BaseURL.JoinPath("api", "v2", "tailnet", "-", "services", serviceName, "device", nodeID, "approved")
+
+	body := `{"approved":true}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create approval request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("approval request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("approval failed (HTTP %d): unable to read response body: %w", resp.StatusCode, readErr)
+		}
+		return fmt.Errorf("approval failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	ss.log.Info().Str("service", serviceName).Str("nodeID", nodeID).Msg("service device approved")
+	return nil
+}
+
 // collectServicePorts gathers all known ports for a service from active listeners,
 // plus the new port being acquired.
 func (ss *ServicesServer) collectServicePorts(rt *servicesRuntime, serviceName string, newPort uint16) []string {
@@ -521,6 +878,7 @@ func (ss *ServicesServer) collectServicePorts(rt *servicesRuntime, serviceName s
 	for p := range seen {
 		ports = append(ports, fmt.Sprintf("tcp:%d", p))
 	}
+	sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
 	return ports
 }
 
@@ -532,6 +890,7 @@ func (ss *ServicesServer) collectExistingServicePorts(rt *servicesRuntime, servi
 			ports = append(ports, fmt.Sprintf("tcp:%d", entry.port))
 		}
 	}
+	sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
 	return ports
 }
 
@@ -554,14 +913,14 @@ func serviceKey(serviceName string, port uint16) string {
 	return fmt.Sprintf("%s:%d", serviceName, port)
 }
 
-// cleanTags splits a comma-separated tag string and returns trimmed, non-empty tags.
-func cleanTags(tags string) []string {
-	parts := strings.Split(tags, ",")
-	result := make([]string, 0, len(parts))
-	for _, t := range parts {
-		if t = strings.TrimSpace(t); t != "" {
-			result = append(result, t)
-		}
+
+// isNotFound returns true if the error indicates the requested resource
+// does not exist (HTTP 404 or equivalent). Used to distinguish confirmed
+// not-found from transient API failures.
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
 	}
-	return result
+	msg := err.Error()
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "404")
 }

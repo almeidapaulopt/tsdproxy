@@ -94,11 +94,47 @@ func TestNewSharedProxy_AcceptsAllProtocols(t *testing.T) {
 func TestSharedProxyGetAuthURL(t *testing.T) {
 	t.Parallel()
 
+	// SharedProxy with nil shared server returns empty.
 	p := &SharedProxy{}
-
 	if url := p.GetAuthURL(); url != "" {
-		t.Fatalf("GetAuthURL should return empty string, got %q", url)
+		t.Fatalf("GetAuthURL should return empty string with nil shared, got %q", url)
 	}
+}
+
+func TestSharedProxyGetAuthURLDelegatesToServer(t *testing.T) {
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	ch := ss.SubscribeEvents()
+
+	// Send auth URL via command channel.
+	ss.cmds <- watchUpdateCmd{
+		gen:     0,
+		authURL: "https://login.tailscale.com/a/abc123",
+		evt:     model.ProxyEvent{Status: model.ProxyStatusAuthenticating},
+	}
+
+	<-ch // consume forwarded event
+
+	p := &SharedProxy{
+		shared: ss,
+		config: &model.Config{
+			Ports: map[string]model.PortConfig{
+				"port1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+			},
+		},
+		log:    zerolog.Nop(),
+		events: make(chan model.ProxyEvent, 1),
+	}
+
+	if url := p.GetAuthURL(); url != "https://login.tailscale.com/a/abc123" {
+		t.Fatalf("GetAuthURL should return auth URL from shared server, got %q", url)
+	}
+
+	ss.UnsubscribeEvents(ch)
 }
 
 func TestSharedProxyGetURLReturnsEmptyWhenServerNotReady(t *testing.T) {

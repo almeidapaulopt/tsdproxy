@@ -215,7 +215,10 @@ func (p *SharedProxy) GetURL() string {
 }
 
 func (p *SharedProxy) GetAuthURL() string {
-	return ""
+	if p.shared == nil {
+		return ""
+	}
+	return p.shared.GetAuthURL()
 }
 
 func (p *SharedProxy) WatchEvents() chan model.ProxyEvent {
