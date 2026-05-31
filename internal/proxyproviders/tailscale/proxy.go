@@ -94,13 +94,6 @@ func (p *Proxy) primaryScheme() string {
 	return model.ProtoHTTPS
 }
 
-func (p *Proxy) getStatus() model.ProxyStatus {
-	p.mtx.RLock()
-	s := p.status
-	p.mtx.RUnlock()
-	return s
-}
-
 // Close method implements proxyconfig.Proxy Close method.
 func (p *Proxy) Close() error {
 	p.mtx.RLock()
@@ -240,7 +233,7 @@ func (p *Proxy) Whois(r *http.Request) model.Whois {
 	if rt == nil {
 		return model.Whois{}
 	}
-	return cachedWhoisFromAddr(p.whoisCache, rt.LocalClient, r.Context(), r.RemoteAddr)
+	return cachedWhoisFromAddr(r.Context(), p.whoisCache, rt.LocalClient, r.RemoteAddr)
 }
 
 // tsServer returns the tsnet.Server from the lifecycle runtime, or nil if not started.

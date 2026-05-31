@@ -30,14 +30,14 @@ type WhoisCache struct {
 }
 
 func NewWhoisCache(ttl time.Duration, maxEntries ...int) *WhoisCache {
-	max := 0
+	maxCount := 0
 	if len(maxEntries) > 0 {
-		max = maxEntries[0]
+		maxCount = maxEntries[0]
 	}
 	return &WhoisCache{
 		entries:    make(map[string]*whoisCacheEntry),
 		ttl:        ttl,
-		maxEntries: max,
+		maxEntries: maxCount,
 	}
 }
 

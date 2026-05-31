@@ -195,7 +195,7 @@ func TestGenerateOAuthKeySuccess(t *testing.T) {
 			assert.True(t, ckr.Capabilities.Devices.Create.Preauthorized)
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":      "key123",
 				"key":     "tskey-auth-test-success",
 				"created": "2024-01-01T00:00:00Z",
@@ -221,7 +221,7 @@ func TestGenerateOAuthKeyInvalidTagPermission(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2/tailnet/-/keys" {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"message": "tag:bad is invalid or not permitted for this client",
 			})
 			return
@@ -244,7 +244,7 @@ func TestGenerateOAuthKeyGenericAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2/tailnet/-/keys" {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"message": "internal server error",
 			})
 			return
@@ -284,7 +284,7 @@ func TestResolveKeyWithOAuthSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2/tailnet/-/keys" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":      "key123",
 				"key":     "tskey-auth-oauth-resolved",
 				"created": "2024-01-01T00:00:00Z",

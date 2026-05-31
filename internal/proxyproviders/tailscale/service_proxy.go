@@ -58,9 +58,9 @@ func (p *ServiceProxy) Start(_ context.Context) error {
 			listener, err = p.services.Acquire(p.serviceName, uint16(portCfg.ProxyPort), false, false) //nolint:gosec // port limits validated in config
 		case model.ProtoTCP:
 			listener, err = p.services.Acquire(p.serviceName, uint16(portCfg.ProxyPort), false, true) //nolint:gosec // port limits validated in config
-	default:
-		p.rollbackAcquired()
-		return fmt.Errorf("services mode does not support protocol %q", portCfg.ProxyProtocol)
+		default:
+			p.rollbackAcquired()
+			return fmt.Errorf("services mode does not support protocol %q", portCfg.ProxyProtocol)
 		}
 
 		if err != nil {
@@ -93,7 +93,7 @@ func (p *ServiceProxy) rollbackAcquired() {
 	for portName := range p.listeners {
 		if portCfg, ok := p.config.Ports[portName]; ok {
 			if err := p.services.Release(p.serviceName, uint16(portCfg.ProxyPort)); err != nil { //nolint:gosec // port limits validated in config
-				p.log.Warn().Err(err).Uint16("port", uint16(portCfg.ProxyPort)).Msg("failed to release service during rollback")
+				p.log.Warn().Err(err).Int("port", portCfg.ProxyPort).Msg("failed to release service during rollback")
 			}
 		}
 	}
@@ -105,7 +105,7 @@ func (p *ServiceProxy) Close() error {
 	for portName := range p.listeners {
 		if portCfg, ok := p.config.Ports[portName]; ok {
 			if err := p.services.Release(p.serviceName, uint16(portCfg.ProxyPort)); err != nil { //nolint:gosec // port limits validated in config
-				p.log.Warn().Err(err).Uint16("port", uint16(portCfg.ProxyPort)).Msg("failed to release service")
+				p.log.Warn().Err(err).Int("port", portCfg.ProxyPort).Msg("failed to release service")
 			}
 		}
 	}

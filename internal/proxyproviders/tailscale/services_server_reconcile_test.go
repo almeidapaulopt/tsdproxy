@@ -71,10 +71,8 @@ func testSS(vip *mockVIPAPI, factory *mockListenerFactory) *ServicesServer {
 }
 
 func defaultFactory() *mockListenerFactory {
-	callNum := 0
 	return &mockListenerFactory{
-		fn: func(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
-			callNum++
+		fn: func(name string, _ tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
 			return newFakeServiceListener(name + ".tailnet.ts.net"), nil
 		},
 	}
@@ -178,7 +176,7 @@ func TestListenServiceFailureReconcilesVIP(t *testing.T) {
 
 	listenErr := errors.New("listen failed")
 	factory := &mockListenerFactory{
-		fn: func(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
+		fn: func(_ string, _ tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
 			return nil, listenErr
 		},
 	}
@@ -201,7 +199,7 @@ func TestListenServiceFailureWithExistingPorts(t *testing.T) {
 
 	callNum := 0
 	factory := &mockListenerFactory{
-		fn: func(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
+		fn: func(_ string, _ tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
 			callNum++
 			if callNum == 1 {
 				return newFakeServiceListener("svc:test.tailnet.ts.net"), nil
@@ -398,7 +396,7 @@ func TestListenFailureRefcountZeroCleansUp(t *testing.T) {
 	t.Parallel()
 
 	factory := &mockListenerFactory{
-		fn: func(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
+		fn: func(_ string, _ tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
 			return nil, errors.New("listen failed")
 		},
 	}
@@ -411,7 +409,7 @@ func TestListenFailureRefcountZeroCleansUp(t *testing.T) {
 
 	// refCount was 0, so runtime was cleaned up.
 	// Verify by doing a successful acquire next.
-	factory.fn = func(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
+	factory.fn = func(_ string, _ tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
 		return newFakeServiceListener("svc:test.tailnet.ts.net"), nil
 	}
 	sl, err := ss.Acquire("svc:test", 443, true, false)

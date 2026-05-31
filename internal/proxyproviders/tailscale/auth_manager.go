@@ -105,7 +105,9 @@ func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "invalid or not permitted") {
 			return "", fmt.Errorf(
-				"OAuth token rejected for tags %v — ensure the tag is assigned to your OAuth client in the Tailscale admin console (Access Controls → OAuth clients) and listed in ACL tagOwners. Original error: %w",
+				"OAuth token rejected for tags %v — ensure the tag is assigned to your OAuth client "+
+					"in the Tailscale admin console (Access Controls → OAuth clients) and listed in ACL tagOwners. "+
+					"Original error: %w",
 				capabilities.Devices.Create.Tags, err,
 			)
 		}
