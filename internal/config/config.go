@@ -127,6 +127,7 @@ type (
 		PreventDuplicates  bool                      `default:"false" yaml:"preventDuplicates"`
 		Shared             bool                      `default:"false" yaml:"shared"`
 		Services           bool                      `default:"false" yaml:"services"`
+		AutoApproveDevices bool                      `default:"false" yaml:"autoApproveDevices"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
@@ -134,11 +135,11 @@ type (
 		Filename              string `validate:"required,file" yaml:"filename"`
 		DefaultProxyProvider  string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
 		DefaultProxyAccessLog bool   `default:"true" validate:"boolean" yaml:"defaultProxyAccessLog"`
-		AutoRestart          bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
-		HealthCheckEnabled   bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
-		HealthCheckInterval  int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
-		HealthCheckFailures  int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
-		HealthCheckCooldown  int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
+		AutoRestart           bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		HealthCheckEnabled    bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		HealthCheckInterval   int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures   int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
+		HealthCheckCooldown   int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
 	}
 
 	DNSProviderConfig struct {
@@ -190,6 +191,11 @@ func InitializeConfig() error {
 	if err := Config.loadSecretsFromFiles(); err != nil {
 		return err
 	}
+
+	// Load env var overrides before validation so that TSDPROXY_TAILSCALE_*_CLIENTID
+	// and TSDPROXY_TAILSCALE_*_CLIENTSECRET are available to the validator (e.g.
+	// services mode requires clientId for the VIP Services API).
+	Config.LoadTailscaleEnvOverrides()
 
 	// validate config
 	if err := Config.validate(); err != nil {
@@ -265,8 +271,6 @@ func (c *config) loadSecretsFromFiles() error {
 	if err := c.loadDNSProviderTokens(); err != nil {
 		return err
 	}
-
-	c.loadTailscaleEnvOverrides()
 
 	return nil
 }
@@ -350,7 +354,7 @@ func (c *config) loadTailscaleClientSecrets() error {
 //
 //	provider "default"  → TSDPROXY_TAILSCALE_DEFAULT_CLIENTID
 //	provider "my-eu-prod" → TSDPROXY_TAILSCALE_MY-EU-PROD_CLIENTSECRET
-func (c *config) loadTailscaleEnvOverrides() {
+func (c *config) LoadTailscaleEnvOverrides() {
 	for name, d := range c.Tailscale.Providers {
 		if d == nil {
 			continue

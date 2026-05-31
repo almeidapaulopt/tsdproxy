@@ -122,7 +122,7 @@ func TestValidateProxyProviders_ServicesAcceptsClientSecretFile(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestValidateProxyProviders_ServicesRequiresTags(t *testing.T) {
+func TestValidateProxyProviders_ServiceModeWithoutTagsIsValid(t *testing.T) {
 	c := &config{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
@@ -138,8 +138,8 @@ func TestValidateProxyProviders_ServicesRequiresTags(t *testing.T) {
 	}
 
 	err := c.validateProxyProviders()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "tags")
+	// Tags are not strictly required — services mode can use interactive login.
+	assert.NoError(t, err)
 }
 
 func TestValidateProxyProviders_ServicesAndSharedMutualExclusion(t *testing.T) {

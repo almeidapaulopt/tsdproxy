@@ -46,6 +46,7 @@ func InitializeApp() (*WebApp, error) {
 		return nil, err
 	}
 	config.Config.ClearSecrets()
+	config.Config.LoadTailscaleEnvOverrides()
 
 	// Write HTTP port to data dir for the healthcheck binary to read.
 	portFile := filepath.Join(config.Config.Tailscale.DataDir, ".http-port")

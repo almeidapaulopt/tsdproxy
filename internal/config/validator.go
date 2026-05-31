@@ -157,9 +157,12 @@ func (c *config) validateProxyProviders() error {
 				return fmt.Errorf("tailscale provider %q: services mode requires clientSecret or clientSecretFile for VIP Services API", name)
 			}
 			if p.Tags == "" {
-				return fmt.Errorf("tailscale provider %q: services mode requires tags (service hosts must be tagged)", name)
+				log.Warn().Str("provider", name).Str("hostname", p.Hostname).
+					Msg("services mode without tags: interactive login will be required for the shared tsnet node")
+			} else {
+				log.Info().Str("provider", name).Str("hostname", p.Hostname).Str("tags", p.Tags).
+					Msg("services tsnet provider configured")
 			}
-			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("services tsnet provider configured")
 		}
 	}
 	return nil
