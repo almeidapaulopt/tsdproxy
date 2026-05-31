@@ -209,21 +209,9 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 				if !ok {
 					return
 				}
-				switch devent.Action {
-				case devents.ActionStart:
-					select {
-					case <-ctx.Done():
-						return
-					case eventsChan <- c.getStartEvent(devent.Actor.ID):
-					}
-				case devents.ActionDie:
-					select {
-					case <-ctx.Done():
-						return
-					case eventsChan <- c.getStopEvent(devent.Actor.ID):
-					}
+				if !c.handleDockerEvent(ctx, devent, eventsChan) {
+					return
 				}
-
 			case err, ok := <-evRes.Err:
 				if ok && !errors.Is(err, context.Canceled) && !errors.Is(err, io.EOF) {
 					select {
@@ -238,6 +226,26 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	}()
 
 	go c.startAllProxies(ctx, eventsChan, errChan)
+}
+
+func (c *Client) handleDockerEvent(ctx context.Context, devent devents.Message, eventsChan chan targetproviders.TargetEvent) bool {
+	var event targetproviders.TargetEvent
+
+	switch devent.Action {
+	case devents.ActionStart:
+		event = c.getStartEvent(devent.Actor.ID)
+	case devents.ActionDie:
+		event = c.getStopEvent(devent.Actor.ID)
+	default:
+		return true
+	}
+
+	select {
+	case <-ctx.Done():
+		return false
+	case eventsChan <- event:
+		return true
+	}
 }
 
 func (c *Client) startAllProxies(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {

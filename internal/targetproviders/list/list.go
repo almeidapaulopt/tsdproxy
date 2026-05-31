@@ -347,64 +347,71 @@ func (c *Client) getPorts(l map[string]port) model.PortConfigList {
 	ports := make(model.PortConfigList)
 	for k, v := range l {
 		if model.IsPortRangeShortLabel(k) {
-			expanded, err := model.ExpandPortRangeShortLabel(k)
-			if err != nil {
-				c.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
-				continue
-			}
-
-			for rangeKey, portCfg := range expanded {
-				portCfg.IsRedirect = v.IsRedirect
-
-				for _, target := range v.Targets {
-					targetURL, err := url.Parse(target)
-					if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
-						c.log.Error().Err(err).Str("port", k).Str("targetUrl", target).Msg("Invalid target URL")
-						continue
-					}
-					portCfg.AddTarget(targetURL)
-				}
-
-				if len(portCfg.GetTargets()) == 0 {
-					c.log.Error().Str("port", k).Msg("no targets found for range port")
-					continue
-				}
-
-				portCfg.TLSValidate = v.TLSValidate
-				portCfg.Tailscale = v.Tailscale
-
-				expandedKey := k + "." + rangeKey
-				ports[expandedKey] = portCfg
-			}
+			c.processPortRange(ports, k, v)
 			continue
 		}
 
-		port, err := model.NewPortShortLabel(k)
-		if err != nil {
-			c.log.Error().Err(err).Str("port", k).Msg("error creating port config")
-		}
-
-		port.IsRedirect = v.IsRedirect
-
-		for _, target := range v.Targets {
-			targetURL, err := url.Parse(target)
-			if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
-				c.log.Error().Err(err).Str("port", k).Str("targetUrl", target).Msg("Invalid target URL")
-				continue
-			}
-
-			port.AddTarget(targetURL)
-		}
-
-		if len(port.GetTargets()) == 0 {
-			c.log.Error().Str("port", k).Msg("no targets found for port")
-			continue
-		}
-
-		port.TLSValidate = v.TLSValidate
-		port.Tailscale = v.Tailscale
-
-		ports[k] = port
+		c.processSinglePort(ports, k, v)
 	}
 	return ports
+}
+
+func (c *Client) processPortRange(ports model.PortConfigList, k string, v port) {
+	expanded, err := model.ExpandPortRangeShortLabel(k)
+	if err != nil {
+		c.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
+		return
+	}
+
+	for rangeKey, portCfg := range expanded {
+		cfg := portCfg
+		cfg.IsRedirect = v.IsRedirect
+
+		if !c.parseAndAddTargets(&cfg, v.Targets, k, "no targets found for range port") {
+			continue
+		}
+
+		cfg.TLSValidate = v.TLSValidate
+		cfg.Tailscale = v.Tailscale
+
+		expandedKey := k + "." + rangeKey
+		ports[expandedKey] = cfg
+	}
+}
+
+func (c *Client) processSinglePort(ports model.PortConfigList, k string, v port) {
+	port, err := model.NewPortShortLabel(k)
+	if err != nil {
+		c.log.Error().Err(err).Str("port", k).Msg("error creating port config")
+	}
+
+	port.IsRedirect = v.IsRedirect
+
+	if !c.parseAndAddTargets(&port, v.Targets, k, "no targets found for port") {
+		return
+	}
+
+	port.TLSValidate = v.TLSValidate
+	port.Tailscale = v.Tailscale
+
+	ports[k] = port
+}
+
+func (c *Client) parseAndAddTargets(cfg *model.PortConfig, targets []string, portKey string, noTargetsMsg string) bool {
+	for _, target := range targets {
+		targetURL, err := url.Parse(target)
+		if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
+			c.log.Error().Err(err).Str("port", portKey).Str("targetUrl", target).Msg("Invalid target URL")
+			continue
+		}
+
+		cfg.AddTarget(targetURL)
+	}
+
+	if len(cfg.GetTargets()) == 0 {
+		c.log.Error().Str("port", portKey).Msg(noTargetsMsg)
+		return false
+	}
+
+	return true
 }

@@ -146,24 +146,32 @@ func (c *config) validateProxyProviders() error {
 			}
 			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("shared tsnet provider configured")
 		}
-		if p.Services {
-			if p.Hostname == "" {
-				return fmt.Errorf("tailscale provider %q: services mode requires a hostname", name)
-			}
-			if p.ClientID == "" {
-				return fmt.Errorf("tailscale provider %q: services mode requires clientId for VIP Services API", name)
-			}
-			if p.ClientSecret == "" && p.ClientSecretFile == "" {
-				return fmt.Errorf("tailscale provider %q: services mode requires clientSecret or clientSecretFile for VIP Services API", name)
-			}
-			if p.Tags == "" {
-				log.Warn().Str("provider", name).Str("hostname", p.Hostname).
-					Msg("services mode without tags: interactive login will be required for the shared tsnet node")
-			} else {
-				log.Info().Str("provider", name).Str("hostname", p.Hostname).Str("tags", p.Tags).
-					Msg("services tsnet provider configured")
-			}
+		if err := c.validateServicesProvider(name, p); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func (c *config) validateServicesProvider(name string, p *TailscaleServerConfig) error {
+	if !p.Services {
+		return nil
+	}
+	if p.Hostname == "" {
+		return fmt.Errorf("tailscale provider %q: services mode requires a hostname", name)
+	}
+	if p.ClientID == "" {
+		return fmt.Errorf("tailscale provider %q: services mode requires clientId for VIP Services API", name)
+	}
+	if p.ClientSecret == "" && p.ClientSecretFile == "" {
+		return fmt.Errorf("tailscale provider %q: services mode requires clientSecret or clientSecretFile for VIP Services API", name)
+	}
+	if p.Tags == "" {
+		log.Warn().Str("provider", name).Str("hostname", p.Hostname).
+			Msg("services mode without tags: interactive login will be required for the shared tsnet node")
+	} else {
+		log.Info().Str("provider", name).Str("hostname", p.Hostname).Str("tags", p.Tags).
+			Msg("services tsnet provider configured")
 	}
 	return nil
 }
