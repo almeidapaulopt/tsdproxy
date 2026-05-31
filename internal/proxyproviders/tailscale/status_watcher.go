@@ -16,7 +16,17 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-const pollInterval = 2 * time.Second
+const (
+	pollInterval = 2 * time.Second
+
+	// Tailscale backend state strings.
+	backendStateNeedsLogin       = "NeedsLogin"
+	backendStateNoState          = "NoState"
+	backendStateStopped          = "Stopped"
+	backendStateStarting         = "Starting"
+	backendStateNeedsMachineAuth = "NeedsMachineAuth"
+	backendStateRunning          = "Running"
+)
 
 // NodeEvent represents a classified Tailscale node status change.
 type NodeEvent struct {
@@ -141,20 +151,20 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 // authURL and dnsName may be empty.
 func classifyState(backendState string, authURL string, dnsName string) NodeEvent {
 	switch backendState {
-	case "NeedsLogin":
+	case backendStateNeedsLogin:
 		if authURL == "" {
 			return NodeEvent{Status: model.ProxyStatusError, ErrorMessage: "needs reauthentication: no auth URL available, the auth key may be invalid or expired"}
 		}
 		return NodeEvent{Status: model.ProxyStatusAuthenticating, AuthURL: authURL}
-	case "NoState":
+	case backendStateNoState:
 		return NodeEvent{Status: model.ProxyStatusStarting}
-	case "Stopped":
+	case backendStateStopped:
 		return NodeEvent{Status: model.ProxyStatusStopped}
-	case "Starting":
+	case backendStateStarting:
 		return NodeEvent{Status: model.ProxyStatusStarting}
-	case "NeedsMachineAuth":
+	case backendStateNeedsMachineAuth:
 		return NodeEvent{Status: model.ProxyStatusAwaitingApproval, AuthURL: authURL}
-	case "Running":
+	case backendStateRunning:
 		return NodeEvent{Status: model.ProxyStatusRunning, URL: dnsName}
 	default:
 		return NodeEvent{Status: model.ProxyStatusError, ErrorMessage: "unknown state: " + backendState}
