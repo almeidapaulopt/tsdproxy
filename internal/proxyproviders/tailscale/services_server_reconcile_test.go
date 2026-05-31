@@ -6,6 +6,7 @@ package tailscale
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -22,6 +23,7 @@ type vipCall struct {
 }
 
 type mockVIPAPI struct {
+	mu                  sync.Mutex
 	createOrUpdateErr   error
 	deleteErr           error
 	createOrUpdateCalls []vipCall
@@ -29,6 +31,8 @@ type mockVIPAPI struct {
 }
 
 func (m *mockVIPAPI) createOrUpdateVIPService(serviceName string, ports []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.createOrUpdateCalls = append(m.createOrUpdateCalls, vipCall{
 		serviceName: serviceName,
 		ports:       append([]string{}, ports...),
@@ -37,8 +41,35 @@ func (m *mockVIPAPI) createOrUpdateVIPService(serviceName string, ports []string
 }
 
 func (m *mockVIPAPI) deleteVIPService(serviceName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.deleteCalls = append(m.deleteCalls, serviceName)
 	return m.deleteErr
+}
+
+func (m *mockVIPAPI) reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.createOrUpdateCalls = nil
+	m.deleteCalls = nil
+}
+
+func (m *mockVIPAPI) getCreateOrUpdateCalls() []vipCall {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]vipCall{}, m.createOrUpdateCalls...)
+}
+
+func (m *mockVIPAPI) getDeleteCalls() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.deleteCalls...)
+}
+
+func (m *mockVIPAPI) setCreateOrUpdateErr(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.createOrUpdateErr = err
 }
 
 type mockListenerFactory struct {
@@ -94,10 +125,11 @@ func TestAcquireSucceeds(t *testing.T) {
 
 	assert.Equal(t, "svc:test.tailnet.ts.net", sl.FQDN)
 
-	require.Len(t, vip.createOrUpdateCalls, 1)
-	assert.Equal(t, "svc:test", vip.createOrUpdateCalls[0].serviceName)
-	assert.ElementsMatch(t, []string{"tcp:443"}, vip.createOrUpdateCalls[0].ports)
-	assert.Empty(t, vip.deleteCalls)
+	calls := vip.getCreateOrUpdateCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "svc:test", calls[0].serviceName)
+	assert.ElementsMatch(t, []string{"tcp:443"}, calls[0].ports)
+	assert.Empty(t, vip.getDeleteCalls())
 }
 
 func TestAcquireSecondPortSameService(t *testing.T) {
@@ -114,13 +146,14 @@ func TestAcquireSecondPortSameService(t *testing.T) {
 	_, err = ss.Acquire("svc:test", 8443, true, false)
 	require.NoError(t, err)
 
-	require.Len(t, vip.createOrUpdateCalls, 2)
-	assert.Equal(t, "svc:test", vip.createOrUpdateCalls[0].serviceName)
-	assert.ElementsMatch(t, []string{"tcp:443"}, vip.createOrUpdateCalls[0].ports)
+	calls := vip.getCreateOrUpdateCalls()
+	require.Len(t, calls, 2)
+	assert.Equal(t, "svc:test", calls[0].serviceName)
+	assert.ElementsMatch(t, []string{"tcp:443"}, calls[0].ports)
 
-	assert.Equal(t, "svc:test", vip.createOrUpdateCalls[1].serviceName)
-	assert.ElementsMatch(t, []string{"tcp:443", "tcp:8443"}, vip.createOrUpdateCalls[1].ports)
-	assert.Empty(t, vip.deleteCalls)
+	assert.Equal(t, "svc:test", calls[1].serviceName)
+	assert.ElementsMatch(t, []string{"tcp:443", "tcp:8443"}, calls[1].ports)
+	assert.Empty(t, vip.getDeleteCalls())
 }
 
 func TestReleaseOnePortOfMultiPortService(t *testing.T) {
@@ -137,16 +170,16 @@ func TestReleaseOnePortOfMultiPortService(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reset tracking to isolate release calls.
-	vip.createOrUpdateCalls = nil
-	vip.deleteCalls = nil
+	vip.reset()
 
 	err = ss.Release("svc:test", 443)
 	require.NoError(t, err)
 
-	assert.Empty(t, vip.deleteCalls, "VIP service should NOT be deleted when ports remain")
-	require.Len(t, vip.createOrUpdateCalls, 1)
-	assert.Equal(t, "svc:test", vip.createOrUpdateCalls[0].serviceName)
-	assert.ElementsMatch(t, []string{"tcp:8443"}, vip.createOrUpdateCalls[0].ports)
+	assert.Empty(t, vip.getDeleteCalls(), "VIP service should NOT be deleted when ports remain")
+	calls := vip.getCreateOrUpdateCalls()
+	require.Len(t, calls, 1)
+	assert.Equal(t, "svc:test", calls[0].serviceName)
+	assert.ElementsMatch(t, []string{"tcp:8443"}, calls[0].ports)
 }
 
 func TestReleaseLastPortDeletesVIPService(t *testing.T) {
@@ -160,15 +193,15 @@ func TestReleaseLastPortDeletesVIPService(t *testing.T) {
 	_, err := ss.Acquire("svc:test", 443, true, false)
 	require.NoError(t, err)
 
-	vip.createOrUpdateCalls = nil
-	vip.deleteCalls = nil
+	vip.reset()
 
 	err = ss.Release("svc:test", 443)
 	require.NoError(t, err)
 
-	assert.Empty(t, vip.createOrUpdateCalls, "no update expected when releasing last port")
-	require.Len(t, vip.deleteCalls, 1)
-	assert.Equal(t, "svc:test", vip.deleteCalls[0])
+	assert.Empty(t, vip.getCreateOrUpdateCalls(), "no update expected when releasing last port")
+	delCalls := vip.getDeleteCalls()
+	require.Len(t, delCalls, 1)
+	assert.Equal(t, "svc:test", delCalls[0])
 }
 
 func TestListenServiceFailureReconcilesVIP(t *testing.T) {
@@ -189,9 +222,11 @@ func TestListenServiceFailureReconcilesVIP(t *testing.T) {
 	assert.Contains(t, err.Error(), "listen service")
 
 	// VIP service was created then reconciled (deleted, since no existing ports).
-	require.Len(t, vip.createOrUpdateCalls, 1, "createOrUpdate called once before listen")
-	require.Len(t, vip.deleteCalls, 1, "VIP service should be deleted after listen failure with no existing ports")
-	assert.Equal(t, "svc:test", vip.deleteCalls[0])
+	calls := vip.getCreateOrUpdateCalls()
+	require.Len(t, calls, 1, "createOrUpdate called once before listen")
+	delCalls := vip.getDeleteCalls()
+	require.Len(t, delCalls, 1, "VIP service should be deleted after listen failure with no existing ports")
+	assert.Equal(t, "svc:test", delCalls[0])
 }
 
 func TestListenServiceFailureWithExistingPorts(t *testing.T) {
@@ -215,18 +250,17 @@ func TestListenServiceFailureWithExistingPorts(t *testing.T) {
 	_, err := ss.Acquire("svc:test", 443, true, false)
 	require.NoError(t, err)
 
-	vip.createOrUpdateCalls = nil
-	vip.deleteCalls = nil
+	vip.reset()
 
 	// Second acquire fails on ListenService.
 	_, err = ss.Acquire("svc:test", 8443, true, false)
 	require.Error(t, err)
 
 	// Reconciliation: VIP service updated with only port 443 (not deleted).
-	assert.Empty(t, vip.deleteCalls, "VIP service should NOT be deleted when existing ports remain")
-	require.Len(t, vip.createOrUpdateCalls, 2, "create+update during acquire, then reconcile update")
-	// Last call should be the reconciliation with just the existing port.
-	lastCall := vip.createOrUpdateCalls[len(vip.createOrUpdateCalls)-1]
+	assert.Empty(t, vip.getDeleteCalls(), "VIP service should NOT be deleted when existing ports remain")
+	calls := vip.getCreateOrUpdateCalls()
+	require.Len(t, calls, 2, "create+update during acquire, then reconcile update")
+	lastCall := calls[len(calls)-1]
 	assert.Equal(t, "svc:test", lastCall.serviceName)
 	assert.ElementsMatch(t, []string{"tcp:443"}, lastCall.ports)
 }
@@ -268,7 +302,7 @@ func TestDuplicateAcquireSameServicePort(t *testing.T) {
 	assert.Nil(t, sl2)
 
 	// Only one createOrUpdate call (for the first acquire).
-	require.Len(t, vip.createOrUpdateCalls, 1, "duplicate acquire rejected before API call")
+	require.Len(t, vip.getCreateOrUpdateCalls(), 1, "duplicate acquire rejected before API call")
 }
 
 func TestCloseWhileRunning(t *testing.T) {
@@ -295,7 +329,7 @@ func TestCloseWhileRunning(t *testing.T) {
 	}
 
 	// Both VIP services should be deleted.
-	assert.ElementsMatch(t, []string{"svc:alpha", "svc:beta"}, vip.deleteCalls)
+	assert.ElementsMatch(t, []string{"svc:alpha", "svc:beta"}, vip.getDeleteCalls())
 }
 
 func TestCloseWhileRunningMultiPortSameService(t *testing.T) {
@@ -319,8 +353,9 @@ func TestCloseWhileRunningMultiPortSameService(t *testing.T) {
 	}
 
 	// Same service name appears once (dedup in stopRuntime).
-	require.Len(t, vip.deleteCalls, 1)
-	assert.Equal(t, "svc:test", vip.deleteCalls[0])
+	delCalls := vip.getDeleteCalls()
+	require.Len(t, delCalls, 1)
+	assert.Equal(t, "svc:test", delCalls[0])
 }
 
 func TestAcquireTCPMode(t *testing.T) {
@@ -335,8 +370,8 @@ func TestAcquireTCPMode(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sl)
 
-	require.Len(t, vip.createOrUpdateCalls, 1)
-	assert.ElementsMatch(t, []string{"tcp:22"}, vip.createOrUpdateCalls[0].ports)
+	require.Len(t, vip.getCreateOrUpdateCalls(), 1)
+	assert.ElementsMatch(t, []string{"tcp:22"}, vip.getCreateOrUpdateCalls()[0].ports)
 }
 
 func TestAcquireHTTPMode(t *testing.T) {
@@ -351,8 +386,8 @@ func TestAcquireHTTPMode(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sl)
 
-	require.Len(t, vip.createOrUpdateCalls, 1)
-	assert.ElementsMatch(t, []string{"tcp:80"}, vip.createOrUpdateCalls[0].ports)
+	require.Len(t, vip.getCreateOrUpdateCalls(), 1)
+	assert.ElementsMatch(t, []string{"tcp:80"}, vip.getCreateOrUpdateCalls()[0].ports)
 }
 
 func TestReleaseUnknownServicePort(t *testing.T) {
@@ -367,8 +402,8 @@ func TestReleaseUnknownServicePort(t *testing.T) {
 	err := ss.Release("svc:nonexistent", 443)
 	require.NoError(t, err)
 
-	assert.Empty(t, vip.createOrUpdateCalls)
-	assert.Empty(t, vip.deleteCalls)
+	assert.Empty(t, vip.getCreateOrUpdateCalls())
+	assert.Empty(t, vip.getDeleteCalls())
 }
 
 func TestCreateOrUpdateFailureRefcountZero(t *testing.T) {
@@ -386,7 +421,7 @@ func TestCreateOrUpdateFailureRefcountZero(t *testing.T) {
 
 	// After failed acquire with refCount=0, runtime is cleaned up.
 	// A subsequent acquire should attempt to start fresh.
-	vip.createOrUpdateErr = nil
+	vip.setCreateOrUpdateErr(nil)
 	sl, err := ss.Acquire("svc:test", 443, true, false)
 	require.NoError(t, err)
 	require.NotNil(t, sl)
@@ -430,9 +465,10 @@ func TestAcquireMultipleServices(t *testing.T) {
 	_, err = ss.Acquire("svc:beta", 443, true, false)
 	require.NoError(t, err)
 
-	require.Len(t, vip.createOrUpdateCalls, 2)
-	assert.Equal(t, "svc:alpha", vip.createOrUpdateCalls[0].serviceName)
-	assert.Equal(t, "svc:beta", vip.createOrUpdateCalls[1].serviceName)
+	calls := vip.getCreateOrUpdateCalls()
+	require.Len(t, calls, 2)
+	assert.Equal(t, "svc:alpha", calls[0].serviceName)
+	assert.Equal(t, "svc:beta", calls[1].serviceName)
 }
 
 func TestReleaseOneOfTwoServices(t *testing.T) {
@@ -448,16 +484,16 @@ func TestReleaseOneOfTwoServices(t *testing.T) {
 	_, err = ss.Acquire("svc:beta", 8443, true, false)
 	require.NoError(t, err)
 
-	vip.createOrUpdateCalls = nil
-	vip.deleteCalls = nil
+	vip.reset()
 
 	err = ss.Release("svc:alpha", 443)
 	require.NoError(t, err)
 
 	// svc:alpha deleted (it was its only port), svc:beta unaffected.
-	require.Len(t, vip.deleteCalls, 1)
-	assert.Equal(t, "svc:alpha", vip.deleteCalls[0])
-	assert.Empty(t, vip.createOrUpdateCalls)
+	delCalls := vip.getDeleteCalls()
+	require.Len(t, delCalls, 1)
+	assert.Equal(t, "svc:alpha", delCalls[0])
+	assert.Empty(t, vip.getCreateOrUpdateCalls())
 }
 
 func TestDeleteVIPServiceErrorOnRelease(t *testing.T) {
