@@ -29,15 +29,15 @@ type (
 		defaultBridgeAddress     netip.Addr
 		docker                   *client.Client
 		containers               map[string]*container
-		defaultProxyProvider     string
-		defaultTargetHostname    string
 		host                     string
+		defaultTargetHostname    string
+		defaultProxyProvider     string
 		name                     string
-		healthCheckEnabled       bool
 		healthCheckInterval      int
 		healthCheckFailures      int
 		healthCheckCooldown      int
 		mutex                    sync.Mutex
+		healthCheckEnabled       bool
 		tryDockerInternalNetwork bool
 		autoRestart              bool
 	}

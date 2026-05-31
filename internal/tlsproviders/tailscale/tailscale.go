@@ -13,9 +13,10 @@ import (
 
 	"tailscale.com/client/local"
 
+	"golang.org/x/sync/semaphore"
+
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
-	"golang.org/x/sync/semaphore"
 )
 
 // Provider implements tlsproviders.Provider using Tailscale's CertPair.
@@ -23,8 +24,8 @@ import (
 // The local client may be set lazily via SetLocalClient after creation.
 type Provider struct {
 	lc      *local.Client
-	mu      sync.RWMutex
 	certSem *semaphore.Weighted
+	mu      sync.RWMutex
 }
 
 var _ tlsproviders.Provider = (*Provider)(nil)
