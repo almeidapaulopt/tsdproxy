@@ -171,7 +171,7 @@ templ infoPanel(item ProxyData) {
 		</div>
 	}
 	<!-- Auth URL -->
-	if item.AuthURL != "" && item.ProxyStatus == model.ProxyStatusAuthenticating {
+	if item.AuthURL != "" && (item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval) {
 		<div class="mb-2">
 			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Authentication</p>
 			<a href={ templ.URL(item.AuthURL) } target="_blank" rel="noopener noreferrer"
@@ -233,7 +233,7 @@ templ ActionsPanel(item ProxyData) {
 				Resume
 			</button>
 		}
-		if item.ProxyStatus == model.ProxyStatusAuthenticating {
+		if item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 			<button
 				class="btn btn-sm btn-warning w-full"
 				hx-post={ "/api/proxy/" + url.PathEscape(item.Name) + "/reauth" }
@@ -308,14 +308,14 @@ templ ProxyCardInner(item ProxyData) {
 		@DomainStatusBadges(item)
 
 		<div class="openbtn">
-			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating {
+			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 				<a
 					href={ templ.URL(item.URL) }
 					class={ templ.KV("btn-disabled", !item.Enabled) }
 					target="_blank"
 					rel="noopener noreferrer"
 				>
-					if item.ProxyStatus == model.ProxyStatusAuthenticating {
+					if item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 						Authenticate
 					} else {
 						Open
@@ -466,6 +466,7 @@ var statusStyles = map[string]statusStyle{
 	"Initializing":                 {"bg-info animate-pulse", "badge-info"},
 	"Starting":                     {"bg-info animate-pulse", "badge-info"},
 	"Error":                        {"bg-error", "badge-error"},
+	"AwaitingApproval":             {"bg-warning animate-pulse", "badge-warning"},
 	"Stopped":                      {"bg-error", "badge-error"},
 	"Stopping":                     {"bg-warning", "badge-warning"},
 	"Paused":                       {"bg-warning", "badge-warning"},
@@ -553,14 +554,14 @@ templ ProxyListRow(item ProxyData) {
 			>
 				@components.InlineIcon("mdi/information-variant", "size-3.5")
 			</button>
-			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating {
+			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 				<a
 					href={ templ.URL(item.URL) }
 					class={ "row-open-btn", templ.KV("btn-disabled", !item.Enabled) }
 					target="_blank"
 					rel="noopener noreferrer"
 				>
-					if item.ProxyStatus == model.ProxyStatusAuthenticating {
+					if item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 						Auth
 					} else {
 						Open

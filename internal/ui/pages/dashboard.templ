@@ -479,6 +479,19 @@ templ Dashboard(d DashboardData) {
 							hx-include="#searchInput,#sseConnId"
 							checked?={ d.Prefs.FilterStatus == "Authenticating" }
 						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="Approval"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"AwaitingApproval"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "AwaitingApproval" }
+						/>
 					</div>
 				</div>
 				<div class="flex items-center gap-1 min-w-0">

@@ -375,7 +375,7 @@ func (dash *Dashboard) buildDashboardViewData(prefs model.Preferences, search st
 func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool, isAdmin bool) pages.ProxyData {
 	status := p.GetStatus()
 	proxyURL := p.GetURL()
-	if status == model.ProxyStatusAuthenticating {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval {
 		proxyURL = p.GetAuthURL()
 	}
 
@@ -422,11 +422,11 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 	}
 
 	authURL := ""
-	if status == model.ProxyStatusAuthenticating {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval {
 		authURL = p.GetAuthURL()
 	}
 
-	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusRunning
+	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusRunning
 
 	health := p.GetHealth()
 	healthStatus := health.Status.String()
