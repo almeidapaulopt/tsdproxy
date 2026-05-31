@@ -2,14 +2,14 @@
 
 ## OVERVIEW
 
-Integration tests against real Tailscale infrastructure. 25 files, 59 test functions, all gated behind `//go:build e2e`. Tests spin up actual tsdproxy binaries, real Docker containers via testcontainers-go, and real tsnet connections.
+Integration tests against real Tailscale infrastructure. All gated behind `//go:build e2e`. Tests spin up actual tsdproxy binaries, real Docker containers via testcontainers-go, and real tsnet connections.
 
 ## STRUCTURE
 
 ```
 e2e/
 ├── e2e_test.go              # TestMain: build binary, clean containers, run suite
-├── helpers.go               # Test infrastructure (847 lines): TSDProxyInstance, TSNetClient, config gen
+├── helpers.go               # Test infrastructure: TSDProxyInstance, TSNetClient, config gen
 ├── basic_test.go            # Start/stop/restart, hostname, ephemeral, multi-container
 ├── labels_test.go           # Legacy + modern label parsing, dashboard, access log
 ├── ports_test.go            # Port formats, multi-port, redirect, TLS validate
@@ -32,6 +32,7 @@ e2e/
 ├── multiprovider_test.go    # Multi-provider selection
 ├── methods_test.go          # HTTP method forwarding
 ├── negative_test.go         # Missing labels, no ports, invalid targets
+├── shared_test.go           # Shared Tailscale mode tests
 └── runwebclient_test.go     # runWebClient label
 ```
 

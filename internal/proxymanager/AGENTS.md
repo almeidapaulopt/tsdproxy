@@ -6,8 +6,8 @@ Central orchestrator. Wires target, proxy, DNS, and TLS providers per container 
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `proxymanager.go` | 913 | `ProxyManager` struct. Provider registration, event loop, per-ID mutex, broadcast, restart/pause/resume |
-| `proxy.go` | 787 | `Proxy` struct per container. Composes 3 providers, start/stop/status/ports, status history ring |
+| `proxymanager.go` | 938 | `ProxyManager` struct. Provider registration, event loop, per-ID mutex, broadcast, restart/pause/resume, `ReloadProviders()` (dead code — never called) |
+| `proxy.go` | 783 | `Proxy` struct per container. Composes 3 providers, start/stop/status/ports, status history ring (last 5), log buffer subscription |
 | `port.go` | 545 | Port handlers: `httpProxy`, `httpRedirect`, `tcpForward`, `udpForward`. Reverse proxy, TLS, rate limiting |
 | `health.go` | ~120 | `healthChecker`. Periodic HTTP/TCP pings with configurable interval and thresholds |
 | `logbuffer.go` | ~100 | Ring buffer for per-proxy log lines. Broadcasts to SSE dashboard subscribers |
@@ -62,3 +62,4 @@ Status changes broadcast via `broadcastStatusEvents()` to all SSE subscribers an
 - **`waitForProxyURL`**: Polls until tsnet populates the proxy URL (async). Timeout blocks startup.
 - **`hostMu`**: Second `sync.Map` of mutexes serializes hostname registration to prevent duplicate Tailscale machines.
 - **`clampDuration`**: Prevents `time.NewTicker` panics from negative durations caused by int64 overflow in health check intervals.
+- **`ReloadProviders()`**: Method exists but is dead code — not wired to any trigger (fsnotify or API). Main config requires restart.
