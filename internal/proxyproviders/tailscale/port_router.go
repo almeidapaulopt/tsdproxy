@@ -47,7 +47,7 @@ func (r *PortRouter) Register(domain string) (*VirtualListener, error) {
 		return nil, fmt.Errorf("duplicate registration for domain %q", domain)
 	}
 
-	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0}, r.log.With().Str("domain", domain).Logger())
 	r.listeners[domain] = vl
 	return vl, nil
 }
@@ -82,6 +82,8 @@ func (r *PortRouter) CloseAll() {
 
 const portRouterReadDeadline = 10 * time.Second
 
+const maxHostnameLen = 253
+
 func (r *PortRouter) Serve(l net.Listener) {
 	for {
 		conn, err := l.Accept()
@@ -108,7 +110,13 @@ func (r *PortRouter) handleConn(conn net.Conn) {
 	case RouteSNI:
 		hostname = clientHelloServerName(br)
 		// SNI uses Peek, so nothing consumed; all bytes are still in br's buffer.
-		consumed, _ = br.Peek(br.Buffered())
+		var err error
+		consumed, err = br.Peek(br.Buffered())
+		if err != nil {
+			r.log.Debug().Err(err).Msg("failed to peek buffered bytes for SNI replay, closing connection")
+			conn.Close()
+			return
+		}
 	case RouteHTTPHost:
 		hostname, consumed = httpHostHeader(br)
 		// HTTP reads from br to accumulate headers; consumed holds everything read so far.
@@ -118,7 +126,7 @@ func (r *PortRouter) handleConn(conn net.Conn) {
 		}
 	}
 
-	if hostname == "" {
+	if hostname == "" || len(hostname) > maxHostnameLen {
 		conn.Close()
 		return
 	}

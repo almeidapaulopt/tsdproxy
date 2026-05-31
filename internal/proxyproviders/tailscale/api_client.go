@@ -6,6 +6,7 @@ package tailscale
 import (
 	"strings"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	tailscale "tailscale.com/client/tailscale/v2"
 )
 
@@ -21,21 +22,21 @@ const (
 // share a single source of truth for OAuth configuration.
 type APIClientFactory struct {
 	clientID     string
-	clientSecret string
+	clientSecret secretstring.SecretString
 }
 
 // NewAPIClientFactory creates a new factory with the given OAuth credentials.
 // Either value may be empty; IsAvailable() returns false in that case.
-func NewAPIClientFactory(clientID, clientSecret string) *APIClientFactory {
+func NewAPIClientFactory(clientID string, clientSecret secretstring.SecretString) *APIClientFactory {
 	return &APIClientFactory{
 		clientID:     strings.TrimSpace(clientID),
-		clientSecret: strings.TrimSpace(clientSecret),
+		clientSecret: secretstring.SecretString(strings.TrimSpace(clientSecret.Value())),
 	}
 }
 
 // IsAvailable returns true if both OAuth client ID and secret are configured.
 func (f *APIClientFactory) IsAvailable() bool {
-	return f.clientID != "" && f.clientSecret != ""
+	return f.clientID != "" && f.clientSecret.Value() != ""
 }
 
 // NewClient creates a new Tailscale API client with the given OAuth scopes.
@@ -50,7 +51,7 @@ func (f *APIClientFactory) NewClient(scopes ...string) *tailscale.Client {
 		UserAgent: userAgent,
 		HTTP: tailscale.OAuthConfig{
 			ClientID:     f.clientID,
-			ClientSecret: f.clientSecret,
+			ClientSecret: f.clientSecret.Value(),
 			Scopes:       scopes,
 		}.HTTPClient(),
 	}

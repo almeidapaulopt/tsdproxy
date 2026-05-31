@@ -6,7 +6,6 @@ package tailscale
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -21,6 +20,8 @@ type AuthConfig struct {
 	ProxyAuthKey    secretstring.SecretString
 	ProviderAuthKey secretstring.SecretString
 }
+
+const apiTimeout = 30 * time.Second
 
 // AuthManager handles auth key resolution and OAuth key generation.
 type AuthManager struct {
@@ -84,7 +85,7 @@ func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string
 		return "", nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:mnd
+	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 
 	tsclient := m.apiFactory.NewClient(ScopeAuthKeys)
@@ -102,8 +103,7 @@ func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string
 
 	authkey, err := tsclient.Keys().Create(ctx, ckr)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "invalid or not permitted") {
+		if IsAuthError(err) {
 			return "", fmt.Errorf(
 				"OAuth token rejected for tags %v — ensure the tag is assigned to your OAuth client "+
 					"in the Tailscale admin console (Access Controls → OAuth clients) and listed in ACL tagOwners. "+

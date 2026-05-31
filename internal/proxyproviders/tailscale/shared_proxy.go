@@ -206,7 +206,7 @@ func (p *SharedProxy) GetPacketConn(port string) (net.PacketConn, error) {
 }
 
 func (p *SharedProxy) GetURL() string {
-	scheme := p.primaryScheme()
+	scheme := primaryScheme(p.config.Ports)
 	url := p.shared.GetURL()
 	if url == "" {
 		return ""
@@ -231,19 +231,6 @@ func (p *SharedProxy) Whois(r *http.Request) model.Whois {
 
 func (p *SharedProxy) GetLocalClient() *local.Client {
 	return p.shared.GetLocalClient()
-}
-
-func (p *SharedProxy) primaryScheme() string {
-	// Prioritize HTTPS over HTTP when multiple protocols exist.
-	for _, port := range p.config.Ports {
-		if port.ProxyProtocol == model.ProtoHTTPS {
-			return model.ProtoHTTPS
-		}
-	}
-	for _, port := range p.config.Ports {
-		return port.ProxyProtocol
-	}
-	return model.ProtoHTTPS
 }
 
 func (p *SharedProxy) forwardEvents() {

@@ -18,6 +18,15 @@ func NewRetryPolicy() RetryPolicy {
 	}
 }
 
+// IsAuthError returns true if the error indicates an authentication or
+// tag permission failure from the Tailscale API.
+func IsAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "invalid or not permitted")
+}
+
 // IsRecoverable returns true if the error can be retried.
 // Non-recoverable errors include: tag permission failures, hardware attestation required.
 func (p RetryPolicy) IsRecoverable(err error) bool {
@@ -25,13 +34,11 @@ func (p RetryPolicy) IsRecoverable(err error) bool {
 		return false
 	}
 
-	msg := err.Error()
-
-	if strings.Contains(msg, "invalid or not permitted") {
+	if IsAuthError(err) {
 		return false
 	}
 
-	if strings.Contains(msg, "hardware attestation") {
+	if strings.Contains(err.Error(), "hardware attestation") {
 		return false
 	}
 

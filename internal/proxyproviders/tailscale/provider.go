@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -45,6 +45,21 @@ type Client struct {
 
 const userAgent = "tsdproxy"
 
+// validateDatadir joins baseDir and hostname into a path, then verifies the result
+// does not escape baseDir via path traversal (e.g. "../../etc").
+func validateDatadir(baseDir, hostname string) (string, error) {
+	datadir := filepath.Join(baseDir, hostname)
+	cleanDir := filepath.Clean(datadir)
+	rel, err := filepath.Rel(filepath.Clean(baseDir), cleanDir)
+	if err != nil {
+		return "", fmt.Errorf("hostname %q results in invalid path: %w", hostname, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("hostname %q results in path escaping data directory", hostname)
+	}
+	return datadir, nil
+}
+
 var (
 	_ proxyproviders.Provider               = (*Client)(nil)
 	_ proxyproviders.DomainRequiredProvider = (*Client)(nil)
@@ -64,7 +79,7 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 
 	apiFactory := NewAPIClientFactory(
 		strings.TrimSpace(provider.ClientID),
-		strings.TrimSpace(provider.ClientSecret.Value()),
+		provider.ClientSecret,
 	)
 
 	clientLog := log.With().Str("tailscale", name).Logger()
@@ -131,7 +146,10 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		Msg("Setting up tailscale server")
 
 	log := c.log.With().Str("Hostname", config.Hostname).Logger()
-	datadir := path.Join(c.datadir, config.Hostname)
+	datadir, err := validateDatadir(c.datadir, config.Hostname)
+	if err != nil {
+		return nil, fmt.Errorf("new proxy: %w", err)
+	}
 
 	nodeCfg := NodeConfig{
 		Hostname:     config.Hostname,
@@ -144,24 +162,7 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		Mode:         ModePerProxy,
 	}
 
-	var deviceReconciler *DeviceReconciler
-	if c.preventDuplicates {
-		deviceReconciler = c.deviceReconciler
-	}
-
-	lifecycle := NewNodeLifecycle(log, NodeLifecycleConfig{
-		NodeConfig: nodeCfg,
-		AuthConfig: AuthConfig{
-			ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
-			ProxyAuthKey:    config.Tailscale.AuthKey,
-			ProviderAuthKey: c.AuthKey,
-		},
-		CertSem:          c.certSem,
-		AuthManager:      NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral),
-		StateManager:     c.stateMgr,
-		DeviceReconciler: deviceReconciler,
-		Retry:            NewRetryPolicy(),
-	})
+	lifecycle := NewNodeLifecycle(log, c.buildLifecycleConfig(config, nodeCfg))
 
 	return &Proxy{
 		log:        log,
@@ -173,7 +174,28 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 	}, nil
 }
 
-// getControlURL method returns the control URL
+// buildLifecycleConfig creates a NodeLifecycleConfig with common fields
+// derived from the proxy config and provider settings.
+func (c *Client) buildLifecycleConfig(config *model.Config, nodeCfg NodeConfig) NodeLifecycleConfig {
+	var deviceReconciler *DeviceReconciler
+	if c.preventDuplicates {
+		deviceReconciler = c.deviceReconciler
+	}
+	return NodeLifecycleConfig{
+		NodeConfig: nodeCfg,
+		AuthConfig: AuthConfig{
+			ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
+			ProxyAuthKey:    config.Tailscale.AuthKey,
+			ProviderAuthKey: c.AuthKey,
+		},
+		CertSem:          c.certSem,
+		AuthManager:      NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral),
+		StateManager:     c.stateMgr,
+		DeviceReconciler: deviceReconciler,
+		Retry:            NewRetryPolicy(),
+	}
+}
+
 func (c *Client) getControlURL() string {
 	if c.controlURL == "" {
 		return model.DefaultTailscaleControlURL
@@ -195,43 +217,31 @@ func (c *Client) newSharedProxy(config *model.Config) (proxyproviders.ProxyInter
 	defer c.sharedMu.Unlock()
 
 	if c.sharedServer == nil {
-		authMgr := NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral)
-
-		var deviceReconciler *DeviceReconciler
-		if c.preventDuplicates {
-			deviceReconciler = c.deviceReconciler
+		sharedDatadir, err := validateDatadir(c.datadir, c.sharedHostname)
+		if err != nil {
+			return nil, fmt.Errorf("new shared proxy: %w", err)
 		}
 
-		lifecycleCfg := &NodeLifecycleConfig{
-			NodeConfig: NodeConfig{
-				Hostname:      c.sharedHostname,
-				DataDir:       path.Join(c.datadir, c.sharedHostname),
-				ControlURL:    c.getControlURL(),
-				Tags:          c.resolveTags(config),
-				AdvertiseTags: cleanTags(c.resolveTags(config)),
-				Ephemeral:     config.Tailscale.Ephemeral,
-				Mode:          ModeShared,
-			},
-			AuthConfig: AuthConfig{
-				ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
-				ProxyAuthKey:    config.Tailscale.AuthKey,
-				ProviderAuthKey: c.AuthKey,
-			},
-			CertSem:          c.certSem,
-			AuthManager:      authMgr,
-			StateManager:     c.stateMgr,
-			DeviceReconciler: deviceReconciler,
-			Retry:            NewRetryPolicy(),
-		}
+		tags := c.resolveTags(config)
+
+		lifecycleCfg := c.buildLifecycleConfig(config, NodeConfig{
+			Hostname:      c.sharedHostname,
+			DataDir:       sharedDatadir,
+			ControlURL:    c.getControlURL(),
+			Tags:          tags,
+			AdvertiseTags: cleanTags(tags),
+			Ephemeral:     config.Tailscale.Ephemeral,
+			Mode:          ModeShared,
+		})
 
 		c.sharedServer = NewSharedServer(SharedServerConfig{
 			Hostname:        c.sharedHostname,
-			DataDir:         path.Join(c.datadir, c.sharedHostname),
+			DataDir:         sharedDatadir,
 			ControlURL:      c.getControlURL(),
 			Ephemeral:       config.Tailscale.Ephemeral,
 			CertSem:         c.certSem,
 			Log:             c.log,
-			LifecycleConfig: lifecycleCfg,
+			LifecycleConfig: &lifecycleCfg,
 		})
 	} else if config.Tailscale.Ephemeral != c.sharedServer.ephemeral {
 		c.log.Warn().
@@ -264,48 +274,34 @@ func (c *Client) newServiceProxy(config *model.Config) (proxyproviders.ProxyInte
 	}
 
 	if c.servicesServer == nil {
-		authMgr := NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral)
+		sharedDatadir, err := validateDatadir(c.datadir, c.sharedHostname)
+		if err != nil {
+			return nil, fmt.Errorf("new service proxy: %w", err)
+		}
 
 		tags := c.resolveTags(config)
 
-		var deviceReconciler *DeviceReconciler
-		if c.preventDuplicates {
-			deviceReconciler = c.deviceReconciler
-		}
-
-		lifecycleCfg := &NodeLifecycleConfig{
-			NodeConfig: NodeConfig{
-				Hostname:      c.sharedHostname,
-				DataDir:       path.Join(c.datadir, c.sharedHostname),
-				ControlURL:    c.getControlURL(),
-				Tags:          tags,
-				AdvertiseTags: cleanTags(tags),
-				Ephemeral:     config.Tailscale.Ephemeral,
-				Mode:          ModeServices,
-			},
-			AuthConfig: AuthConfig{
-				ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
-				ProxyAuthKey:    config.Tailscale.AuthKey,
-				ProviderAuthKey: c.AuthKey,
-			},
-			CertSem:          c.certSem,
-			AuthManager:      authMgr,
-			StateManager:     c.stateMgr,
-			DeviceReconciler: deviceReconciler,
-			Retry:            NewRetryPolicy(),
-		}
+		lifecycleCfg := c.buildLifecycleConfig(config, NodeConfig{
+			Hostname:      c.sharedHostname,
+			DataDir:       sharedDatadir,
+			ControlURL:    c.getControlURL(),
+			Tags:          tags,
+			AdvertiseTags: cleanTags(tags),
+			Ephemeral:     config.Tailscale.Ephemeral,
+			Mode:          ModeServices,
+		})
 
 		c.servicesServer = NewServicesServer(ServicesServerConfig{
 			Hostname:           c.sharedHostname,
-			DataDir:            path.Join(c.datadir, c.sharedHostname),
+			DataDir:            sharedDatadir,
 			ControlURL:         c.getControlURL(),
 			Ephemeral:          config.Tailscale.Ephemeral,
 			APIFactory:         c.apiFactory,
-			AuthManager:        authMgr,
+			AuthManager:        lifecycleCfg.AuthManager,
 			Tags:               tags,
 			Log:                c.log,
-			DeviceReconciler:   deviceReconciler,
-			LifecycleConfig:    lifecycleCfg,
+			DeviceReconciler:   lifecycleCfg.DeviceReconciler,
+			LifecycleConfig:    &lifecycleCfg,
 			AutoApproveDevices: c.autoApprove,
 		})
 	} else if config.Tailscale.Ephemeral != c.servicesServer.ephemeral {

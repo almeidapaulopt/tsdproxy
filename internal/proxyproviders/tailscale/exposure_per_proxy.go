@@ -17,4 +17,3 @@ package tailscale
 //   - MagicDNS for automatic hostname resolution
 //
 // This is the default mode when neither `shared` nor `services` is set.
-type PerProxyExposure = Proxy

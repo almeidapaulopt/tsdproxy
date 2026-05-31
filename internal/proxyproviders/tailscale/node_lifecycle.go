@@ -13,8 +13,6 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 	"tailscale.com/tsnet"
-
-	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 // NodeLifecycleConfig holds the configuration for creating a NodeLifecycle.
@@ -90,7 +88,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 	// deleted automatically — only offline duplicates matching the hostname
 	// pattern are cleaned up, regardless of whether state was regenerated.
 	if nl.devices != nil {
-		reconcileCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:mnd
+		reconcileCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 		nl.devices.Reconcile(reconcileCtx, nl.cfg.Hostname, nl.cfg.Tags, WithLocalState(stateExists))
 		cancel()
 	}
@@ -112,6 +110,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 	}
 
 	if startErr := nl.startWithRetry(tsServer); startErr != nil {
+		tsServer.Close()
 		return nil, fmt.Errorf("node lifecycle: start tsnet: %w", startErr)
 	}
 
@@ -129,15 +128,6 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 	watcher := NewStatusWatcher(StatusWatcherConfig{
 		Log: nl.log,
 		OnEvent: func(evt NodeEvent) {
-			nl.mtx.Lock()
-			if evt.URL != "" {
-				rt.URL = evt.URL
-			}
-			if evt.AuthURL != "" {
-				rt.AuthURL = evt.AuthURL
-			}
-			nl.mtx.Unlock()
-
 			select {
 			case nl.events <- evt:
 			default:
@@ -224,12 +214,4 @@ func (nl *NodeLifecycle) GetRuntime() *NodeRuntime {
 	return nl.runtime
 }
 
-// HasHTTPSPort checks if the proxy config has any HTTPS ports.
-func HasHTTPSPort(config *model.Config) bool {
-	for _, port := range config.Ports {
-		if port.ProxyProtocol == model.ProtoHTTPS {
-			return true
-		}
-	}
-	return false
-}
+

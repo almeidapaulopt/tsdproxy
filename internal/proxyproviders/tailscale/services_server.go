@@ -88,18 +88,19 @@ const (
 
 // servicesRuntime holds all mutable state owned exclusively by the loop goroutine.
 type servicesRuntime struct {
-	factory   serviceListenerFactory
-	cancel    context.CancelFunc
-	tsServer  *tsnet.Server
-	listeners map[string]*serviceEntry
-	lifecycle *NodeLifecycle
-	refCount  int
-	gen       int
+	factory    serviceListenerFactory
+	cancel     context.CancelFunc
+	tsServer   *tsnet.Server
+	listeners  map[string]*serviceEntry
+	lifecycle  *NodeLifecycle
+	bridgeDone chan struct{}
+	refCount   int
+	gen        int
 }
 
 // Command types for the state machine.
 
-type servicesCmd interface{ svcCmd() }
+type servicesCmd interface{ cmd() }
 
 type acquireServiceCmd struct {
 	reply       chan acquireServiceResult
@@ -109,7 +110,7 @@ type acquireServiceCmd struct {
 	tcp         bool
 }
 
-func (acquireServiceCmd) svcCmd() {}
+func (acquireServiceCmd) cmd() {}
 
 type acquireServiceResult struct {
 	listener *tsnet.ServiceListener
@@ -122,31 +123,31 @@ type releaseServiceCmd struct {
 	port        uint16
 }
 
-func (releaseServiceCmd) svcCmd() {}
+func (releaseServiceCmd) cmd() {}
 
 type servicesCloseCmd struct {
 	reply chan error
 }
 
-func (servicesCloseCmd) svcCmd() {}
+func (servicesCloseCmd) cmd() {}
 
 type servicesIdleTimeoutCmd struct {
 	gen int
 }
 
-func (servicesIdleTimeoutCmd) svcCmd() {}
+func (servicesIdleTimeoutCmd) cmd() {}
 
 type servicesWatchUpdateCmd struct {
 	authURL string
 }
 
-func (servicesWatchUpdateCmd) svcCmd() {}
+func (servicesWatchUpdateCmd) cmd() {}
 
 type servicesGetAuthURLCmd struct {
 	reply chan string
 }
 
-func (servicesGetAuthURLCmd) svcCmd() {}
+func (servicesGetAuthURLCmd) cmd() {}
 
 // ServicesServer manages a shared, ref-counted tsnet.Server for services mode.
 // All mutable state is managed by a single event-loop goroutine.
@@ -581,17 +582,24 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 
 	if lc, err := nodeRt.Server.LocalClient(); err == nil {
 		ss.localClient.Store(lc)
+	} else {
+		ss.log.Warn().Err(err).Msg("failed to get local client from tsnet server")
 	}
 
 	rt := &servicesRuntime{
-		cancel:    nodeRt.Cancel,
-		tsServer:  nodeRt.Server,
-		listeners: make(map[string]*serviceEntry),
-		factory:   tsnetServerFactory{nodeRt.Server},
-		lifecycle: lifecycle,
+		cancel:     nodeRt.Cancel,
+		tsServer:   nodeRt.Server,
+		listeners:  make(map[string]*serviceEntry),
+		factory:    tsnetServerFactory{nodeRt.Server},
+		lifecycle:  lifecycle,
 	}
 
-	go ss.bridgeLifecycleEvents(nodeRt.Ctx, lifecycle)
+	bridgeDone := make(chan struct{})
+	rt.bridgeDone = bridgeDone
+	go func() {
+		defer close(bridgeDone)
+		ss.bridgeLifecycleEvents(nodeRt.Ctx, lifecycle)
+	}()
 
 	return rt
 }
@@ -646,7 +654,7 @@ func (ss *ServicesServer) startRuntimeLegacy() *servicesRuntime {
 	}
 
 	if ss.deviceReconciler != nil {
-		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), apiTimeout)
 		ss.deviceReconciler.Reconcile(reconcileCtx, ss.hostname, ss.tags)
 		reconcileCancel()
 	}
@@ -659,6 +667,8 @@ func (ss *ServicesServer) startRuntimeLegacy() *servicesRuntime {
 
 	if lc, err := tsServer.LocalClient(); err == nil {
 		ss.localClient.Store(lc)
+	} else {
+		ss.log.Warn().Err(err).Msg("failed to get local client from tsnet server")
 	}
 
 	return &servicesRuntime{
@@ -676,7 +686,9 @@ func (ss *ServicesServer) stopRuntime(rt *servicesRuntime) {
 	for key, entry := range rt.listeners {
 		rt.factory.Close(entry.listener)
 		if !seen[entry.serviceName] {
-			_ = ss.deleteVIPService(entry.serviceName)
+			if err := ss.deleteVIPService(entry.serviceName); err != nil {
+				ss.log.Warn().Err(err).Str("service", entry.serviceName).Msg("failed to delete VIP service during shutdown")
+			}
 			seen[entry.serviceName] = true
 		}
 		delete(rt.listeners, key)
@@ -692,6 +704,10 @@ func (ss *ServicesServer) stopRuntime(rt *servicesRuntime) {
 
 	if rt.cancel != nil {
 		rt.cancel()
+	}
+
+	if rt.bridgeDone != nil {
+		<-rt.bridgeDone
 	}
 
 	// Clear stale localClient so Whois() doesn't use a closed client.
@@ -759,7 +775,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 	// Tailscale VIP Service API requires existing Addrs in PUT updates.
 	// First attempt a simple create; if the API rejects it for missing Addrs,
 	// GET the existing service and retry with Addrs included.
-	firstCtx, firstCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	firstCtx, firstCancel := context.WithTimeout(context.Background(), apiTimeout)
 	err := client.VIPServices().CreateOrUpdate(firstCtx, tailscale.VIPService{
 		Name:  serviceName,
 		Ports: ports,
@@ -770,7 +786,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
 
 	existing, getErr := client.VIPServices().Get(ctx, serviceName)
@@ -780,7 +796,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 		}
 		// Service confirmed not-found — create directly without delete.
 		ss.log.Debug().Str("service", serviceName).Msg("VIP service not found, creating fresh")
-		createCtx, createCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+		createCtx, createCancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer createCancel()
 		return client.VIPServices().CreateOrUpdate(createCtx, tailscale.VIPService{
 			Name:  serviceName,
@@ -789,7 +805,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 		})
 	}
 
-	updateCtx, updateCancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	updateCtx, updateCancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer updateCancel()
 	return client.VIPServices().CreateOrUpdate(updateCtx, tailscale.VIPService{
 		Name:  serviceName,
@@ -808,7 +824,7 @@ func (ss *ServicesServer) deleteVIPService(serviceName string) error {
 }
 
 func (ss *ServicesServer) deleteVIPServiceProd(serviceName string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
 
 	client := ss.getAPIClient()
@@ -834,7 +850,7 @@ func (ss *ServicesServer) approveServiceDevice(rt *servicesRuntime, serviceName 
 		return fmt.Errorf("get local client: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
 
 	status, err := lc.Status(ctx)
@@ -916,7 +932,9 @@ func (ss *ServicesServer) collectExistingServicePorts(rt *servicesRuntime, servi
 func (ss *ServicesServer) reconcileVIPServiceOnFailure(rt *servicesRuntime, serviceName string) {
 	existingPorts := ss.collectExistingServicePorts(rt, serviceName)
 	if len(existingPorts) == 0 {
-		_ = ss.deleteVIPService(serviceName)
+		if err := ss.deleteVIPService(serviceName); err != nil {
+			ss.log.Warn().Err(err).Str("service", serviceName).Msg("failed to delete VIP service after listen failure")
+		}
 	} else {
 		if err := ss.createOrUpdateVIPService(serviceName, existingPorts); err != nil {
 			ss.log.Warn().Err(err).Str("service", serviceName).Msg("failed to reconcile VIP service after listen failure")

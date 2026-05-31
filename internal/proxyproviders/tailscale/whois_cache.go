@@ -13,9 +13,12 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
+const whoisNegativeTTL = 10 * time.Second
+
 type whoisCacheEntry struct {
 	expiresAt time.Time
 	who       model.Whois
+	negative  bool
 }
 
 // WhoisCache is a thread-safe, two-layer cache for model.Whois results.
@@ -54,6 +57,9 @@ func (c *WhoisCache) Lookup(ip string, resolve func() (model.Whois, error)) (mod
 	c.mu.RLock()
 	if entry, ok := c.entries[key]; ok && time.Now().Before(entry.expiresAt) {
 		c.mu.RUnlock()
+		if entry.negative {
+			return model.Whois{}, nil
+		}
 		return entry.who, nil
 	}
 	c.mu.RUnlock()
@@ -63,14 +69,21 @@ func (c *WhoisCache) Lookup(ip string, resolve func() (model.Whois, error)) (mod
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
-		if who.ID != "" {
+		if who.ID == "" {
 			c.mu.Lock()
-			c.entries[key] = &whoisCacheEntry{who: who, expiresAt: time.Now().Add(c.ttl)}
+			c.entries[key] = &whoisCacheEntry{negative: true, expiresAt: time.Now().Add(whoisNegativeTTL)}
 			if c.maxEntries > 0 && len(c.entries) > c.maxEntries {
 				c.evict()
 			}
 			c.mu.Unlock()
+			return who, nil
 		}
+		c.mu.Lock()
+		c.entries[key] = &whoisCacheEntry{who: who, expiresAt: time.Now().Add(c.ttl)}
+		if c.maxEntries > 0 && len(c.entries) > c.maxEntries {
+			c.evict()
+		}
+		c.mu.Unlock()
 		return who, nil
 	})
 	if err != nil {

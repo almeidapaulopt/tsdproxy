@@ -17,4 +17,3 @@ package tailscale
 //   - No custom domain support (VIP Services assign FQDNs automatically)
 //
 // This mode is selected when `services: true` is set in the provider config.
-type ServicesVIPExposure = ServicesServer

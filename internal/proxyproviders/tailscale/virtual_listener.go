@@ -6,6 +6,8 @@ package tailscale
 import (
 	"net"
 	"sync"
+
+	"github.com/rs/zerolog"
 )
 
 // VirtualListener implements net.Listener backed by a channel.
@@ -17,13 +19,15 @@ type VirtualListener struct {
 	once   sync.Once
 	closed bool
 	mu     sync.Mutex // serializes Dispatch vs Close
+	log    zerolog.Logger
 }
 
-func NewVirtualListener(addr net.Addr) *VirtualListener {
+func NewVirtualListener(addr net.Addr, log zerolog.Logger) *VirtualListener {
 	return &VirtualListener{
 		ch:   make(chan net.Conn, 64), //nolint:mnd
 		done: make(chan struct{}),
 		addr: addr,
+		log:  log,
 	}
 }
 
@@ -75,6 +79,7 @@ func (vl *VirtualListener) Dispatch(conn net.Conn) bool {
 		return true
 	default:
 		vl.mu.Unlock()
+		vl.log.Warn().Msg("virtual listener buffer full, dropping connection")
 		conn.Close()
 		return false
 	}

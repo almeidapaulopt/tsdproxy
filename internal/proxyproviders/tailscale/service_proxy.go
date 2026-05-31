@@ -143,7 +143,7 @@ func (p *ServiceProxy) GetURL() string {
 	if fqdn == "" {
 		return ""
 	}
-	scheme := p.primaryScheme()
+	scheme := primaryScheme(p.config.Ports)
 	return scheme + "://" + fqdn
 }
 
@@ -160,16 +160,4 @@ func (p *ServiceProxy) WatchEvents() chan model.ProxyEvent {
 
 func (p *ServiceProxy) Whois(r *http.Request) model.Whois {
 	return p.services.Whois(r)
-}
-
-func (p *ServiceProxy) primaryScheme() string {
-	for _, port := range p.config.Ports {
-		if port.ProxyProtocol == model.ProtoHTTPS {
-			return model.ProtoHTTPS
-		}
-	}
-	for _, port := range p.config.Ports {
-		return port.ProxyProtocol
-	}
-	return model.ProtoHTTPS
 }

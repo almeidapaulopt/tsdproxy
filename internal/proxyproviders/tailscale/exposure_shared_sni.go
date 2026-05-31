@@ -19,4 +19,3 @@ package tailscale
 //   - HTTPS-only for SNI-routed ports (SNI requires TLS ClientHello)
 //
 // This mode is selected when `shared: true` is set in the provider config.
-type SharedSNIExposure = SharedServer

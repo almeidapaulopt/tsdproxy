@@ -12,8 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/tsnet"
-
-	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 // --- NewNodeLifecycle ---
@@ -144,8 +142,6 @@ func TestNewNodeRuntime_SetsFields(t *testing.T) {
 	assert.Equal(t, srv, rt.Server)
 	assert.Nil(t, rt.LocalClient)
 	assert.Equal(t, ctx, rt.Ctx)
-	assert.Equal(t, "", rt.URL)
-	assert.Equal(t, "", rt.AuthURL)
 }
 
 func TestNodeRuntime_CancelStopsContext(t *testing.T) {
@@ -160,49 +156,6 @@ func TestNodeRuntime_CancelStopsContext(t *testing.T) {
 	rt.Cancel()
 
 	assert.ErrorIs(t, ctx.Err(), context.Canceled, "context should be canceled after Cancel")
-}
-
-// --- HasHTTPSPort ---
-
-func TestHasHTTPSPort_WithHTTPS(t *testing.T) {
-	t.Parallel()
-
-	cfg := &model.Config{
-		Ports: model.PortConfigList{
-			"1": {ProxyProtocol: model.ProtoHTTPS},
-		},
-	}
-	assert.True(t, HasHTTPSPort(cfg))
-}
-
-func TestHasHTTPSPort_WithoutHTTPS(t *testing.T) {
-	t.Parallel()
-
-	cfg := &model.Config{
-		Ports: model.PortConfigList{
-			"1": {ProxyProtocol: model.ProtoHTTP},
-			"2": {ProxyProtocol: model.ProtoTCP},
-		},
-	}
-	assert.False(t, HasHTTPSPort(cfg))
-}
-
-func TestHasHTTPSPort_EmptyPorts(t *testing.T) {
-	t.Parallel()
-
-	cfg := &model.Config{
-		Ports: model.PortConfigList{},
-	}
-	assert.False(t, HasHTTPSPort(cfg))
-}
-
-func TestHasHTTPSPort_NilPorts(t *testing.T) {
-	t.Parallel()
-
-	cfg := &model.Config{
-		Ports: nil,
-	}
-	assert.False(t, HasHTTPSPort(cfg))
 }
 
 // --- NewRetryPolicy defaults ---

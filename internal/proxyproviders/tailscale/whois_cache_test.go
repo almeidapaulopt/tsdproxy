@@ -147,7 +147,7 @@ func TestWhoisCache_ResolveError(t *testing.T) {
 	assert.Equal(t, model.Whois{}, result)
 }
 
-func TestWhoisCache_EmptyIDNotCached(t *testing.T) {
+func TestWhoisCache_EmptyIDCachedAsNegative(t *testing.T) {
 	t.Parallel()
 
 	c := NewWhoisCache(30 * time.Second)
@@ -164,7 +164,9 @@ func TestWhoisCache_EmptyIDNotCached(t *testing.T) {
 		return emptyWho, nil
 	})
 
-	assert.Equal(t, int32(2), atomic.LoadInt32(&resolveCount))
+	// Empty-ID results are cached as negative entries with a short TTL,
+	// so the second lookup should hit the cache.
+	assert.Equal(t, int32(1), atomic.LoadInt32(&resolveCount))
 }
 
 func TestWhoisCache_DifferentIPs(t *testing.T) {

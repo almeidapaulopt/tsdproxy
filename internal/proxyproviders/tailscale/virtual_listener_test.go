@@ -11,13 +11,15 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func TestVirtualListenerAccept(t *testing.T) {
 	t.Parallel()
 
 	addr := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 443}
-	vl := NewVirtualListener(addr)
+	vl := NewVirtualListener(addr, zerolog.Nop())
 
 	server, client := net.Pipe()
 	defer client.Close()
@@ -40,7 +42,7 @@ func TestVirtualListenerAccept(t *testing.T) {
 func TestVirtualListenerClose(t *testing.T) {
 	t.Parallel()
 
-	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0}, zerolog.Nop())
 
 	if err := vl.Close(); err != nil {
 		t.Fatalf("Close returned error: %v", err)
@@ -55,7 +57,7 @@ func TestVirtualListenerClose(t *testing.T) {
 func TestVirtualListenerDispatchAfterClose(t *testing.T) {
 	t.Parallel()
 
-	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0}, zerolog.Nop())
 
 	_ = vl.Close()
 
@@ -71,7 +73,7 @@ func TestVirtualListenerAddr(t *testing.T) {
 	t.Parallel()
 
 	addr := &net.TCPAddr{IP: net.ParseIP("192.168.1.1"), Port: 8443}
-	vl := NewVirtualListener(addr)
+	vl := NewVirtualListener(addr, zerolog.Nop())
 
 	if vl.Addr() != addr {
 		t.Fatalf("Addr should return the provided address, got %v", vl.Addr())
@@ -81,7 +83,7 @@ func TestVirtualListenerAddr(t *testing.T) {
 func TestVirtualListenerDispatchDropWhenFull(t *testing.T) {
 	t.Parallel()
 
-	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0}, zerolog.Nop())
 
 	// Fill the channel buffer (capacity 64).
 	var overflowConn *net.Conn
@@ -119,7 +121,7 @@ func TestVirtualListenerConcurrentDispatchClose(t *testing.T) {
 	const numSenders = 8
 	const sendsPerSender = 100
 
-	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+	vl := NewVirtualListener(&net.TCPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0}, zerolog.Nop())
 
 	var wg sync.WaitGroup
 	dispatched := atomic.Int32{}

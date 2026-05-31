@@ -145,6 +145,21 @@ func TestServiceProxyPrimaryScheme(t *testing.T) {
 			want: "http",
 		},
 		{
+			name: "tcp and http returns http",
+			ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoTCP, ProxyPort: 22},
+				"2": {ProxyProtocol: model.ProtoHTTP, ProxyPort: 80},
+			},
+			want: "http",
+		},
+		{
+			name: "tcp only returns tcp",
+			ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoTCP, ProxyPort: 22},
+			},
+			want: "tcp",
+		},
+		{
 			name:  "empty ports returns https default",
 			ports: map[string]model.PortConfig{},
 			want:  "https",
@@ -153,12 +168,7 @@ func TestServiceProxyPrimaryScheme(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &ServiceProxy{
-				config: &model.Config{
-					Ports: tt.ports,
-				},
-			}
-			if got := p.primaryScheme(); got != tt.want {
+			if got := primaryScheme(tt.ports); got != tt.want {
 				t.Fatalf("primaryScheme() = %q, want %q", got, tt.want)
 			}
 		})

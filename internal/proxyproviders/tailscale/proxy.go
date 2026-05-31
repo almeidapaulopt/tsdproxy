@@ -75,7 +75,7 @@ func (p *Proxy) GetURL() string {
 	url := p.url
 	p.mtx.RUnlock()
 
-	scheme := p.primaryScheme()
+	scheme := primaryScheme(p.config.Ports)
 	return scheme + "://" + url
 }
 
@@ -85,13 +85,6 @@ func (p *Proxy) GetLocalClient() *local.Client {
 		return nil
 	}
 	return rt.LocalClient
-}
-
-func (p *Proxy) primaryScheme() string {
-	for _, port := range p.config.Ports {
-		return port.ProxyProtocol
-	}
-	return model.ProtoHTTPS
 }
 
 // Close method implements proxyconfig.Proxy Close method.

@@ -18,8 +18,6 @@ type NodeRuntime struct {
 	Server      *tsnet.Server
 	LocalClient *local.Client
 	Cancel      context.CancelFunc
-	URL         string
-	AuthURL     string
 }
 
 // NewNodeRuntime creates a NodeRuntime from a started tsnet.Server.

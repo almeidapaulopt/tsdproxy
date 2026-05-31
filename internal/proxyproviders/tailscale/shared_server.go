@@ -65,6 +65,7 @@ type sharedRuntime struct {
 	packetRoutes map[int]net.PacketConn
 	cancel       context.CancelFunc
 	watchDone    chan struct{}
+	bridgeDone   chan struct{}
 	lifecycle    *NodeLifecycle
 	url          string
 	authURL      string
@@ -570,7 +571,12 @@ func (ss *SharedServer) startRuntimeWithLifecycle(prevRT *sharedRuntime, gen int
 		lifecycle:    lifecycle,
 	}
 
-	go ss.bridgeLifecycleEvents(nrt.Ctx, gen, lifecycle.WatchEvents())
+	bridgeDone := make(chan struct{})
+	rt.bridgeDone = bridgeDone
+	go func() {
+		defer close(bridgeDone)
+		ss.bridgeLifecycleEvents(nrt.Ctx, gen, lifecycle.WatchEvents())
+	}()
 
 	return rt
 }
@@ -824,6 +830,10 @@ func (ss *SharedServer) stopRuntime(rt *sharedRuntime) {
 
 	if rt.watchDone != nil {
 		<-rt.watchDone
+	}
+
+	if rt.bridgeDone != nil {
+		<-rt.bridgeDone
 	}
 
 	for sub := range rt.subs {
