@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
-	"strconv"
 	"sync"
 	"time"
 
@@ -20,7 +18,6 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 	"tailscale.com/client/local"
-	"tailscale.com/tsnet"
 )
 
 // whoisCacheTTL is how long a successful Whois result is cached before
@@ -36,6 +33,7 @@ type Proxy struct {
 	config     *model.Config
 	certSem    *semaphore.Weighted
 	lifecycle  *NodeLifecycle
+	exposure   *PerProxyExposure
 	events     chan model.ProxyEvent
 	bridgeDone chan struct{}
 	whoisCache *WhoisCache
@@ -56,8 +54,14 @@ var (
 
 // Start method implements proxyconfig.Proxy Start method.
 func (p *Proxy) Start(ctx context.Context) error {
-	if _, err := p.lifecycle.Start(ctx); err != nil {
+	rt, err := p.lifecycle.Start(ctx)
+	if err != nil {
 		return err
+	}
+
+	if err := p.exposure.Start(ctx, rt, p.config); err != nil {
+		_ = p.lifecycle.Close()
+		return fmt.Errorf("start traffic exposure: %w", err)
 	}
 
 	p.bridgeDone = make(chan struct{})
@@ -99,6 +103,7 @@ func (p *Proxy) Close() error {
 	}
 	p.mtx.Unlock()
 
+	_ = p.exposure.Close(context.Background())
 	err := p.lifecycle.Close()
 
 	// Wait for bridgeEvents to finish (it returns when lifecycle closes its events channel).
@@ -118,96 +123,36 @@ func (p *Proxy) Close() error {
 }
 
 func (p *Proxy) GetListener(port string) (net.Listener, error) {
-	portCfg, ok := p.config.Ports[port]
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+
+	_, ok := p.config.Ports[port]
 	if !ok {
 		return nil, ErrProxyPortNotFound
 	}
-
-	ts := p.tsServer()
-	if ts == nil {
-		return nil, errors.New("proxy not started")
-	}
-
-	network := portCfg.ProxyProtocol
-	if portCfg.ProxyProtocol == model.ProtoHTTP || portCfg.ProxyProtocol == model.ProtoHTTPS || portCfg.ProxyProtocol == model.ProtoUDP {
-		network = "tcp"
-	}
-	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
-
-	if portCfg.Tailscale.Funnel {
-		return ts.ListenFunnel(network, addr)
-	}
-	if portCfg.ProxyProtocol == model.ProtoHTTPS {
-		return ts.ListenTLS(network, addr)
-	}
-	return ts.Listen(network, addr)
+	return p.exposure.GetListener(port)
 }
 
 func (p *Proxy) GetRawTCPListener(port string) (net.Listener, error) {
-	portCfg, ok := p.config.Ports[port]
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+
+	_, ok := p.config.Ports[port]
 	if !ok {
 		return nil, ErrProxyPortNotFound
 	}
-
-	ts := p.tsServer()
-	if ts == nil {
-		return nil, errors.New("proxy not started")
-	}
-
-	addr := ":" + strconv.Itoa(portCfg.ProxyPort)
-	return ts.Listen("tcp", addr)
+	return p.exposure.GetRawTCPListener(port)
 }
 
 func (p *Proxy) GetPacketConn(port string) (net.PacketConn, error) {
-	portCfg, ok := p.config.Ports[port]
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+
+	_, ok := p.config.Ports[port]
 	if !ok {
 		return nil, ErrProxyPortNotFound
 	}
-
-	ts := p.tsServer()
-	if ts == nil {
-		return nil, errors.New("proxy not started")
-	}
-
-	rt := p.lifecycle.GetRuntime()
-	ip4, err := p.waitForIP(rt.Ctx)
-	if err != nil {
-		return nil, fmt.Errorf("cannot bind UDP port %d: %w", portCfg.ProxyPort, err)
-	}
-
-	addr := ip4.String() + ":" + strconv.Itoa(portCfg.ProxyPort)
-	return ts.ListenPacket(model.ProtoUDP, addr)
-}
-
-func (p *Proxy) waitForIP(ctx context.Context) (netip.Addr, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	const (
-		interval = 500 * time.Millisecond
-		timeout  = 30 * time.Second
-	)
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	ts := p.tsServer()
-	for {
-		ip4, _ := ts.TailscaleIPs()
-		if ip4.IsValid() {
-			return ip4, nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return netip.Addr{}, errors.New("timed out waiting for tailscale IP")
-		case <-ticker.C:
-		}
-	}
+	return p.exposure.GetPacketConn(port)
 }
 
 func (p *Proxy) WatchEvents() chan model.ProxyEvent {
@@ -230,15 +175,6 @@ func (p *Proxy) Whois(r *http.Request) model.Whois {
 		return model.Whois{}
 	}
 	return cachedWhoisFromAddr(r.Context(), p.whoisCache, rt.LocalClient, r.RemoteAddr)
-}
-
-// tsServer returns the tsnet.Server from the lifecycle runtime, or nil if not started.
-func (p *Proxy) tsServer() *tsnet.Server {
-	rt := p.lifecycle.GetRuntime()
-	if rt == nil {
-		return nil
-	}
-	return rt.Server
 }
 
 // bridgeEvents reads from lifecycle NodeEvents and forwards them as ProxyEvents.

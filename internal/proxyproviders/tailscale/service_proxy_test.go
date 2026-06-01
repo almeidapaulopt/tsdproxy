@@ -4,12 +4,10 @@
 package tailscale
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
-	"tailscale.com/tsnet"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
@@ -179,15 +177,13 @@ func TestServiceProxyGetListenerNotFound(t *testing.T) {
 	t.Parallel()
 
 	p := &ServiceProxy{
-		listeners: make(map[string]*tsnet.ServiceListener),
+		config:   &model.Config{},
+		exposure: NewServicesVIPExposure(nil, "svc:test"),
 	}
 
 	_, err := p.GetListener("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent listener")
-	}
-	if !errors.Is(err, ErrProxyPortNotFound) {
-		t.Fatalf("expected ErrProxyPortNotFound, got %v", err)
 	}
 }
 

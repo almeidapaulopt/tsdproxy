@@ -269,6 +269,7 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		config:     config,
 		certSem:    c.certSem,
 		lifecycle:  lifecycle,
+		exposure:   NewPerProxyExposure(),
 		events:     make(chan model.ProxyEvent, 10), //nolint:mnd
 		whoisCache: NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}, nil
@@ -364,11 +365,12 @@ func (c *Client) newSharedProxy(config *model.Config) (proxyproviders.ProxyInter
 	}
 
 	return &SharedProxy{
-		log:    c.log.With().Str("Hostname", config.Hostname).Str("domain", domain).Logger(),
-		config: config,
-		shared: c.sharedServer,
-		domain: domain,
-		events: make(chan model.ProxyEvent, 10), //nolint:mnd
+		log:      c.log.With().Str("Hostname", config.Hostname).Str("domain", domain).Logger(),
+		config:   config,
+		shared:   c.sharedServer,
+		exposure: NewSharedSNIExposure(c.sharedServer, domain),
+		domain:   domain,
+		events:   make(chan model.ProxyEvent, 10), //nolint:mnd
 	}, nil
 }
 
@@ -425,6 +427,7 @@ func (c *Client) newServiceProxy(config *model.Config) (proxyproviders.ProxyInte
 		log:         c.log.With().Str("Hostname", config.Hostname).Str("service", serviceName).Logger(),
 		config:      config,
 		services:    c.servicesServer,
+		exposure:    NewServicesVIPExposure(c.servicesServer, serviceName),
 		serviceName: serviceName,
 		events:      make(chan model.ProxyEvent, 10), //nolint:mnd
 	}, nil

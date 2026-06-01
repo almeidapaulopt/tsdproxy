@@ -6,13 +6,11 @@ package tailscale
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"sync"
 
 	"github.com/rs/zerolog"
-	"tailscale.com/tsnet"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
@@ -26,7 +24,7 @@ type ServiceProxy struct {
 	log         zerolog.Logger
 	config      *model.Config
 	services    *ServicesServer
-	listeners   map[string]*tsnet.ServiceListener
+	exposure    *ServicesVIPExposure
 	events      chan model.ProxyEvent
 	serviceName string
 	fqdn        string
@@ -43,44 +41,11 @@ func (p *ServiceProxy) Start(ctx context.Context) error {
 		return nil
 	}
 
-	p.listeners = make(map[string]*tsnet.ServiceListener)
-
-	for portName, portCfg := range p.config.Ports {
-		select {
-		case <-ctx.Done():
-			p.rollbackAcquired()
-			return ctx.Err()
-		default:
-		}
-		var (
-			listener *tsnet.ServiceListener
-			err      error
-		)
-
-		switch portCfg.ProxyProtocol {
-		case model.ProtoHTTPS:
-			listener, err = p.services.Acquire(p.serviceName, uint16(portCfg.ProxyPort), true, false) //nolint:gosec // port limits validated in config
-		case model.ProtoHTTP:
-			listener, err = p.services.Acquire(p.serviceName, uint16(portCfg.ProxyPort), false, false) //nolint:gosec // port limits validated in config
-		case model.ProtoTCP:
-			listener, err = p.services.Acquire(p.serviceName, uint16(portCfg.ProxyPort), false, true) //nolint:gosec // port limits validated in config
-		default:
-			p.rollbackAcquired()
-			return fmt.Errorf("services mode does not support protocol %q", portCfg.ProxyProtocol)
-		}
-
-		if err != nil {
-			p.rollbackAcquired()
-			return err
-		}
-
-		p.listeners[portName] = listener
-
-		if p.fqdn == "" {
-			p.fqdn = listener.FQDN
-		}
+	if err := p.exposure.Start(ctx, nil, p.config); err != nil {
+		return err
 	}
 
+	p.fqdn = p.exposure.firstFQDN()
 	p.started = true
 
 	p.log.Info().
@@ -95,27 +60,9 @@ func (p *ServiceProxy) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *ServiceProxy) rollbackAcquired() {
-	for portName := range p.listeners {
-		if portCfg, ok := p.config.Ports[portName]; ok {
-			if err := p.services.Release(p.serviceName, uint16(portCfg.ProxyPort)); err != nil { //nolint:gosec // port limits validated in config
-				p.log.Warn().Err(err).Int("port", portCfg.ProxyPort).Msg("failed to release service during rollback")
-			}
-		}
-	}
-	p.listeners = nil
-}
-
 func (p *ServiceProxy) Close() error {
 	p.mtx.Lock()
-	for portName := range p.listeners {
-		if portCfg, ok := p.config.Ports[portName]; ok {
-			if err := p.services.Release(p.serviceName, uint16(portCfg.ProxyPort)); err != nil { //nolint:gosec // port limits validated in config
-				p.log.Warn().Err(err).Int("port", portCfg.ProxyPort).Msg("failed to release service")
-			}
-		}
-	}
-	p.listeners = nil
+	_ = p.exposure.Close(context.Background())
 	p.mtx.Unlock()
 
 	p.log.Info().Msg("service proxy closed")
@@ -129,13 +76,13 @@ func (p *ServiceProxy) Close() error {
 
 func (p *ServiceProxy) GetListener(port string) (net.Listener, error) {
 	p.mtx.RLock()
-	sl, ok := p.listeners[port]
-	p.mtx.RUnlock()
+	defer p.mtx.RUnlock()
 
+	_, ok := p.config.Ports[port]
 	if !ok {
 		return nil, ErrProxyPortNotFound
 	}
-	return sl, nil
+	return p.exposure.GetListener(port)
 }
 
 func (p *ServiceProxy) GetPacketConn(_ string) (net.PacketConn, error) {
