@@ -670,7 +670,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 	// First attempt a simple create; if the API rejects it for missing Addrs,
 	// GET the existing service and retry with Addrs included.
 	firstCtx, firstCancel := context.WithTimeout(context.Background(), apiTimeout)
-	err := client.VIPServices().CreateOrUpdate(firstCtx, tailscale.VIPService{
+	err := client.Services().CreateOrUpdate(firstCtx, tailscale.VIPService{
 		Name:  serviceName,
 		Ports: ports,
 		Tags:  cleanTags(ss.tags),
@@ -683,7 +683,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
 
-	existing, getErr := client.VIPServices().Get(ctx, serviceName)
+	existing, getErr := client.Services().Get(ctx, serviceName)
 	if getErr != nil {
 		if !isNotFound(getErr) {
 			return fmt.Errorf("get existing VIP service %q: %w", serviceName, getErr)
@@ -692,7 +692,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 		ss.log.Debug().Str("service", serviceName).Msg("VIP service not found, creating fresh")
 		createCtx, createCancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer createCancel()
-		return client.VIPServices().CreateOrUpdate(createCtx, tailscale.VIPService{
+		return client.Services().CreateOrUpdate(createCtx, tailscale.VIPService{
 			Name:  serviceName,
 			Ports: ports,
 			Tags:  cleanTags(ss.tags),
@@ -701,7 +701,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 
 	updateCtx, updateCancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer updateCancel()
-	return client.VIPServices().CreateOrUpdate(updateCtx, tailscale.VIPService{
+	return client.Services().CreateOrUpdate(updateCtx, tailscale.VIPService{
 		Name:  serviceName,
 		Addrs: existing.Addrs,
 		Ports: ports,
@@ -742,7 +742,7 @@ func (ss *ServicesServer) deleteVIPServiceProd(serviceName string) error {
 		return errors.New("tailscale API client not configured")
 	}
 
-	return client.VIPServices().Delete(ctx, serviceName)
+	return client.Services().Delete(ctx, serviceName)
 }
 
 func (ss *ServicesServer) approveServiceDevice(rt *servicesRuntime, serviceName string) error {
@@ -777,7 +777,7 @@ func (ss *ServicesServer) approveServiceDevice(rt *servicesRuntime, serviceName 
 	}
 
 	// Trigger client lazy init (sets BaseURL from default).
-	client.VIPServices()
+	client.Services()
 
 	// Endpoint: POST /api/v2/tailnet/{tailnet}/services/{svc}/device/{nodeId}/approved
 	u := client.BaseURL.JoinPath("api", "v2", "tailnet", "-", "services", serviceName, "device", nodeID, "approved")

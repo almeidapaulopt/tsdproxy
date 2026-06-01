@@ -50,11 +50,11 @@ func (f *APIClientFactory) NewClient(scopes ...string) *tailscale.Client {
 	return &tailscale.Client{
 		Tailnet:   "-",
 		UserAgent: userAgent,
-		HTTP: tailscale.OAuthConfig{
+		Auth: &tailscale.OAuth{
 			ClientID:     f.clientID,
 			ClientSecret: f.clientSecret.Value(),
 			Scopes:       scopes,
-		}.HTTPClient(),
+		},
 	}
 }
 

@@ -101,7 +101,7 @@ func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string
 		Description:  userAgent,
 	}
 
-	authkey, err := tsclient.Keys().Create(ctx, ckr)
+	authkey, err := tsclient.Keys().CreateAuthKey(ctx, ckr)
 	if err != nil {
 		if IsAuthError(err) {
 			return "", fmt.Errorf(

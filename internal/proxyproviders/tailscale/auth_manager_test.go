@@ -353,6 +353,7 @@ func (m *AuthManager) callGenerateOAuthKeyWithTestServer(ctx context.Context, ta
 	}
 
 	client := m.apiFactory.NewClient(ScopeAuthKeys)
+	client.Auth = nil
 	client.HTTP = newRedirectHTTPClient(srv.URL)
 
 	capabilities := tailscale.KeyCapabilities{}
@@ -366,7 +367,7 @@ func (m *AuthManager) callGenerateOAuthKeyWithTestServer(ctx context.Context, ta
 		Description:  userAgent,
 	}
 
-	authkey, err := client.Keys().Create(ctx, ckr)
+	authkey, err := client.Keys().CreateAuthKey(ctx, ckr)
 	if err != nil {
 		return "", err
 	}
