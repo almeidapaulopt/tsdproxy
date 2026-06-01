@@ -94,9 +94,9 @@ type servicesRuntime struct {
 	listeners  map[string]*serviceEntry
 	lifecycle  *NodeLifecycle
 	bridgeDone chan struct{}
+	authURL    string
 	refCount   int
 	gen        int
-	authURL    string
 }
 
 // Command types for the state machine.
@@ -528,7 +528,7 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 		provider = DefaultNodeLifecycleProvider
 	}
 
-	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*3)
+	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*3) //nolint:mnd
 	defer startCancel()
 	lifecycle, nodeRt, svcFactory, err := provider(startCtx, ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
@@ -718,7 +718,7 @@ func (ss *ServicesServer) reconcileServiceHostname(serviceName string) {
 	if ss.deviceReconciler != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
-		ss.deviceReconciler.Reconcile(ctx, hostname, ss.tags)
+		ss.deviceReconciler.Reconcile(ctx, hostname, ss.tags, nil)
 		return
 	}
 
