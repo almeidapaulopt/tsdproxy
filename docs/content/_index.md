@@ -1,6 +1,8 @@
 ---
 title: TSDPRoxy
 layout: hextra-home
+sidebar:
+  hide: true
 ---
 {{< hextra/hero-container image="/images/tsdproxy.svg" >}}
 {{< hextra/hero-badge >}}

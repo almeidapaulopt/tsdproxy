@@ -42,20 +42,17 @@ menu:
     - name: About
       pageRef: /about
       weight: 2
-    - name: Legacy v1 Docs
-      pageRef: /docs/v1
-      weight: 3
     - name: Search
-      weight: 4
+      weight: 3
       params:
         type: search
     - name: GitHub
-      weight: 5
+      weight: 4
       url: "https://github.com/almeidapaulopt/tsdproxy"
       params:
         icon: github
     - name: Twitter
-      weight: 6
+      weight: 5
       url: "https://twitter.com/almeidapaulopt"
       params:
         icon: x-twitter
