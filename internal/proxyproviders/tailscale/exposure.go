@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"tailscale.com/client/local"
 	"tailscale.com/tsnet"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -42,6 +43,22 @@ type RawTCPExposure interface {
 type PacketExposure interface {
 	TrafficExposure
 	GetPacketConn(portName string) (net.PacketConn, error)
+}
+
+var errExposureNotStarted = errors.New("exposure not started")
+
+// exposureLookup returns the value from m[portName] or an appropriate error
+// if the exposure hasn't been started or the port doesn't exist.
+func exposureLookup[T any](started bool, m map[string]T, portName string) (T, error) {
+	var zero T
+	if !started {
+		return zero, errExposureNotStarted
+	}
+	v, ok := m[portName]
+	if !ok {
+		return zero, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
+	}
+	return v, nil
 }
 
 // PerProxyExposure creates direct port listeners on a per-proxy tsnet.Server.
@@ -86,7 +103,7 @@ func (e *PerProxyExposure) Start(_ context.Context, runtime *NodeRuntime, cfg *m
 			e.listeners[portName] = l
 
 		case model.ProtoHTTP:
-			l, err := e.createHTTPListener(ts, portCfg)
+			l, err := e.createPlainListener(ts, portCfg)
 			if err != nil {
 				e.closeAll()
 				return fmt.Errorf("create HTTP listener for port %q: %w", portName, err)
@@ -94,7 +111,7 @@ func (e *PerProxyExposure) Start(_ context.Context, runtime *NodeRuntime, cfg *m
 			e.listeners[portName] = l
 
 		case model.ProtoTCP:
-			l, err := e.createTCPListener(ts, portCfg)
+			l, err := e.createPlainListener(ts, portCfg)
 			if err != nil {
 				e.closeAll()
 				return fmt.Errorf("create TCP listener for port %q: %w", portName, err)
@@ -123,12 +140,7 @@ func (e *PerProxyExposure) createHTTPSListener(ts *tsnet.Server, cfg model.PortC
 	return ts.ListenTLS("tcp", addr) //nolint:gosec
 }
 
-func (e *PerProxyExposure) createHTTPListener(ts *tsnet.Server, cfg model.PortConfig) (net.Listener, error) {
-	addr := net.JoinHostPort("", strconv.Itoa(cfg.ProxyPort))
-	return ts.Listen("tcp", addr) //nolint:gosec
-}
-
-func (e *PerProxyExposure) createTCPListener(ts *tsnet.Server, cfg model.PortConfig) (net.Listener, error) {
+func (e *PerProxyExposure) createPlainListener(ts *tsnet.Server, cfg model.PortConfig) (net.Listener, error) {
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.ProxyPort))
 	return ts.Listen("tcp", addr) //nolint:gosec
 }
@@ -203,46 +215,19 @@ func (e *PerProxyExposure) closeAll() {
 func (e *PerProxyExposure) GetListener(portName string) (net.Listener, error) {
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
-
-	if !e.started {
-		return nil, errors.New("exposure not started")
-	}
-
-	l, ok := e.listeners[portName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
-	}
-	return l, nil
+	return exposureLookup(e.started, e.listeners, portName)
 }
 
 func (e *PerProxyExposure) GetRawTCPListener(portName string) (net.Listener, error) {
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
-
-	if !e.started {
-		return nil, errors.New("exposure not started")
-	}
-
-	l, ok := e.rawListeners[portName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
-	}
-	return l, nil
+	return exposureLookup(e.started, e.rawListeners, portName)
 }
 
 func (e *PerProxyExposure) GetPacketConn(portName string) (net.PacketConn, error) {
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
-
-	if !e.started {
-		return nil, errors.New("exposure not started")
-	}
-
-	pc, ok := e.packetConns[portName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
-	}
-	return pc, nil
+	return exposureLookup(e.started, e.packetConns, portName)
 }
 
 type SharedSNIExposure struct {
@@ -254,7 +239,13 @@ type SharedSNIExposure struct {
 	domain          string
 	mtx             sync.RWMutex
 	started         bool
+
+	cachedCert    *tls.Certificate
+	certCacheTime time.Time
+	certCacheMtx  sync.Mutex
 }
+
+const certCacheTTL = 5 * time.Minute
 
 // NewSharedSNIExposure creates a new SharedSNIExposure backed by the given SharedServer.
 func NewSharedSNIExposure(sharedServer *SharedServer, domain string) *SharedSNIExposure {
@@ -324,14 +315,17 @@ func (e *SharedSNIExposure) rollbackAcquired() {
 		return
 	}
 	for portName, portCfg := range e.cfg.Ports {
-		if vl, ok := e.vListeners[portName]; ok {
+		if _, ok := e.vListeners[portName]; ok {
+			// SharedServer.Release handles all cleanup (VirtualListener
+			// closure via router.Unregister, underlying listener close
+			// when the router is empty).
 			e.sharedServer.Release(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
-			vl.Close()
 			delete(e.vListeners, portName)
 		}
-		if l, ok := e.directListeners[portName]; ok {
+		if _, ok := e.directListeners[portName]; ok {
+			// SharedServer.Release closes the direct listener and
+			// removes the port entry from the runtime.
 			e.sharedServer.Release(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
-			l.Close()
 			delete(e.directListeners, portName)
 		}
 		if _, ok := e.packetConns[portName]; ok {
@@ -355,7 +349,37 @@ func (e *SharedSNIExposure) Close(_ context.Context) error {
 	e.rollbackAcquired()
 	e.cfg = nil
 	e.started = false
+
+	e.certCacheMtx.Lock()
+	e.cachedCert = nil
+	e.certCacheMtx.Unlock()
+
 	return nil
+}
+
+// getCertificate returns a cached TLS certificate for this exposure's domain.
+// CertPairToTLSCertificate involves IPC to the local Tailscale client and
+// crypto parsing — caching avoids repeating this on every TLS handshake.
+func (e *SharedSNIExposure) getCertificate(lc *local.Client) (*tls.Certificate, error) {
+	e.certCacheMtx.Lock()
+	if e.cachedCert != nil && time.Since(e.certCacheTime) < certCacheTTL {
+		cert := e.cachedCert
+		e.certCacheMtx.Unlock()
+		return cert, nil
+	}
+	e.certCacheMtx.Unlock()
+
+	cert, err := CertPairToTLSCertificate(context.Background(), lc, e.domain)
+	if err != nil {
+		return nil, err
+	}
+
+	e.certCacheMtx.Lock()
+	e.cachedCert = cert
+	e.certCacheTime = time.Now()
+	e.certCacheMtx.Unlock()
+
+	return cert, nil
 }
 
 // GetListener returns the listener for the given port configuration.
@@ -365,7 +389,7 @@ func (e *SharedSNIExposure) GetListener(portName string) (net.Listener, error) {
 	defer e.mtx.RUnlock()
 
 	if !e.started {
-		return nil, errors.New("exposure not started")
+		return nil, errExposureNotStarted
 	}
 
 	portCfg, ok := e.cfg.Ports[portName]
@@ -389,16 +413,12 @@ func (e *SharedSNIExposure) GetListener(portName string) (net.Listener, error) {
 				if lc == nil {
 					return nil, errors.New("shared server local client not available")
 				}
-				return CertPairToTLSCertificate(hello.Context(), lc, e.domain)
+				return e.getCertificate(lc)
 			},
 		}), nil
 
 	case model.ProtoHTTP:
-		vl, ok := e.vListeners[portName]
-		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
-		}
-		return vl, nil
+		return exposureLookup(e.started, e.vListeners, portName)
 
 	default:
 		return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
@@ -499,16 +519,7 @@ func (e *ServicesVIPExposure) Close(_ context.Context) error {
 func (e *ServicesVIPExposure) GetListener(portName string) (net.Listener, error) {
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
-
-	if !e.started {
-		return nil, errors.New("exposure not started")
-	}
-
-	sl, ok := e.listeners[portName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
-	}
-	return sl, nil
+	return exposureLookup(e.started, e.listeners, portName)
 }
 
 func (e *ServicesVIPExposure) firstFQDN() string {
@@ -525,7 +536,7 @@ func (e *SharedSNIExposure) getRawTCPListener(portName string) (net.Listener, er
 	defer e.mtx.RUnlock()
 
 	if !e.started {
-		return nil, errors.New("exposure not started")
+		return nil, errExposureNotStarted
 	}
 	if l, ok := e.directListeners[portName]; ok {
 		return l, nil
@@ -539,15 +550,7 @@ func (e *SharedSNIExposure) getRawTCPListener(portName string) (net.Listener, er
 func (e *SharedSNIExposure) getPacketConn(portName string) (net.PacketConn, error) {
 	e.mtx.RLock()
 	defer e.mtx.RUnlock()
-
-	if !e.started {
-		return nil, errors.New("exposure not started")
-	}
-	pc, ok := e.packetConns[portName]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
-	}
-	return pc, nil
+	return exposureLookup(e.started, e.packetConns, portName)
 }
 
 var (
