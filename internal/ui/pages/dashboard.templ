@@ -492,6 +492,32 @@ templ Dashboard(d DashboardData) {
 							hx-include="#searchInput,#sseConnId"
 							checked?={ d.Prefs.FilterStatus == "AwaitingApproval" }
 						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="AuthFailed"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"AuthFailed"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "AuthFailed" }
+						/>
+						<input
+							class="btn btn-xs"
+							type="radio"
+							name="filterStatus"
+							aria-label="Conflict"
+							hx-trigger="change"
+							hx-put="/api/dashboard/preferences"
+							hx-vals={ `{"filterStatus":"DeviceConflict"}` }
+							hx-target="#proxy-list"
+							hx-swap="innerHTML"
+							hx-include="#searchInput,#sseConnId"
+							checked?={ d.Prefs.FilterStatus == "DeviceConflict" }
+						/>
 					</div>
 				</div>
 				<div class="flex items-center gap-1 min-w-0">

@@ -466,10 +466,13 @@ var statusStyles = map[string]statusStyle{
 	"Initializing":                 {"bg-info animate-pulse", "badge-info"},
 	"Starting":                     {"bg-info animate-pulse", "badge-info"},
 	"Error":                        {"bg-error", "badge-error"},
+	"AuthFailed":                   {"bg-error", "badge-error"},
 	"AwaitingApproval":             {"bg-warning animate-pulse", "badge-warning"},
 	"Stopped":                      {"bg-error", "badge-error"},
 	"Stopping":                     {"bg-warning", "badge-warning"},
 	"Paused":                       {"bg-warning", "badge-warning"},
+	"DeviceConflict":               {"bg-warning animate-pulse", "badge-warning"},
+	"Reconciling":                  {"bg-info animate-pulse", "badge-info"},
 }
 
 var statusStyleDefault = statusStyle{"bg-base-content/30", "badge-ghost"}
