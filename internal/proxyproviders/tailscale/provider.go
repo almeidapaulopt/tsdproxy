@@ -92,6 +92,20 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 
 	clientLog := log.With().Str("tailscale", name).Logger()
 
+	if apiFactory.IsAvailable() {
+		scopes := ScopesPerProxy()
+		if provider.Services {
+			scopes = ScopesServices()
+		}
+		validateCtx, validateCancel := context.WithTimeout(context.Background(), apiTimeout)
+		if err := apiFactory.ValidateAccess(validateCtx, scopes); err != nil {
+			validateCancel()
+			return nil, fmt.Errorf("new tailscale provider %q: %w", name, err)
+		}
+		validateCancel()
+		clientLog.Info().Strs("scopes", scopes).Msg("OAuth credentials validated")
+	}
+
 	reconcileInterval, err := time.ParseDuration(provider.ReconcileInterval)
 	if err != nil {
 		clientLog.Warn().Err(err).Str("value", provider.ReconcileInterval).

@@ -4,6 +4,8 @@
 package tailscale
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	tailscale "tailscale.com/client/tailscale/v2"
@@ -56,6 +58,28 @@ func (f *APIClientFactory) NewClient(scopes ...string) *tailscale.Client {
 			Scopes:       scopes,
 		},
 	}
+}
+
+// ValidateAccess tests that OAuth credentials work by making a lightweight API
+// call (listing devices). Returns a descriptive error if the credentials are
+// invalid, expired, or lack the requested scopes.
+func (f *APIClientFactory) ValidateAccess(ctx context.Context, scopes []string) error {
+	client := f.NewClient(scopes...)
+	if client == nil {
+		return fmt.Errorf("OAuth credentials not configured")
+	}
+
+	if _, err := client.Devices().List(ctx); err != nil {
+		return fmt.Errorf(
+			"OAuth validation failed for client %q with scopes %v: %w — "+
+				"verify the OAuth client exists in the Tailscale admin console "+
+				"(https://login.tailscale.com/admin/settings/oauth), has the required scopes, "+
+				"and that the clientSecret is correct",
+			f.clientID, scopes, err,
+		)
+	}
+
+	return nil
 }
 
 // ScopesPerProxy returns the OAuth scopes needed for per-proxy and shared modes.

@@ -120,5 +120,14 @@ func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (authKe
 		return "", fmt.Errorf("unable to get OAuth token: %w", createErr)
 	}
 
+	if authkey == nil {
+		return "", fmt.Errorf(
+			"OAuth key generation returned empty response for tags %v — "+
+				"verify the OAuth client has the %q scope in the Tailscale admin console "+
+				"(https://login.tailscale.com/admin/settings/oauth)",
+			capabilities.Devices.Create.Tags, ScopeAuthKeys,
+		)
+	}
+
 	return authkey.Key, nil
 }
