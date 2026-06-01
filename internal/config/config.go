@@ -393,13 +393,16 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// ClearSecrets wipes sensitive fields from memory after configuration is loaded.
+// ClearSecrets wipes one-time auth secrets from memory after configuration is loaded.
+// ClientSecret is intentionally preserved because the Tailscale OAuth client credentials
+// are needed at runtime for ongoing operations: VIP Service API calls, OAuth auth key
+// generation, and device reconciliation. Only AuthKey is safe to clear because it is
+// consumed once during tsnet startup and the resolved value is held by NodeLifecycle.
 func (c *config) ClearSecrets() {
 	c.APIKey = ""
 	for _, p := range c.Tailscale.Providers {
 		if p != nil {
 			p.AuthKey = ""
-			p.ClientSecret = ""
 		}
 	}
 	for _, d := range c.DNSProviders {
