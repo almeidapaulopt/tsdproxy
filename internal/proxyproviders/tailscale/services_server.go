@@ -55,12 +55,12 @@ func (f tsnetServerFactory) Close(sl *tsnet.ServiceListener) error {
 type ServicesServerConfig struct {
 	Log                zerolog.Logger
 	VIPServiceAPI      vipServiceAPI
-	ListenerFactory    serviceListenerFactory
 	APIClient          *tailscale.Client
 	APIFactory         *APIClientFactory
 	AuthManager        *AuthManager
 	DeviceReconciler   *DeviceReconciler
 	LifecycleConfig    *NodeLifecycleConfig
+	LifecycleProvider  NodeLifecycleProvider
 	Hostname           string
 	DataDir            string
 	AuthKey            string
@@ -153,7 +153,6 @@ func (servicesGetAuthURLCmd) cmd() {}
 // All mutable state is managed by a single event-loop goroutine.
 type ServicesServer struct {
 	log                zerolog.Logger
-	listenerFactory    serviceListenerFactory
 	vipAPI             vipServiceAPI
 	localClient        atomic.Pointer[local.Client]
 	apiClient          *tailscale.Client
@@ -161,8 +160,8 @@ type ServicesServer struct {
 	authManager        *AuthManager
 	deviceReconciler   *DeviceReconciler
 	lifecycleCfg       *NodeLifecycleConfig
-	cmds               chan servicesCmd
-	done               chan struct{}
+	lifecycleProvider  NodeLifecycleProvider
+	ev                 *EventLoop[servicesCmd]
 	whoisCache         *WhoisCache
 	controlURL         string
 	datadir            string
@@ -170,7 +169,6 @@ type ServicesServer struct {
 	tags               string
 	authKey            string
 	authURL            string
-	closed             atomic.Bool
 	ephemeral          bool
 	autoApproveDevices bool
 }
@@ -185,16 +183,15 @@ func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 		ephemeral:          cfg.Ephemeral,
 		autoApproveDevices: cfg.AutoApproveDevices,
 		log:                cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
-		cmds:               make(chan servicesCmd, 64), //nolint:mnd
-		done:               make(chan struct{}),
+		ev:                 NewEventLoop[servicesCmd](64), //nolint:mnd
 		tags:               cfg.Tags,
 		vipAPI:             cfg.VIPServiceAPI,
-		listenerFactory:    cfg.ListenerFactory,
 		apiClient:          cfg.APIClient,
 		apiFactory:         cfg.APIFactory,
 		authManager:        cfg.AuthManager,
 		deviceReconciler:   cfg.DeviceReconciler,
 		lifecycleCfg:       cfg.LifecycleConfig,
+		lifecycleProvider:  cfg.LifecycleProvider,
 		whoisCache:         NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}
 	go ss.loop()
@@ -205,54 +202,19 @@ func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 // It aborts if the loop has exited or the producer's context was canceled,
 // preventing deadlock when the loop is blocked.
 func (ss *ServicesServer) sendProducer(ctx context.Context, cmd servicesCmd) bool {
-	select {
-	case ss.cmds <- cmd:
-		return true
-	case <-ss.done:
-		return false
-	case <-ctx.Done():
-		return false
-	}
-}
-
-// sendPublic sends a command from a public method.
-func (ss *ServicesServer) sendPublic(cmd servicesCmd) bool {
-	if ss.closed.Load() {
-		return false
-	}
-	select {
-	case ss.cmds <- cmd:
-		return true
-	case <-ss.done:
-		return false
-	}
-}
-
-// servicesSendAndWait sends a command via the event loop and waits for a reply.
-func servicesSendAndWait[T any](ss *ServicesServer, cmd servicesCmd, reply chan T) (T, bool) {
-	if !ss.sendPublic(cmd) {
-		var zero T
-		return zero, false
-	}
-	select {
-	case v := <-reply:
-		return v, true
-	case <-ss.done:
-		var zero T
-		return zero, false
-	}
+	return ss.ev.SendProducer(ctx, cmd)
 }
 
 // loop is the core event loop. It owns all mutable state.
 func (ss *ServicesServer) loop() {
-	defer close(ss.done)
+	defer ss.ev.Close()
 
 	state := servicesIdle
 	var rt *servicesRuntime
 	var idleTimer *time.Timer
 	var nextGen int
 
-	for cmd := range ss.cmds {
+	for cmd := range ss.ev.Cmds() {
 		switch cmd.(type) {
 		case acquireServiceCmd, releaseServiceCmd, servicesCloseCmd, servicesIdleTimeoutCmd:
 			if idleTimer != nil {
@@ -283,7 +245,6 @@ func (ss *ServicesServer) loop() {
 			if rt != nil {
 				ss.stopRuntime(rt)
 			}
-			ss.closed.Store(true)
 			c.reply <- nil
 			return
 		}
@@ -292,12 +253,8 @@ func (ss *ServicesServer) loop() {
 
 // scheduleIdleTimer starts the idle-shutdown timer. Must be called from the loop goroutine.
 func (ss *ServicesServer) scheduleIdleTimer(rt *servicesRuntime) *time.Timer {
-	capturedGen := rt.gen
-	return time.AfterFunc(servicesIdleTimeout, func() {
-		select {
-		case ss.cmds <- servicesIdleTimeoutCmd{gen: capturedGen}:
-		case <-ss.done:
-		}
+	return ss.ev.ScheduleIdleTimer(rt.gen, servicesIdleTimeout, func(g int) servicesCmd {
+		return servicesIdleTimeoutCmd{gen: g}
 	})
 }
 
@@ -333,6 +290,10 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 		c.reply <- acquireServiceResult{nil, fmt.Errorf("service %s port %d already acquired", c.serviceName, c.port)}
 		return state, rt
 	}
+
+	// Clean up stale per-proxy devices whose hostname collides with this VIP
+	// service name (causes Tailscale 409 "name is in use but is not a service").
+	ss.reconcileServiceHostname(c.serviceName)
 
 	// Collect all known ports for this service (including the new one).
 	allPorts := ss.collectServicePorts(rt, c.serviceName, c.port)
@@ -440,7 +401,7 @@ func (ss *ServicesServer) Acquire(serviceName string, port uint16, https, tcp bo
 		tcp:         tcp,
 	}
 
-	result, ok := servicesSendAndWait(ss, cmd, cmd.reply)
+	result, ok := SendAndWait[servicesCmd, acquireServiceResult](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return nil, errors.New("services server closed")
 	}
@@ -454,7 +415,7 @@ func (ss *ServicesServer) Release(serviceName string, port uint16) error {
 		serviceName: serviceName,
 		port:        port,
 	}
-	_, ok := servicesSendAndWait(ss, cmd, cmd.reply)
+	_, ok := SendAndWait[servicesCmd, error](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return errors.New("services server closed")
 	}
@@ -463,11 +424,11 @@ func (ss *ServicesServer) Release(serviceName string, port uint16) error {
 
 // Close shuts down the services server permanently.
 func (ss *ServicesServer) Close() {
-	if ss.closed.Load() {
+	if ss.ev.IsClosed() {
 		return
 	}
 	cmd := servicesCloseCmd{reply: make(chan error, 1)}
-	_, _ = servicesSendAndWait(ss, cmd, cmd.reply)
+	_, _ = SendAndWait[servicesCmd, error](ss.ev, cmd, cmd.reply)
 }
 
 // Whois resolves identity from the request. For VIP-proxied requests the
@@ -552,46 +513,44 @@ func isLocalhost(remoteAddr string) bool {
 // startRuntime creates a new tsnet.Server and starts it.
 // When lifecycleCfg is set, uses NodeLifecycle for full lifecycle management.
 func (ss *ServicesServer) startRuntime() *servicesRuntime {
-	if ss.lifecycleCfg != nil {
-		return ss.startRuntimeWithLifecycle()
-	}
-	return ss.startRuntimeLegacy()
+	return ss.startRuntimeWithLifecycle()
 }
 
 func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
-	// Test mode: use injected listener factory without creating a real tsnet.Server.
-	if ss.listenerFactory != nil {
-		_, cancel := context.WithCancel(context.Background())
-		return &servicesRuntime{
-			cancel:    cancel,
-			listeners: make(map[string]*serviceEntry),
-			factory:   ss.listenerFactory,
-		}
+	if ss.lifecycleCfg == nil {
+		ss.log.Error().Msg("startRuntimeWithLifecycle called with nil lifecycleCfg")
+		return nil
 	}
 
-	lifecycle := NewNodeLifecycle(
-		ss.log.With().Str("component", "lifecycle").Logger(),
-		*ss.lifecycleCfg,
-	)
+	provider := ss.lifecycleProvider
+	if provider == nil {
+		provider = DefaultNodeLifecycleProvider
+	}
 
-	nodeRt, err := lifecycle.Start(context.Background())
+	lifecycle, nodeRt, svcFactory, err := provider(context.Background(), ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
 		ss.log.Error().Err(err).Msg("failed to start services tsnet server via lifecycle")
 		return nil
 	}
 
-	if lc, err := nodeRt.Server.LocalClient(); err == nil {
-		ss.localClient.Store(lc)
-	} else {
-		ss.log.Warn().Err(err).Msg("failed to get local client from tsnet server")
+	if nodeRt.LocalClient != nil {
+		ss.localClient.Store(nodeRt.LocalClient)
+	}
+
+	if svcFactory == nil {
+		if nodeRt.Server == nil {
+			ss.log.Error().Msg("lifecycle provider returned nil both factory and server")
+			return nil
+		}
+		svcFactory = tsnetServerFactory{nodeRt.Server}
 	}
 
 	rt := &servicesRuntime{
-		cancel:     nodeRt.Cancel,
-		tsServer:   nodeRt.Server,
-		listeners:  make(map[string]*serviceEntry),
-		factory:    tsnetServerFactory{nodeRt.Server},
-		lifecycle:  lifecycle,
+		cancel:    nodeRt.Cancel,
+		tsServer:  nodeRt.Server,
+		listeners: make(map[string]*serviceEntry),
+		factory:   svcFactory,
+		lifecycle: lifecycle,
 	}
 
 	bridgeDone := make(chan struct{})
@@ -602,81 +561,6 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 	}()
 
 	return rt
-}
-
-// startRuntimeLegacy is the startup path for tests that inject a listenerFactory
-// without a full NodeLifecycle. Production always uses startRuntimeWithLifecycle.
-func (ss *ServicesServer) startRuntimeLegacy() *servicesRuntime {
-	_, cancel := context.WithCancel(context.Background())
-
-	// Test mode: use injected listener factory without creating a real tsnet.Server.
-	if ss.listenerFactory != nil {
-		return &servicesRuntime{
-			cancel:    cancel,
-			listeners: make(map[string]*serviceEntry),
-			factory:   ss.listenerFactory,
-		}
-	}
-
-	controlURL := ss.controlURL
-	if controlURL == "" {
-		controlURL = model.DefaultTailscaleControlURL
-	}
-
-	allTags := cleanTags(ss.tags)
-	var advertiseTag []string
-	if len(allTags) > 0 {
-		advertiseTag = []string{allTags[0]}
-	}
-
-	tsServer := &tsnet.Server{
-		Hostname:      ss.hostname,
-		AuthKey:       ss.authKey,
-		Dir:           ss.datadir,
-		Ephemeral:     ss.ephemeral,
-		AdvertiseTags: advertiseTag,
-		ControlURL:    controlURL,
-		UserLogf:      func(format string, args ...any) { ss.log.Info().Msgf(format, args...) },
-		Logf:          func(format string, args ...any) { ss.log.Trace().Msgf(format, args...) },
-	}
-
-	// Generate a fresh OAuth auth key on each startup. The OAuth key is one-time
-	// (Reusable=false), so the cached ss.authKey is stale after the first use.
-	// A fresh key ensures tsnet can authenticate even if the node's saved state
-	// requires re-auth (e.g. tailscaled.state was deleted or is stale).
-	if ss.authManager != nil {
-		if newKey, err := ss.authManager.GenerateOAuthKey(context.Background(), ss.tags); err != nil {
-			ss.log.Warn().Err(err).Msg("failed to generate fresh auth key, using cached key")
-		} else if newKey != "" {
-			tsServer.AuthKey = newKey
-			ss.log.Debug().Msg("using freshly generated OAuth auth key")
-		}
-	}
-
-	if ss.deviceReconciler != nil {
-		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), apiTimeout)
-		ss.deviceReconciler.Reconcile(reconcileCtx, ss.hostname, ss.tags)
-		reconcileCancel()
-	}
-
-	if err := tsServer.Start(); err != nil {
-		ss.log.Error().Err(err).Msg("failed to start services tsnet server")
-		cancel()
-		return nil
-	}
-
-	if lc, err := tsServer.LocalClient(); err == nil {
-		ss.localClient.Store(lc)
-	} else {
-		ss.log.Warn().Err(err).Msg("failed to get local client from tsnet server")
-	}
-
-	return &servicesRuntime{
-		cancel:    cancel,
-		tsServer:  tsServer,
-		listeners: make(map[string]*serviceEntry),
-		factory:   tsnetServerFactory{tsServer},
-	}
 }
 
 // stopRuntime tears down the tsnet server and all listeners.
@@ -698,8 +582,6 @@ func (ss *ServicesServer) stopRuntime(rt *servicesRuntime) {
 		if err := rt.lifecycle.Close(); err != nil {
 			ss.log.Warn().Err(err).Msg("error stopping lifecycle")
 		}
-	} else if rt.tsServer != nil {
-		rt.tsServer.Close()
 	}
 
 	if rt.cancel != nil {
@@ -741,7 +623,7 @@ func (ss *ServicesServer) handleGetAuthURL(c servicesGetAuthURLCmd, _ *servicesR
 // GetAuthURL returns the current auth URL, or empty string if not needed.
 func (ss *ServicesServer) GetAuthURL() string {
 	cmd := servicesGetAuthURLCmd{reply: make(chan string, 1)}
-	v, ok := servicesSendAndWait(ss, cmd, cmd.reply)
+	v, ok := SendAndWait[servicesCmd, string](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return ""
 	}
@@ -813,6 +695,63 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 		Ports: ports,
 		Tags:  cleanTags(ss.tags),
 	})
+}
+
+func (ss *ServicesServer) reconcileServiceHostname(serviceName string) {
+	hostname := strings.TrimPrefix(serviceName, "svc:")
+	if hostname == serviceName {
+		return
+	}
+
+	if ss.deviceReconciler != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+		defer cancel()
+		ss.deviceReconciler.Reconcile(ctx, hostname, ss.tags)
+		return
+	}
+
+	client := ss.getAPIClient()
+	if client == nil {
+		return
+	}
+
+	cleanedTags := cleanTags(ss.tags)
+	if len(cleanedTags) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
+
+	devices, err := client.Devices().List(ctx, tailscale.WithFilter("tags", []string{cleanedTags[0]}))
+	if err != nil {
+		ss.log.Warn().Err(err).Msg("failed to list tailnet devices for service hostname cleanup")
+		return
+	}
+
+	for _, d := range devices {
+		if d.Hostname != hostname {
+			continue
+		}
+		if d.ConnectedToControl {
+			ss.log.Warn().
+				Str("hostname", d.Hostname).
+				Str("node_id", d.NodeID).
+				Msg("device with same hostname as VIP service is online, skipping cleanup")
+			continue
+		}
+
+		ss.log.Info().
+			Str("hostname", d.Hostname).
+			Str("node_id", d.NodeID).
+			Msg("removing stale device to unblock VIP service creation")
+
+		if err := client.Devices().Delete(ctx, d.NodeID); err != nil {
+			ss.log.Error().Err(err).
+				Str("hostname", d.Hostname).
+				Msg("failed to delete stale device")
+		}
+	}
 }
 
 // deleteVIPService deletes a VIP Service via the Tailscale API.

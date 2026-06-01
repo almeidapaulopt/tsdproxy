@@ -6,8 +6,9 @@ package tailscale
 import (
 	"strings"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	tailscale "tailscale.com/client/tailscale/v2"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 // API scope constants for Tailscale OAuth clients.

@@ -26,6 +26,27 @@ type NodeLifecycleConfig struct {
 	Retry            RetryPolicy
 }
 
+// NodeLifecycleProvider creates a NodeLifecycle, starts it, and returns the
+// lifecycle, runtime, and an optional serviceListenerFactory (non-nil for
+// services mode). It is the seam through which tests inject stubs.
+type NodeLifecycleProvider func(ctx context.Context, log zerolog.Logger, cfg NodeLifecycleConfig) (
+	lifecycle *NodeLifecycle, runtime *NodeRuntime, factory serviceListenerFactory, err error,
+)
+
+// DefaultNodeLifecycleProvider is the production NodeLifecycleProvider.
+// It creates a NodeLifecycle, starts the tsnet.Server, and returns the runtime
+// with a tsnetServerFactory wrapping the server.
+func DefaultNodeLifecycleProvider(ctx context.Context, log zerolog.Logger, cfg NodeLifecycleConfig) (
+	*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+) {
+	lc := NewNodeLifecycle(log, cfg)
+	rt, err := lc.Start(ctx)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("node lifecycle: %w", err)
+	}
+	return lc, rt, tsnetServerFactory{rt.Server}, nil
+}
+
 // NodeLifecycle manages the full lifecycle of a Tailscale node:
 // startup, status watching, shutdown, and cleanup.
 type NodeLifecycle struct {
@@ -213,5 +234,3 @@ func (nl *NodeLifecycle) GetRuntime() *NodeRuntime {
 	defer nl.mtx.RUnlock()
 	return nl.runtime
 }
-
-

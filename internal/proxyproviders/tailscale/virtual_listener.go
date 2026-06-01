@@ -13,13 +13,13 @@ import (
 // VirtualListener implements net.Listener backed by a channel.
 // The port router dispatches connections to it via Dispatch().
 type VirtualListener struct {
+	log    zerolog.Logger
 	addr   net.Addr
 	ch     chan net.Conn
 	done   chan struct{}
 	once   sync.Once
+	mu     sync.Mutex
 	closed bool
-	mu     sync.Mutex // serializes Dispatch vs Close
-	log    zerolog.Logger
 }
 
 func NewVirtualListener(addr net.Addr, log zerolog.Logger) *VirtualListener {

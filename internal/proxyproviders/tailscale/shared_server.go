@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -30,14 +29,15 @@ type portEntry struct {
 
 // SharedServerConfig holds the configuration for creating a SharedServer.
 type SharedServerConfig struct {
-	Log             zerolog.Logger
-	CertSem         *semaphore.Weighted
-	LifecycleConfig *NodeLifecycleConfig
-	Hostname        string
-	DataDir         string
-	AuthKey         string
-	ControlURL      string
-	Ephemeral       bool
+	Log               zerolog.Logger
+	CertSem           *semaphore.Weighted
+	LifecycleConfig   *NodeLifecycleConfig
+	LifecycleProvider NodeLifecycleProvider
+	Hostname          string
+	DataDir           string
+	AuthKey           string
+	ControlURL        string
+	Ephemeral         bool
 }
 
 // sharedEventSub wraps a subscriber channel with a done flag.
@@ -58,15 +58,14 @@ const (
 // sharedRuntime holds all mutable state owned exclusively by the loop goroutine.
 type sharedRuntime struct {
 	ctx          context.Context
-	subs         map[*sharedEventSub]struct{}
+	cancel       context.CancelFunc
 	tsServer     *tsnet.Server
 	lc           *local.Client
 	listeners    map[int]*portEntry
 	packetRoutes map[int]net.PacketConn
-	cancel       context.CancelFunc
-	watchDone    chan struct{}
-	bridgeDone   chan struct{}
+	subs         map[*sharedEventSub]struct{}
 	lifecycle    *NodeLifecycle
+	bridgeDone   chan struct{}
 	url          string
 	authURL      string
 	gen          int
@@ -209,34 +208,33 @@ const sharedIdleTimeout = 30 * time.Second
 // All mutable state is managed by a single event-loop goroutine.
 // Public methods are thin wrappers that send commands and wait for replies.
 type SharedServer struct {
-	log          zerolog.Logger
-	certSem      *semaphore.Weighted
-	cmds         chan sharedCmd
-	done         chan struct{}
-	lifecycleCfg *NodeLifecycleConfig
-	whoisCache   *WhoisCache
-	hostname     string
-	datadir      string
-	authKey      string
-	controlURL   string
-	closed       atomic.Bool
-	ephemeral    bool
+	log               zerolog.Logger
+	certSem           *semaphore.Weighted
+	ev                *EventLoop[sharedCmd]
+	lifecycleCfg      *NodeLifecycleConfig
+	lifecycleProvider NodeLifecycleProvider
+	whoisCache        *WhoisCache
+	hostname          string
+	datadir           string
+	authKey           string
+	controlURL        string
+	ephemeral         bool
 }
 
 // NewSharedServer creates a SharedServer and starts the event loop.
 func NewSharedServer(cfg SharedServerConfig) *SharedServer {
 	ss := &SharedServer{
-		hostname:     cfg.Hostname,
-		datadir:      cfg.DataDir,
-		authKey:      cfg.AuthKey,
-		controlURL:   cfg.ControlURL,
-		ephemeral:    cfg.Ephemeral,
-		certSem:      cfg.CertSem,
-		log:          cfg.Log.With().Str("shared_server", cfg.Hostname).Logger(),
-		cmds:         make(chan sharedCmd, 64), //nolint:mnd
-		done:         make(chan struct{}),
-		lifecycleCfg: cfg.LifecycleConfig,
-		whoisCache:   NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
+		hostname:          cfg.Hostname,
+		datadir:           cfg.DataDir,
+		authKey:           cfg.AuthKey,
+		controlURL:        cfg.ControlURL,
+		ephemeral:         cfg.Ephemeral,
+		certSem:           cfg.CertSem,
+		log:               cfg.Log.With().Str("shared_server", cfg.Hostname).Logger(),
+		ev:                NewEventLoop[sharedCmd](64), //nolint:mnd
+		lifecycleCfg:      cfg.LifecycleConfig,
+		lifecycleProvider: cfg.LifecycleProvider,
+		whoisCache:        NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}
 	go ss.loop()
 	return ss
@@ -246,48 +244,19 @@ func NewSharedServer(cfg SharedServerConfig) *SharedServer {
 // It aborts if the loop has exited or the producer's context was canceled,
 // preventing deadlock when the loop is blocked in stopRuntime.
 func (ss *SharedServer) sendProducer(ctx context.Context, cmd sharedCmd) bool {
-	if ctx == nil {
-		select {
-		case ss.cmds <- cmd:
-			return true
-		case <-ss.done:
-			return false
-		}
-	}
-	select {
-	case ss.cmds <- cmd:
-		return true
-	case <-ss.done:
-		return false
-	case <-ctx.Done():
-		return false
-	}
-}
-
-// sendPublic sends a command from a public method. Returns false if the
-// server is closed (loop has exited), preventing goroutine leaks.
-func (ss *SharedServer) sendPublic(cmd sharedCmd) bool {
-	if ss.closed.Load() {
-		return false
-	}
-	select {
-	case ss.cmds <- cmd:
-		return true
-	case <-ss.done:
-		return false
-	}
+	return ss.ev.SendProducer(ctx, cmd)
 }
 
 // loop is the core event loop. It owns all mutable state.
 func (ss *SharedServer) loop() {
-	defer close(ss.done)
+	defer ss.ev.Close()
 
 	state := sharedIdle
 	var rt *sharedRuntime // nil when idle
 	var nextGen int       // monotonic generation counter, loop-scoped
 	var idleTimer *time.Timer
 
-	for cmd := range ss.cmds {
+	for cmd := range ss.ev.Cmds() {
 		idleTimer = ss.cancelIdleTimer(cmd, idleTimer)
 
 		var stop bool
@@ -314,12 +283,8 @@ func (ss *SharedServer) scheduleIdleTimeout(state sharedState, rt *sharedRuntime
 	if state != sharedIdle || rt == nil {
 		return nil
 	}
-	capturedGen := rt.gen
-	return time.AfterFunc(sharedIdleTimeout, func() {
-		select {
-		case ss.cmds <- idleTimeoutCmd{gen: capturedGen}:
-		case <-ss.done:
-		}
+	return ss.ev.ScheduleIdleTimer(rt.gen, sharedIdleTimeout, func(g int) sharedCmd {
+		return idleTimeoutCmd{gen: g}
 	})
 }
 
@@ -411,7 +376,6 @@ func (ss *SharedServer) handleClose(c closeCmd, _ sharedState, rt *sharedRuntime
 	if rt != nil {
 		ss.stopRuntime(rt)
 	}
-	ss.closed.Store(true)
 	c.reply <- nil
 }
 
@@ -531,22 +495,24 @@ func (ss *SharedServer) handleUnsubscribe(c unsubscribeCmd, rt *sharedRuntime) {
 // startRuntime creates a new tsnet.Server, starts it, and begins watching status.
 // If an existing subscriber-only runtime is passed, its subscribers are transferred.
 func (ss *SharedServer) startRuntime(prevRT *sharedRuntime, gen int) *sharedRuntime {
-	if ss.lifecycleCfg != nil {
-		return ss.startRuntimeWithLifecycle(prevRT, gen)
-	}
-	return ss.startRuntimeLegacy(prevRT, gen)
+	return ss.startRuntimeWithLifecycle(prevRT, gen)
 }
 
 // startRuntimeWithLifecycle uses NodeLifecycle for tsnet startup, state management,
 // auth resolution, and device reconciliation. A bridge goroutine forwards lifecycle
 // events to the SharedServer event loop.
 func (ss *SharedServer) startRuntimeWithLifecycle(prevRT *sharedRuntime, gen int) *sharedRuntime {
-	lifecycle := NewNodeLifecycle(
-		ss.log.With().Str("component", "lifecycle").Logger(),
-		*ss.lifecycleCfg,
-	)
+	if ss.lifecycleCfg == nil {
+		ss.log.Error().Msg("startRuntimeWithLifecycle called with nil lifecycleCfg")
+		return nil
+	}
 
-	nrt, err := lifecycle.Start(context.Background())
+	provider := ss.lifecycleProvider
+	if provider == nil {
+		provider = DefaultNodeLifecycleProvider
+	}
+
+	lifecycle, nrt, _, err := provider(context.Background(), ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
 		ss.log.Error().Err(err).Msg("failed to start shared tsnet server via lifecycle")
 		return nil
@@ -592,84 +558,6 @@ func (ss *SharedServer) bridgeLifecycleEvents(ctx context.Context, gen int, even
 			authURL: evt.AuthURL,
 		})
 	}
-}
-
-// startRuntimeLegacy is the startup path for tests that inject a listenerFactory
-// without a full NodeLifecycle. Production always uses startRuntimeWithLifecycle.
-func (ss *SharedServer) startRuntimeLegacy(prevRT *sharedRuntime, gen int) *sharedRuntime {
-	controlURL := ss.controlURL
-	if controlURL == "" {
-		controlURL = model.DefaultTailscaleControlURL
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	tsServer := &tsnet.Server{
-		Hostname:   ss.hostname,
-		AuthKey:    ss.authKey,
-		Dir:        ss.datadir,
-		Ephemeral:  ss.ephemeral,
-		ControlURL: controlURL,
-		UserLogf:   func(format string, args ...any) { ss.log.Info().Msgf(format, args...) },
-		Logf:       func(format string, args ...any) { ss.log.Trace().Msgf(format, args...) },
-	}
-
-	if err := tsServer.Start(); err != nil {
-		ss.log.Error().Err(err).Msg("failed to start tsnet server")
-		cancel()
-		return nil
-	}
-
-	lc, err := tsServer.LocalClient()
-	if err != nil {
-		ss.log.Error().Err(err).Msg("failed to get local client")
-		tsServer.Close()
-		cancel()
-		return nil
-	}
-
-	// Transfer subscribers from previous runtime if any.
-	subs := make(map[*sharedEventSub]struct{})
-	if prevRT != nil {
-		for sub := range prevRT.subs {
-			subs[sub] = struct{}{}
-		}
-	}
-
-	rt := &sharedRuntime{
-		gen:          gen,
-		ctx:          ctx,
-		cancel:       cancel,
-		tsServer:     tsServer,
-		lc:           lc,
-		listeners:    make(map[int]*portEntry),
-		packetRoutes: make(map[int]net.PacketConn),
-		subs:         subs,
-	}
-
-	// Start watcher.
-	watchDone := make(chan struct{})
-	rt.watchDone = watchDone
-
-	watcher := NewStatusWatcher(StatusWatcherConfig{
-		Log: ss.log.With().Str("component", "status_watcher").Logger(),
-		OnEvent: func(evt NodeEvent) {
-			ss.sendProducer(ctx, watchUpdateCmd{
-				gen:     gen,
-				evt:     model.ProxyEvent{Status: evt.Status},
-				url:     evt.URL,
-				authURL: evt.AuthURL,
-			})
-		},
-		OnDone: func() {},
-	})
-
-	go func() {
-		defer close(watchDone)
-		watcher.Watch(ctx, lc)
-	}()
-
-	return rt
 }
 
 // registerRoute registers a domain on the given port, creating the port listener if needed.
@@ -828,10 +716,6 @@ func (ss *SharedServer) stopRuntime(rt *sharedRuntime) {
 		}
 	}
 
-	if rt.watchDone != nil {
-		<-rt.watchDone
-	}
-
 	if rt.bridgeDone != nil {
 		<-rt.bridgeDone
 	}
@@ -852,27 +736,10 @@ func (ss *SharedServer) getCertificates(ctx context.Context, gen int, lc *local.
 
 // Public methods — thin wrappers that send a command and wait for the reply.
 
-// sendAndWait sends a command via the event loop and waits for a reply.
-// Returns the value from the reply channel and true, or zero value and false
-// if the server is closed.
-func sendAndWait[T any](ss *SharedServer, cmd sharedCmd, reply chan T) (T, bool) {
-	if !ss.sendPublic(cmd) {
-		var zero T
-		return zero, false
-	}
-	select {
-	case v := <-reply:
-		return v, true
-	case <-ss.done:
-		var zero T
-		return zero, false
-	}
-}
-
 // Acquire registers a domain on the given port, starting the tsnet server if needed.
 func (ss *SharedServer) Acquire(domain string, port int, protocol string) (*VirtualListener, net.Listener, error) {
 	cmd := acquireCmd{domain: domain, port: port, protocol: protocol, reply: make(chan acquireResult, 1)}
-	result, ok := sendAndWait(ss, cmd, cmd.reply)
+	result, ok := SendAndWait[sharedCmd, acquireResult](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return nil, nil, errors.New("shared server closed")
 	}
@@ -881,12 +748,12 @@ func (ss *SharedServer) Acquire(domain string, port int, protocol string) (*Virt
 
 func (ss *SharedServer) Release(domain string, port int, protocol string) {
 	cmd := releaseCmd{domain: domain, port: port, protocol: protocol, reply: make(chan struct{}, 1)}
-	sendAndWait(ss, cmd, cmd.reply)
+	SendAndWait[sharedCmd, struct{}](ss.ev, cmd, cmd.reply)
 }
 
 func (ss *SharedServer) AcquirePacket(domain string, port int) (net.PacketConn, error) {
 	cmd := acquirePacketCmd{domain: domain, port: port, reply: make(chan acquirePacketResult, 1)}
-	result, ok := sendAndWait(ss, cmd, cmd.reply)
+	result, ok := SendAndWait[sharedCmd, acquirePacketResult](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return nil, errors.New("shared server closed")
 	}
@@ -895,22 +762,22 @@ func (ss *SharedServer) AcquirePacket(domain string, port int) (net.PacketConn, 
 
 func (ss *SharedServer) ReleasePacket(domain string, port int) {
 	cmd := releasePacketCmd{domain: domain, port: port, reply: make(chan struct{}, 1)}
-	sendAndWait(ss, cmd, cmd.reply)
+	SendAndWait[sharedCmd, struct{}](ss.ev, cmd, cmd.reply)
 }
 
 // Close shuts down the shared server permanently.
 func (ss *SharedServer) Close() {
-	if ss.closed.Load() {
+	if ss.ev.IsClosed() {
 		return
 	}
 	cmd := closeCmd{reply: make(chan error, 1)}
-	_, _ = sendAndWait(ss, cmd, cmd.reply)
+	_, _ = SendAndWait[sharedCmd, error](ss.ev, cmd, cmd.reply)
 }
 
 // GetURL returns the current Tailscale DNS name, or empty string if not running.
 func (ss *SharedServer) GetURL() string {
 	cmd := getURLCmd{reply: make(chan string, 1)}
-	v, ok := sendAndWait(ss, cmd, cmd.reply)
+	v, ok := SendAndWait[sharedCmd, string](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return ""
 	}
@@ -920,7 +787,7 @@ func (ss *SharedServer) GetURL() string {
 // GetAuthURL returns the current auth URL, or empty string if not needed.
 func (ss *SharedServer) GetAuthURL() string {
 	cmd := getAuthURLCmd{reply: make(chan string, 1)}
-	v, ok := sendAndWait(ss, cmd, cmd.reply)
+	v, ok := SendAndWait[sharedCmd, string](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return ""
 	}
@@ -930,7 +797,7 @@ func (ss *SharedServer) GetAuthURL() string {
 // GetLocalClient returns the Tailscale local client, or nil if not running.
 func (ss *SharedServer) GetLocalClient() *local.Client {
 	cmd := getLocalClientCmd{reply: make(chan *local.Client, 1)}
-	lc, ok := sendAndWait(ss, cmd, cmd.reply)
+	lc, ok := SendAndWait[sharedCmd, *local.Client](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return nil
 	}
@@ -941,7 +808,7 @@ func (ss *SharedServer) GetLocalClient() *local.Client {
 // shared server. Call UnsubscribeEvents to clean up.
 func (ss *SharedServer) SubscribeEvents() chan model.ProxyEvent {
 	cmd := subscribeCmd{reply: make(chan chan model.ProxyEvent, 1)}
-	ch, ok := sendAndWait(ss, cmd, cmd.reply)
+	ch, ok := SendAndWait[sharedCmd, chan model.ProxyEvent](ss.ev, cmd, cmd.reply)
 	if !ok {
 		return nil
 	}
@@ -951,7 +818,7 @@ func (ss *SharedServer) SubscribeEvents() chan model.ProxyEvent {
 // UnsubscribeEvents removes an event subscription.
 func (ss *SharedServer) UnsubscribeEvents(ch chan model.ProxyEvent) {
 	cmd := unsubscribeCmd{ch: ch, reply: make(chan struct{}, 1)}
-	sendAndWait(ss, cmd, cmd.reply)
+	SendAndWait[sharedCmd, struct{}](ss.ev, cmd, cmd.reply)
 }
 
 // Whois returns identity information for the request's remote address.
