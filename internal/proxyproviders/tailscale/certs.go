@@ -55,9 +55,16 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 		}
 
 		log.Info().Int("attempt", attempt+1).Msg("Generating TLS certificate")
-		_, _, err := lc.CertPair(certCtx, domain)
-		sem.Release(1)
-		cancel()
+		// Use a closure to guarantee sem.Release(1) on all exit paths,
+		// including panics from lc.CertPair(). Without this defer, a
+		// panic would permanently leak the semaphore token, eventually
+		// deadlocking all concurrent cert acquisition.
+		err := func() error {
+			defer sem.Release(1)
+			defer cancel()
+			_, _, e := lc.CertPair(certCtx, domain)
+			return e
+		}()
 
 		if err == nil {
 			log.Info().Msg("TLS certificate generated")

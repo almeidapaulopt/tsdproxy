@@ -199,6 +199,12 @@ func resolvePreventDuplicates(value, clientID string, clientSecret secretstring.
 
 func (c *Client) Close() {
 	c.providerCancel()
+	if c.sharedServer != nil {
+		c.sharedServer.Close()
+	}
+	if c.servicesServer != nil {
+		c.servicesServer.Close()
+	}
 }
 
 // ResolveAuthKey resolves the authentication key for the given config.

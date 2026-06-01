@@ -140,7 +140,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 		tsServer.Logf = func(format string, args ...any) { nl.log.Info().Msgf(format, args...) }
 	}
 
-	if startErr := nl.startWithRetry(tsServer); startErr != nil {
+	if startErr := nl.startWithRetry(ctx, tsServer); startErr != nil {
 		tsServer.Close()
 		return nil, fmt.Errorf("node lifecycle: start tsnet: %w", startErr)
 	}
@@ -177,7 +177,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 	return rt, nil
 }
 
-func (nl *NodeLifecycle) startWithRetry(tsServer *tsnet.Server) error {
+func (nl *NodeLifecycle) startWithRetry(ctx context.Context, tsServer *tsnet.Server) error {
 	if nl.retry.MaxAttempts <= 0 {
 		return tsServer.Start()
 	}
@@ -202,7 +202,11 @@ func (nl *NodeLifecycle) startWithRetry(tsServer *tsnet.Server) error {
 		if backoff > nl.retry.MaxBackoff {
 			backoff = nl.retry.MaxBackoff
 		}
-		time.Sleep(backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
 	}
 	return fmt.Errorf("tsnet start failed after %d attempts: %w", nl.retry.MaxAttempts, lastErr)
 }
