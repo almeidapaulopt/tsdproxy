@@ -35,7 +35,7 @@ func (c *config) generateDockerConfig() {
 	docker := new(DockerTargetProviderConfig)
 	// set DockerConfig defaults
 	if err := defaults.Set(docker); err != nil {
-		fmt.Printf("Error loading defaults: %v", err)
+		fmt.Fprintf(os.Stderr, "warning: defaults: %v\n", err)
 	}
 	if os.Getenv("DOCKER_HOST") != "" {
 		docker.Host = os.Getenv("DOCKER_HOST")
@@ -59,7 +59,7 @@ func (c *config) generateTailscaleConfig() {
 	ts := new(TailscaleServerConfig)
 	// set TailscaleConfig defaults
 	if err := defaults.Set(ts); err != nil {
-		fmt.Printf("Error loading defaults: %v", err)
+		fmt.Fprintf(os.Stderr, "warning: defaults: %v\n", err)
 	}
 
 	authKeyFile := os.Getenv("TSDPROXY_AUTHKEYFILE")
@@ -71,7 +71,7 @@ func (c *config) generateTailscaleConfig() {
 		var err error
 		authKey, err = c.getAuthKeyFromFile(authKeyFile)
 		if err != nil {
-			fmt.Println("Error loading auth key from file")
+			fmt.Fprintf(os.Stderr, "warning: error loading auth key from file: %v\n", err)
 		}
 	}
 

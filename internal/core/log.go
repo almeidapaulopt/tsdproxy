@@ -22,8 +22,6 @@ import (
 var ErrHijackNotSupported = errors.New("hijack not supported")
 
 func NewLog() zerolog.Logger {
-	println("Setting up logger")
-
 	var logger zerolog.Logger
 
 	if config.Config.Log.JSON {

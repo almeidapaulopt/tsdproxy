@@ -99,8 +99,7 @@ func InitializeApp() (*WebApp, error) {
 }
 
 func main() {
-	println("Initializing server")
-	println("Version", core.GetVersion())
+	fmt.Fprintf(os.Stderr, "Initializing server\nVersion %s\n", core.GetVersion())
 
 	app, err := InitializeApp()
 	if err != nil {
