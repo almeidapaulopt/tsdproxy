@@ -153,7 +153,7 @@ func classifyState(backendState string, authURL string, dnsName string) NodeEven
 	switch backendState {
 	case backendStateNeedsLogin:
 		if authURL == "" {
-			return NodeEvent{Status: model.ProxyStatusError, ErrorMessage: "needs reauthentication: no auth URL available, the auth key may be invalid or expired"}
+			return NodeEvent{Status: model.ProxyStatusAuthFailed, ErrorMessage: "needs reauthentication: no auth URL available, the auth key may be invalid or expired"}
 		}
 		return NodeEvent{Status: model.ProxyStatusAuthenticating, AuthURL: authURL}
 	case backendStateNoState:

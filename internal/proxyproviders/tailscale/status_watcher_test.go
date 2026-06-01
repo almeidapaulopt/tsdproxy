@@ -28,8 +28,8 @@ func TestClassifyState_NeedsLogin_WithAuthURL(t *testing.T) {
 
 func TestClassifyState_NeedsLogin_NoAuthURL(t *testing.T) {
 	evt := classifyState("NeedsLogin", "", "")
-	if evt.Status != model.ProxyStatusError {
-		t.Fatalf("expected Error, got %v", evt.Status)
+	if evt.Status != model.ProxyStatusAuthFailed {
+		t.Fatalf("expected AuthFailed, got %v", evt.Status)
 	}
 	if evt.ErrorMessage == "" {
 		t.Fatalf("expected error message for NeedsLogin without auth URL")
@@ -273,8 +273,8 @@ func TestWatch_NeedsLogin_NoAuthURL(t *testing.T) {
 
 	select {
 	case evt := <-events:
-		if evt.Status != model.ProxyStatusError {
-			t.Fatalf("expected Error, got %v", evt.Status)
+		if evt.Status != model.ProxyStatusAuthFailed {
+			t.Fatalf("expected AuthFailed, got %v", evt.Status)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no event received")
@@ -285,6 +285,27 @@ func TestWatch_NeedsLogin_NoAuthURL(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("onDone not called")
+	}
+}
+
+func TestClassifyState_AuthFailed(t *testing.T) {
+	evt := classifyState("NeedsLogin", "", "")
+	if evt.Status != model.ProxyStatusAuthFailed {
+		t.Fatalf("expected AuthFailed, got %v", evt.Status)
+	}
+}
+
+func TestProxyStatus_DeviceConflict_String(t *testing.T) {
+	ps := model.ProxyStatusDeviceConflict
+	if ps.String() != "DeviceConflict" {
+		t.Fatalf("expected DeviceConflict string, got %q", ps.String())
+	}
+}
+
+func TestProxyStatus_Reconciling_String(t *testing.T) {
+	ps := model.ProxyStatusReconciling
+	if ps.String() != "Reconciling" {
+		t.Fatalf("expected Reconciling string, got %q", ps.String())
 	}
 }
 
