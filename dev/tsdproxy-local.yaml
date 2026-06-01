@@ -16,6 +16,7 @@ tailscale:
     default:
       controlUrl: https://controlplane.tailscale.com
       tags: tag:example
+      preventDuplicates: true
       # authKeyFile: dev/KEY_FILE
     services:
       services: true
@@ -23,6 +24,7 @@ tailscale:
       tags: tag:example
       controlUrl: https://controlplane.tailscale.com
       autoApproveDevices: true
+      preventDuplicates: true
       # OAuth credentials provided via env vars (avoids hardcoding in YAML):
       #   TSDPROXY_TAILSCALE_SERVICES_CLIENTID
       #   TSDPROXY_TAILSCALE_SERVICES_CLIENTSECRET
