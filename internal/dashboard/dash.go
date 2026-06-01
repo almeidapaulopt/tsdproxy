@@ -414,7 +414,7 @@ func formatHealthStatus(health proxymanager.HealthResult) (string, string) {
 func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool, isAdmin bool) pages.ProxyData {
 	status := p.GetStatus()
 	proxyURL := p.GetURL()
-	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusAuthFailed {
 		proxyURL = p.GetAuthURL()
 	}
 
@@ -436,11 +436,14 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 	ports := buildPortEntries(p.Config.Ports, hostname)
 
 	authURL := ""
-	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusAuthFailed {
 		authURL = p.GetAuthURL()
 	}
 
-	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusRunning
+	enabled := status == model.ProxyStatusAuthenticating ||
+		status == model.ProxyStatusAwaitingApproval ||
+		status == model.ProxyStatusAuthFailed ||
+		status == model.ProxyStatusRunning
 
 	healthStatus, healthLatency := formatHealthStatus(p.GetHealth())
 

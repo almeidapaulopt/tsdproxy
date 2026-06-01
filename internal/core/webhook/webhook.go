@@ -33,12 +33,15 @@ const (
 	fieldName       = "name"
 	fieldValue      = "value"
 
-	webhookTimeout    = 10 * time.Second
-	webhookMaxBody    = 512
-	webhookMaxStatus  = 300
-	discordColorGreen = 5763719
-	discordColorRed   = 15548997
-	discordColorGrey  = 5766978
+	webhookTimeout     = 10 * time.Second
+	webhookMaxBody     = 512
+	webhookMaxStatus   = 300
+	discordColorGreen  = 5763719
+	discordColorRed    = 15548997
+	discordColorGrey   = 5766978
+	discordColorYellow = 16426522
+	discordColorBlue   = 3447003
+	discordColorOrange = 16098851
 )
 
 type (
@@ -261,8 +264,14 @@ func discordColor(status string) int {
 	switch strings.ToLower(status) {
 	case "running":
 		return discordColorGreen
-	case "error", "stopped":
+	case "error", "stopped", "stopping", "authfailed":
 		return discordColorRed
+	case "authenticating", "awaitingapproval", "paused":
+		return discordColorOrange
+	case "deviceconflict":
+		return discordColorYellow
+	case "reconciling", "initializing", "starting":
+		return discordColorBlue
 	default:
 		return discordColorGrey
 	}

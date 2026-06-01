@@ -201,7 +201,7 @@ func (a *API) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
 	status := p.GetStatus()
 
 	url := p.GetURL()
-	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusAuthFailed {
 		url = p.GetAuthURL()
 	}
 

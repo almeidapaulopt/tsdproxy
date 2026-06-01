@@ -39,7 +39,16 @@ var validViewValues = map[string]bool{
 }
 
 var validFilterStatusValues = map[string]bool{
-	filterAll: true, "Running": true, "Stopped": true, "Error": true, "Paused": true, "Authenticating": true, "AwaitingApproval": true,
+	filterAll:          true,
+	"Running":          true,
+	"Stopped":          true,
+	"Error":            true,
+	"Paused":           true,
+	"Authenticating":   true,
+	"AwaitingApproval": true,
+	"AuthFailed":       true,
+	"DeviceConflict":   true,
+	"Reconciling":      true,
 }
 
 var validFilterHealthValues = map[string]bool{
