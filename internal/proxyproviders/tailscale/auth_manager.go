@@ -78,7 +78,13 @@ func (m *AuthManager) ResolveKey(ctx context.Context, cfg AuthConfig, tags strin
 
 // GenerateOAuthKey creates a fresh one-time OAuth auth key.
 // Returns empty string if OAuth is not configured or tags are empty.
-func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string, error) {
+func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (authKey string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in OAuth key generation: the Tailscale API request failed with no response. This may indicate a network issue or misconfigured OAuth credentials: %v", r)
+		}
+	}()
+
 	cleanedTags := cleanTags(tags)
 	if len(cleanedTags) == 0 {
 		m.log.Warn().Msg("OAuth without tags: cannot create auth key, interactive login will be required")
@@ -101,17 +107,17 @@ func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string
 		Description:  userAgent,
 	}
 
-	authkey, err := tsclient.Keys().CreateAuthKey(ctx, ckr)
-	if err != nil {
-		if IsAuthError(err) {
+	authkey, createErr := tsclient.Keys().CreateAuthKey(ctx, ckr)
+	if createErr != nil {
+		if IsAuthError(createErr) {
 			return "", fmt.Errorf(
 				"OAuth token rejected for tags %v — ensure the tag is assigned to your OAuth client "+
 					"in the Tailscale admin console (Access Controls → OAuth clients) and listed in ACL tagOwners. "+
 					"Original error: %w",
-				capabilities.Devices.Create.Tags, err,
+				capabilities.Devices.Create.Tags, createErr,
 			)
 		}
-		return "", fmt.Errorf("unable to get OAuth token: %w", err)
+		return "", fmt.Errorf("unable to get OAuth token: %w", createErr)
 	}
 
 	return authkey.Key, nil
