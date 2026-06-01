@@ -113,18 +113,28 @@ type (
 		DataDir   string                            `validate:"dir" default:"/data/" yaml:"dataDir"`
 	}
 
+	// AuthRetryConfig stores the authentication retry policy configuration.
+	AuthRetryConfig struct {
+		InitialBackoff string `default:"2s" yaml:"initialBackoff"`
+		MaxBackoff     string `default:"30s" yaml:"maxBackoff"`
+		MaxAttempts    int    `default:"3" validate:"min=1,max=10" yaml:"maxAttempts"`
+		Enabled        bool   `default:"true" yaml:"enabled"`
+	}
+
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
 		AuthKey            secretstring.SecretString `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
 		AuthKeyFile        string                    `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
-		ClientID           string                    `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
+		ReconcileInterval  string                    `default:"0" yaml:"reconcileInterval"`
 		ClientSecret       secretstring.SecretString `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
 		ClientSecretFile   string                    `default:"" validate:"omitempty" yaml:"clientSecretFile,omitempty"`
 		Tags               string                    `default:"" validate:"omitempty" yaml:"tags,omitempty"`
 		ControlURL         string                    `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
+		ClientID           string                    `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
 		Hostname           string                    `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
+		PreventDuplicates  string                    `default:"false" yaml:"preventDuplicates"`
+		AuthRetry          AuthRetryConfig           `yaml:"authRetry"`
 		MaxCertConcurrency int64                     `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
-		PreventDuplicates  bool                      `default:"false" yaml:"preventDuplicates"`
 		Shared             bool                      `default:"false" yaml:"shared"`
 		Services           bool                      `default:"false" yaml:"services"`
 		AutoApproveDevices bool                      `default:"false" yaml:"autoApproveDevices"`
