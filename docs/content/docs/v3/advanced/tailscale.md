@@ -445,6 +445,39 @@ services:
 - **Mutually exclusive with `shared`** — a provider cannot use both `shared: true`
   and `services: true`
 
+### Auto-remove conflicting devices
+
+When switching from per-proxy or shared mode to services mode, existing
+Tailscale devices may share hostnames with the VIP services being created.
+This causes the Tailscale API to return a `409 "name is in use but is not a
+service"` error, preventing the proxy from starting.
+
+The `autoRemoveConflicts` option (default: `false`) enables automatic
+removal of conflicting devices when this error is encountered. After removing
+the device, TSDProxy retries the VIP service creation.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+tailscale:
+  providers:
+    default:
+      clientId: "your_client_id"
+      clientSecret: "your_client_secret"
+      tags: "tag:example"
+      services: true
+      hostname: "shared-services"
+      autoRemoveConflicts: true
+```
+
+> [!Warning]
+> **This deletes devices from your tailnet.** When a 409 conflict is detected,
+> TSDProxy will delete the conflicting device regardless of whether it is
+> online or offline, and regardless of its tags. Only enable this if you
+> understand the implications.
+
+> [!TIP]
+> This option requires OAuth credentials (`clientId` + `clientSecret`) to
+> access the Tailscale device API.
+
 ### When to use services mode
 
 - You want fewer Tailscale machines without managing external DNS
