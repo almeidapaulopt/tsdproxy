@@ -35,7 +35,7 @@ type ServiceProxy struct {
 	started     bool
 }
 
-func (p *ServiceProxy) Start(_ context.Context) error {
+func (p *ServiceProxy) Start(ctx context.Context) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -46,6 +46,12 @@ func (p *ServiceProxy) Start(_ context.Context) error {
 	p.listeners = make(map[string]*tsnet.ServiceListener)
 
 	for portName, portCfg := range p.config.Ports {
+		select {
+		case <-ctx.Done():
+			p.rollbackAcquired()
+			return ctx.Err()
+		default:
+		}
 		var (
 			listener *tsnet.ServiceListener
 			err      error

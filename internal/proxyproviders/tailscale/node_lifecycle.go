@@ -141,6 +141,8 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 		return nil, fmt.Errorf("node lifecycle: get local client: %w", err)
 	}
 
+	// Runtime context must be independent of the startup context so the
+	// StatusWatcher and bridge goroutines stay alive after startup completes.
 	rtCtx, cancel := context.WithCancel(context.Background())
 
 	rt := NewNodeRuntime(rtCtx, tsServer, lc, cancel)

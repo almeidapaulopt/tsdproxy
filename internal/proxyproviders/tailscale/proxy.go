@@ -89,16 +89,15 @@ func (p *Proxy) GetLocalClient() *local.Client {
 
 // Close method implements proxyconfig.Proxy Close method.
 func (p *Proxy) Close() error {
-	p.mtx.RLock()
-	wasStarted := p.started
-	p.mtx.RUnlock()
-
-	if !wasStarted {
+	p.mtx.Lock()
+	if !p.started {
+		p.mtx.Unlock()
 		p.closeOnce.Do(func() {
 			close(p.events)
 		})
 		return nil
 	}
+	p.mtx.Unlock()
 
 	err := p.lifecycle.Close()
 
@@ -106,6 +105,10 @@ func (p *Proxy) Close() error {
 	if p.bridgeDone != nil {
 		<-p.bridgeDone
 	}
+
+	p.mtx.Lock()
+	p.started = false
+	p.mtx.Unlock()
 
 	p.closeOnce.Do(func() {
 		close(p.events)

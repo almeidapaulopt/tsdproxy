@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -88,7 +89,12 @@ func (r *PortRouter) Serve(l net.Listener) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			return
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			r.log.Warn().Err(err).Msg("port router: accept error, retrying")
+			time.Sleep(time.Second)
+			continue
 		}
 		go r.handleConn(conn)
 	}

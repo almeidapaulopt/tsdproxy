@@ -96,6 +96,7 @@ type servicesRuntime struct {
 	bridgeDone chan struct{}
 	refCount   int
 	gen        int
+	authURL    string
 }
 
 // Command types for the state machine.
@@ -163,12 +164,12 @@ type ServicesServer struct {
 	lifecycleProvider  NodeLifecycleProvider
 	ev                 *EventLoop[servicesCmd]
 	whoisCache         *WhoisCache
-	controlURL         string
-	datadir            string
 	hostname           string
+	datadir            string
+	controlURL         string
 	tags               string
 	authKey            string
-	authURL            string
+	authURL            string // fallback for pre-runtime authURL events
 	ephemeral          bool
 	autoApproveDevices bool
 }
@@ -527,7 +528,9 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 		provider = DefaultNodeLifecycleProvider
 	}
 
-	lifecycle, nodeRt, svcFactory, err := provider(context.Background(), ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
+	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*3)
+	defer startCancel()
+	lifecycle, nodeRt, svcFactory, err := provider(startCtx, ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
 		ss.log.Error().Err(err).Msg("failed to start services tsnet server via lifecycle")
 		return nil
@@ -540,6 +543,8 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 	if svcFactory == nil {
 		if nodeRt.Server == nil {
 			ss.log.Error().Msg("lifecycle provider returned nil both factory and server")
+			// Clean up the started lifecycle to avoid goroutine/resource leaks.
+			lifecycle.Close()
 			return nil
 		}
 		svcFactory = tsnetServerFactory{nodeRt.Server}
@@ -610,13 +615,20 @@ func (ss *ServicesServer) bridgeLifecycleEvents(ctx context.Context, lifecycle *
 	}
 }
 
-func (ss *ServicesServer) handleWatchUpdate(c servicesWatchUpdateCmd, _ *servicesRuntime) {
+func (ss *ServicesServer) handleWatchUpdate(c servicesWatchUpdateCmd, rt *servicesRuntime) {
 	if c.authURL != "" {
 		ss.authURL = c.authURL
+		if rt != nil {
+			rt.authURL = c.authURL
+		}
 	}
 }
 
-func (ss *ServicesServer) handleGetAuthURL(c servicesGetAuthURLCmd, _ *servicesRuntime) {
+func (ss *ServicesServer) handleGetAuthURL(c servicesGetAuthURLCmd, rt *servicesRuntime) {
+	if rt != nil && rt.authURL != "" {
+		c.reply <- rt.authURL
+		return
+	}
 	c.reply <- ss.authURL
 }
 
@@ -710,48 +722,7 @@ func (ss *ServicesServer) reconcileServiceHostname(serviceName string) {
 		return
 	}
 
-	client := ss.getAPIClient()
-	if client == nil {
-		return
-	}
-
-	cleanedTags := cleanTags(ss.tags)
-	if len(cleanedTags) == 0 {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
-	defer cancel()
-
-	devices, err := client.Devices().List(ctx, tailscale.WithFilter("tags", []string{cleanedTags[0]}))
-	if err != nil {
-		ss.log.Warn().Err(err).Msg("failed to list tailnet devices for service hostname cleanup")
-		return
-	}
-
-	for _, d := range devices {
-		if d.Hostname != hostname {
-			continue
-		}
-		if d.ConnectedToControl {
-			ss.log.Warn().
-				Str("hostname", d.Hostname).
-				Str("node_id", d.NodeID).
-				Msg("device with same hostname as VIP service is online, skipping cleanup")
-			continue
-		}
-
-		ss.log.Info().
-			Str("hostname", d.Hostname).
-			Str("node_id", d.NodeID).
-			Msg("removing stale device to unblock VIP service creation")
-
-		if err := client.Devices().Delete(ctx, d.NodeID); err != nil {
-			ss.log.Error().Err(err).
-				Str("hostname", d.Hostname).
-				Msg("failed to delete stale device")
-		}
-	}
+	ss.log.Debug().Str("service", serviceName).Msg("device reconciler not available, skipping hostname cleanup")
 }
 
 // deleteVIPService deletes a VIP Service via the Tailscale API.

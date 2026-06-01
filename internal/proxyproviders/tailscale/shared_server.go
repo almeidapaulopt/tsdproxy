@@ -512,7 +512,9 @@ func (ss *SharedServer) startRuntimeWithLifecycle(prevRT *sharedRuntime, gen int
 		provider = DefaultNodeLifecycleProvider
 	}
 
-	lifecycle, nrt, _, err := provider(context.Background(), ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
+	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*3)
+	defer startCancel()
+	lifecycle, nrt, _, err := provider(startCtx, ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
 		ss.log.Error().Err(err).Msg("failed to start shared tsnet server via lifecycle")
 		return nil

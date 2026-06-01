@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,15 @@ func NewWhoisCache(ttl time.Duration, maxEntries ...int) *WhoisCache {
 	}
 }
 
+func (c *WhoisCache) storeEntry(key string, entry *whoisCacheEntry) {
+	c.mu.Lock()
+	c.entries[key] = entry
+	if c.maxEntries > 0 && len(c.entries) > c.maxEntries {
+		c.evict()
+	}
+	c.mu.Unlock()
+}
+
 // Lookup resolves the Whois identity for ip. On cache hit the result is
 // returned immediately. On cache miss, singleflight ensures that only one
 // goroutine calls resolve — all others wait and share the result. The
@@ -69,21 +79,15 @@ func (c *WhoisCache) Lookup(ip string, resolve func() (model.Whois, error)) (mod
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
+		ttl := c.ttl
 		if who.ID == "" {
-			c.mu.Lock()
-			c.entries[key] = &whoisCacheEntry{negative: true, expiresAt: time.Now().Add(whoisNegativeTTL)}
-			if c.maxEntries > 0 && len(c.entries) > c.maxEntries {
-				c.evict()
-			}
-			c.mu.Unlock()
-			return who, nil
+			ttl = whoisNegativeTTL
 		}
-		c.mu.Lock()
-		c.entries[key] = &whoisCacheEntry{who: who, expiresAt: time.Now().Add(c.ttl)}
-		if c.maxEntries > 0 && len(c.entries) > c.maxEntries {
-			c.evict()
-		}
-		c.mu.Unlock()
+		c.storeEntry(key, &whoisCacheEntry{
+			who:       who,
+			expiresAt: time.Now().Add(ttl),
+			negative:  who.ID == "",
+		})
 		return who, nil
 	})
 	if err != nil {
@@ -119,7 +123,7 @@ func (c *WhoisCache) evict() {
 // the normalized IP string. It trims whitespace and strips any port
 // component. Returns empty string if the input cannot be parsed.
 func NormalizeIP(addr string) string {
-	addr = trim(addr)
+	addr = strings.TrimSpace(addr)
 
 	// Try splitting host:port first (handles "1.2.3.4:443" and "[::1]:443").
 	host, _, err := net.SplitHostPort(addr)
@@ -136,14 +140,4 @@ func NormalizeIP(addr string) string {
 	}
 
 	return ""
-}
-
-func trim(s string) string {
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {
-		s = s[1:]
-	}
-	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
-		s = s[:len(s)-1]
-	}
-	return s
 }

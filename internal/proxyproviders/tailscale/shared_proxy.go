@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -41,7 +42,7 @@ type SharedProxy struct {
 	started         bool
 }
 
-func (p *SharedProxy) Start(_ context.Context) error {
+func (p *SharedProxy) Start(ctx context.Context) error {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -53,6 +54,12 @@ func (p *SharedProxy) Start(_ context.Context) error {
 	p.directListeners = make(map[string]net.Listener)
 
 	for portName, portCfg := range p.config.Ports {
+		select {
+		case <-ctx.Done():
+			p.rollbackAcquired()
+			return ctx.Err()
+		default:
+		}
 		switch portCfg.ProxyProtocol {
 		case model.ProtoHTTPS, model.ProtoHTTP:
 			vl, _, err := p.shared.Acquire(p.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
@@ -158,6 +165,9 @@ func (p *SharedProxy) GetListener(port string) (net.Listener, error) {
 		return tls.NewListener(vl, &tls.Config{
 			MinVersion: tls.VersionTLS12,
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				if hello.ServerName != "" && hello.ServerName != p.domain {
+					return nil, fmt.Errorf("SNI mismatch: got %q, want %q", hello.ServerName, p.domain)
+				}
 				lc := p.shared.GetLocalClient()
 				if lc == nil {
 					return nil, errors.New("shared server local client not available")

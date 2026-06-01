@@ -121,7 +121,9 @@ func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
 	}
 
 	authMgr := NewAuthManager(c.log, c.apiFactory, cfg.Tailscale.Ephemeral)
-	authKey, err := authMgr.ResolveKey(context.Background(), AuthConfig{
+	resolveCtx, resolveCancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer resolveCancel()
+	authKey, err := authMgr.ResolveKey(resolveCtx, AuthConfig{
 		ResolvedAuthKey: cfg.Tailscale.ResolvedAuthKey,
 		ProxyAuthKey:    cfg.Tailscale.AuthKey,
 		ProviderAuthKey: c.AuthKey,
