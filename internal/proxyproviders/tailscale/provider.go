@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
@@ -24,18 +25,24 @@ import (
 // Client struct implements proxyprovider for tailscale
 type Client struct {
 	log               zerolog.Logger
+	providerCtx       context.Context
 	certSem           *semaphore.Weighted
 	sharedServer      *SharedServer
 	servicesServer    *ServicesServer
 	apiFactory        *APIClientFactory
 	stateMgr          *StateManager
 	deviceReconciler  *DeviceReconciler
-	controlURL        string
-	AuthKey           secretstring.SecretString
-	datadir           string
+	providerCancel    context.CancelFunc
 	tags              string
 	Hostname          string
 	sharedHostname    string
+	datadir           string
+	AuthKey           secretstring.SecretString
+	controlURL        string
+	authRetry         config.AuthRetryConfig
+	authRetryInit     time.Duration
+	authRetryMax      time.Duration
+	reconcileInterval time.Duration
 	sharedMu          sync.Mutex
 	preventDuplicates bool
 	shared            bool
@@ -84,7 +91,42 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 
 	clientLog := log.With().Str("tailscale", name).Logger()
 
-	return &Client{
+	reconcileInterval, err := time.ParseDuration(provider.ReconcileInterval)
+	if err != nil {
+		clientLog.Warn().Err(err).Str("value", provider.ReconcileInterval).
+			Msg("invalid reconcileInterval, disabling periodic reconciliation")
+		reconcileInterval = 0
+	}
+
+	authRetryInit, err := time.ParseDuration(provider.AuthRetry.InitialBackoff)
+	if err != nil {
+		clientLog.Warn().Err(err).Str("value", provider.AuthRetry.InitialBackoff).
+			Msg("invalid authRetry.initialBackoff, using default 2s")
+		authRetryInit = 2 * time.Second //nolint:mnd
+	}
+	authRetryMax, err := time.ParseDuration(provider.AuthRetry.MaxBackoff)
+	if err != nil {
+		clientLog.Warn().Err(err).Str("value", provider.AuthRetry.MaxBackoff).
+			Msg("invalid authRetry.maxBackoff, using default 30s")
+		authRetryMax = 30 * time.Second //nolint:mnd
+	}
+
+	// Resolve preventDuplicates tri-state: "true"/"false"/"auto".
+	preventDuplicates := resolvePreventDuplicates(
+		provider.PreventDuplicates,
+		provider.ClientID,
+		provider.ClientSecret,
+	)
+	if provider.PreventDuplicates != "" && provider.PreventDuplicates != "true" &&
+		provider.PreventDuplicates != "false" && provider.PreventDuplicates != "auto" {
+		clientLog.Warn().
+			Str("value", provider.PreventDuplicates).
+			Msg("unrecognized preventDuplicates value, treating as false (valid: false, true, auto)")
+	}
+
+	providerCtx, providerCancel := context.WithCancel(context.Background()) //nolint:gosec // cancel stored in Client struct, called on shutdown
+
+	c := &Client{
 		log:               clientLog,
 		Hostname:          name,
 		AuthKey:           secretstring.SecretString(strings.TrimSpace(provider.AuthKey.Value())),
@@ -94,13 +136,69 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		tags:              strings.TrimSpace(provider.Tags),
 		datadir:           datadir,
 		controlURL:        provider.ControlURL,
-		preventDuplicates: provider.PreventDuplicates,
+		preventDuplicates: preventDuplicates,
+		authRetry:         provider.AuthRetry,
+		authRetryInit:     authRetryInit,
+		authRetryMax:      authRetryMax,
 		certSem:           semaphore.NewWeighted(concurrency),
 		shared:            provider.Shared,
 		services:          provider.Services,
 		sharedHostname:    strings.TrimSpace(provider.Hostname),
 		autoApprove:       provider.AutoApproveDevices,
-	}, nil
+		reconcileInterval: reconcileInterval,
+		providerCtx:       providerCtx,
+		providerCancel:    providerCancel,
+	}
+
+	// Start periodic device reconciliation goroutine if interval is configured
+	// and the provider is in shared or services mode (per-proxy mode handles
+	// reconciliation at each proxy's startup via NodeLifecycle.Start).
+	if reconcileInterval > 0 && (c.shared || c.services) {
+		go c.runPeriodicReconcile()
+	}
+
+	return c, nil
+}
+
+// runPeriodicReconcile periodically reconciles stale devices at the configured interval.
+func (c *Client) runPeriodicReconcile() {
+	c.log.Debug().
+		Dur("interval", c.reconcileInterval).
+		Msg("starting periodic device reconciliation")
+
+	ticker := time.NewTicker(c.reconcileInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.providerCtx.Done():
+			c.log.Debug().Msg("stopping periodic device reconciliation")
+			return
+		case <-ticker.C:
+			c.log.Debug().Msg("running periodic device reconciliation")
+			reconcileCtx, cancel := context.WithTimeout(c.providerCtx, apiTimeout)
+			c.deviceReconciler.Reconcile(reconcileCtx, c.sharedHostname, c.tags, nil)
+			cancel()
+		}
+	}
+}
+
+// resolvePreventDuplicates resolves the preventDuplicates tri-state string into
+// a boolean. "true" → true, "false" or unrecognized → false, "auto" → true
+// only if OAuth credentials (ClientID+ClientSecret) are configured.
+func resolvePreventDuplicates(value, clientID string, clientSecret secretstring.SecretString) bool {
+	switch value {
+	case "true":
+		return true
+	case "auto":
+		return clientID != "" && clientSecret.Value() != ""
+	default:
+		return false
+	}
+}
+
+func (c *Client) Close() {
+	c.providerCancel()
 }
 
 // ResolveAuthKey resolves the authentication key for the given config.
@@ -183,6 +281,13 @@ func (c *Client) buildLifecycleConfig(config *model.Config, nodeCfg NodeConfig) 
 	if c.preventDuplicates {
 		deviceReconciler = c.deviceReconciler
 	}
+
+	// Resolve auth retry policy from provider config.
+	maxAttempts := c.authRetry.MaxAttempts
+	if !c.authRetry.Enabled {
+		maxAttempts = 0
+	}
+
 	return NodeLifecycleConfig{
 		NodeConfig: nodeCfg,
 		AuthConfig: AuthConfig{
@@ -194,7 +299,7 @@ func (c *Client) buildLifecycleConfig(config *model.Config, nodeCfg NodeConfig) 
 		AuthManager:      NewAuthManager(c.log, c.apiFactory, config.Tailscale.Ephemeral),
 		StateManager:     c.stateMgr,
 		DeviceReconciler: deviceReconciler,
-		Retry:            NewRetryPolicy(),
+		Retry:            NewRetryPolicyFromConfig(maxAttempts, c.authRetryInit, c.authRetryMax),
 	}
 }
 

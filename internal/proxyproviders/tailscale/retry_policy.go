@@ -3,18 +3,37 @@
 
 package tailscale
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // RetryPolicy determines which errors are recoverable and how to retry.
 type RetryPolicy struct {
 	// MaxAttempts is the maximum number of retry attempts (0 = no retry).
 	MaxAttempts int
+	// InitialBackoff is the base backoff duration between retry attempts.
+	InitialBackoff time.Duration
+	// MaxBackoff is the maximum backoff duration cap for exponential growth.
+	MaxBackoff time.Duration
 }
 
 // NewRetryPolicy creates a RetryPolicy with sensible defaults.
 func NewRetryPolicy() RetryPolicy {
 	return RetryPolicy{
-		MaxAttempts: 3, //nolint:mnd
+		MaxAttempts:    3,                //nolint:mnd
+		InitialBackoff: 2 * time.Second,  //nolint:mnd
+		MaxBackoff:     30 * time.Second, //nolint:mnd
+	}
+}
+
+// NewRetryPolicyFromConfig creates a RetryPolicy from config values.
+// If maxAttempts is 0, retry is disabled.
+func NewRetryPolicyFromConfig(maxAttempts int, initialBackoff, maxBackoff time.Duration) RetryPolicy {
+	return RetryPolicy{
+		MaxAttempts:    maxAttempts,
+		InitialBackoff: initialBackoff,
+		MaxBackoff:     maxBackoff,
 	}
 }
 

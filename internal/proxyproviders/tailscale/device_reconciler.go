@@ -103,7 +103,8 @@ func WithLocalState(v bool) ReconcileOption {
 // Reconcile checks for and removes offline Tailscale devices with the same
 // hostname, preventing duplicate machines. Online devices are never deleted.
 // No-op when API is unavailable or tags are empty.
-func (r *DeviceReconciler) Reconcile(ctx context.Context, hostname string, tags string, opts ...ReconcileOption) {
+// onConflict is called for each online duplicate that cannot be cleaned (may be nil).
+func (r *DeviceReconciler) Reconcile(ctx context.Context, hostname string, tags string, onConflict func(hostname, nodeID string), opts ...ReconcileOption) {
 	if r.apiFactory == nil || !r.apiFactory.IsAvailable() {
 		return
 	}
@@ -151,6 +152,9 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, hostname string, tags 
 				Str("hostname", d.Hostname).
 				Str("node_id", d.NodeID).
 				Msg("device with same hostname is currently online, skipping cleanup")
+			if onConflict != nil {
+				onConflict(d.Hostname, d.NodeID)
+			}
 			continue
 		}
 

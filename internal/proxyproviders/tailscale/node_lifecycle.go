@@ -13,6 +13,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 	"tailscale.com/tsnet"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 // NodeLifecycleConfig holds the configuration for creating a NodeLifecycle.
@@ -109,8 +111,16 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 	// deleted automatically — only offline duplicates matching the hostname
 	// pattern are cleaned up, regardless of whether state was regenerated.
 	if nl.devices != nil {
+		nl.sendEvent(NodeEvent{Status: model.ProxyStatusReconciling})
 		reconcileCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-		nl.devices.Reconcile(reconcileCtx, nl.cfg.Hostname, nl.cfg.Tags, WithLocalState(stateExists))
+		nl.devices.Reconcile(reconcileCtx, nl.cfg.Hostname, nl.cfg.Tags,
+			func(hostname, nodeID string) {
+				nl.sendEvent(NodeEvent{
+					Status:       model.ProxyStatusDeviceConflict,
+					ErrorMessage: "online device with hostname " + hostname + " already exists (nodeID: " + nodeID + ")",
+				})
+			},
+			WithLocalState(stateExists))
 		cancel()
 	}
 
@@ -149,15 +159,9 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 
 	watchDone := make(chan struct{})
 	watcher := NewStatusWatcher(StatusWatcherConfig{
-		Log: nl.log,
-		OnEvent: func(evt NodeEvent) {
-			select {
-			case nl.events <- evt:
-			default:
-				nl.log.Warn().Msg("dropping lifecycle event: channel full")
-			}
-		},
-		OnDone: func() {},
+		Log:     nl.log,
+		OnEvent: nl.sendEvent,
+		OnDone:  func() {},
 	})
 
 	nl.mtx.Lock()
@@ -189,7 +193,16 @@ func (nl *NodeLifecycle) startWithRetry(tsServer *tsnet.Server) error {
 		}
 		nl.log.Warn().Err(lastErr).Int("attempt", attempt+1).Int("max_attempts", nl.retry.MaxAttempts).
 			Msg("tsnet start failed, retrying")
-		time.Sleep(time.Duration(attempt+1) * time.Second)
+
+		// Exponential backoff: attempt 0 → initialBackoff, attempt 1 → initialBackoff*2, etc.
+		backoff := nl.retry.InitialBackoff
+		for i := 0; i < attempt; i++ {
+			backoff *= 2
+		}
+		if backoff > nl.retry.MaxBackoff {
+			backoff = nl.retry.MaxBackoff
+		}
+		time.Sleep(backoff)
 	}
 	return fmt.Errorf("tsnet start failed after %d attempts: %w", nl.retry.MaxAttempts, lastErr)
 }
@@ -235,4 +248,12 @@ func (nl *NodeLifecycle) GetRuntime() *NodeRuntime {
 	nl.mtx.RLock()
 	defer nl.mtx.RUnlock()
 	return nl.runtime
+}
+
+func (nl *NodeLifecycle) sendEvent(evt NodeEvent) {
+	select {
+	case nl.events <- evt:
+	default:
+		nl.log.Warn().Msg("dropping lifecycle event: channel full")
+	}
 }

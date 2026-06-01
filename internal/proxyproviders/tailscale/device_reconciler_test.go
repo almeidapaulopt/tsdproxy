@@ -53,7 +53,7 @@ func TestReconcile_NilFactory_NoOp(t *testing.T) {
 		lister:     mock,
 	}
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	assert.Empty(t, mock.deletedIDs, "nil factory should not trigger any API calls")
 }
@@ -68,7 +68,7 @@ func TestReconcile_UnavailableFactory_NoOp(t *testing.T) {
 		lister:     mock,
 	}
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	assert.Empty(t, mock.deletedIDs, "unavailable factory should not trigger any API calls")
 }
@@ -79,7 +79,7 @@ func TestReconcile_NoTags_NoOp(t *testing.T) {
 	mock := &mockDeviceLister{}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "")
+	r.Reconcile(context.Background(), "myhost", "", nil)
 
 	assert.Empty(t, mock.deletedIDs, "empty tags should not trigger any API calls")
 }
@@ -90,7 +90,7 @@ func TestReconcile_EmptyTags_NoOp(t *testing.T) {
 	mock := &mockDeviceLister{}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "   , ,  ")
+	r.Reconcile(context.Background(), "myhost", "   , ,  ", nil)
 
 	assert.Empty(t, mock.deletedIDs, "whitespace-only tags should not trigger any API calls")
 }
@@ -103,7 +103,7 @@ func TestReconcile_ListError_NoOp(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	assert.Empty(t, mock.deletedIDs, "list error should not trigger any deletions")
 }
@@ -119,7 +119,7 @@ func TestReconcile_NoMatchingHostname_NoOp(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	assert.Empty(t, mock.deletedIDs, "no matching hostnames should not trigger any deletions")
 }
@@ -134,7 +134,7 @@ func TestReconcile_OnlineDevice_Skipped(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	assert.Empty(t, mock.deletedIDs, "online device should not be deleted")
 }
@@ -149,7 +149,7 @@ func TestReconcile_OfflineDevice_Deleted(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	require.Len(t, mock.deletedIDs, 1)
 	assert.Equal(t, "node-1", mock.deletedIDs[0])
@@ -167,7 +167,7 @@ func TestReconcile_MultipleDevices_OnlyOfflineDeleted(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	require.Len(t, mock.deletedIDs, 1)
 	assert.Equal(t, "node-offline", mock.deletedIDs[0])
@@ -185,7 +185,7 @@ func TestReconcile_DeleteError_LoggedButContinues(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	require.Len(t, mock.deletedIDs, 2, "delete error should not stop processing remaining devices")
 	assert.Equal(t, []string{"node-1", "node-2"}, mock.deletedIDs)
@@ -200,7 +200,7 @@ func TestReconcile_ListError_Logged(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	assert.Empty(t, mock.deletedIDs, "list error should prevent any deletions")
 }
@@ -217,7 +217,7 @@ func TestReconcile_MultipleMatches_AllOfflineDeleted(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	require.Len(t, mock.deletedIDs, 3)
 	assert.Equal(t, []string{"stale-1", "stale-2", "stale-3"}, mock.deletedIDs)
@@ -236,7 +236,7 @@ func TestReconcile_ContextCancelled_NoPanic(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(ctx, "myhost", "tag:test")
+	r.Reconcile(ctx, "myhost", "tag:test", nil)
 
 	// The reconciler delegates to the lister; with a canceled context the
 	// real API would fail, but our mock succeeds. Verify no panic.
@@ -254,7 +254,7 @@ func TestReconcile_WithLocalState_SkipsExactHostname(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test", WithLocalState(true))
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil, WithLocalState(true))
 
 	require.Len(t, mock.deletedIDs, 1)
 	assert.Equal(t, "suffix-match", mock.deletedIDs[0])
@@ -271,7 +271,7 @@ func TestReconcile_WithoutLocalState_DeletesExactHostname(t *testing.T) {
 	}
 	r := newTestReconciler(mock)
 
-	r.Reconcile(context.Background(), "myhost", "tag:test")
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
 
 	require.Len(t, mock.deletedIDs, 2)
 	assert.Contains(t, mock.deletedIDs, "exact-match")
