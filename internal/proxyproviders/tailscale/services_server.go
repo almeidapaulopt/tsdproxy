@@ -344,16 +344,6 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 	rt.listeners[key] = &serviceEntry{listener: listener, serviceName: c.serviceName, port: c.port, https: c.https}
 	rt.refCount++
 
-	if c.https && listener.FQDN != "" {
-		if rt.running {
-			lc := ss.localClient.Load()
-			if lc != nil {
-				fqdn := listener.FQDN
-				go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
-			}
-		}
-	}
-
 	if ss.autoApproveDevices {
 		if err := ss.approveServiceDevice(rt, c.serviceName); err != nil {
 			ss.log.Warn().Err(err).Str("service", c.serviceName).
@@ -660,16 +650,29 @@ func (ss *ServicesServer) prefetchCerts(rt *servicesRuntime) {
 		return
 	}
 
-	fqdns := make(map[string]bool)
-	for _, entry := range rt.listeners {
-		if entry.https && entry.listener != nil && entry.listener.FQDN != "" {
-			fqdns[entry.listener.FQDN] = true
-		}
-	}
+	validDomains := ss.validCertDomains(rt)
 
-	for fqdn := range fqdns {
+	for _, entry := range rt.listeners {
+		if !entry.https || entry.listener == nil || entry.listener.FQDN == "" {
+			continue
+		}
+		if !validDomains[entry.listener.FQDN] {
+			ss.log.Debug().Str("fqdn", entry.listener.FQDN).
+				Msg("skipping cert prefetch: domain not yet in CertDomains")
+			continue
+		}
+		fqdn := entry.listener.FQDN
 		go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
 	}
+}
+
+func (ss *ServicesServer) validCertDomains(rt *servicesRuntime) map[string]bool {
+	certDomains := rt.tsServer.CertDomains()
+	set := make(map[string]bool, len(certDomains))
+	for _, d := range certDomains {
+		set[d] = true
+	}
+	return set
 }
 
 func (ss *ServicesServer) handleGetAuthURL(c servicesGetAuthURLCmd, rt *servicesRuntime) {
