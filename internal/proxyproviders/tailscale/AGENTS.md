@@ -62,9 +62,7 @@ Tailscale proxy provider: creates `tsnet.Server` instances in three modes (per-p
 | `whois.go` | Resolves Tailscale identity from `local.Client`. Rejects tagged nodes (prevents spoofing). |
 | `whois_cache.go` | `WhoisCache` — TTL (30s) + singleflight dedup. |
 | `helpers.go` | `cleanTags` utility: comma-separated tag string parsing. |
-| `exposure_per_proxy.go` | `PerProxyExposure` type alias. |
-| `exposure_shared_sni.go` | `SharedSNIExposure` type alias. |
-| `exposure_services.go` | `ServicesVIPExposure` type alias. |
+| `exposure.go` | `TrafficExposure` interface + `ListenerExposure`, `RawTCPExposure`, `PacketExposure` optional interfaces. Concrete types: `PerProxyExposure`, `SharedSNIExposure`, `ServicesVIPExposure`. |
 
 ## AUTH KEY RESOLUTION (5-level chain)
 
@@ -108,8 +106,37 @@ Per-proxy mode uses full chain. Shared/Services modes skip OAuth in `ResolveAuth
 - Shared mode **only supports HTTPS ports for multi-domain routing**. TCP/HTTP ports rejected at `newSharedProxy()`. TCP gets direct listener (one domain per port).
 - `SharedServer` event loop can deadlock if a command handler calls back into `SharedServer`. All public methods must only send a command and wait.
 - `VirtualListener` channel buffer is 64. Under extreme load, connections silently dropped (`Dispatch` returns false).
-- `cleanupStaleDevice` skips online devices (`ConnectedToControl`). Two tsdproxy instances with same shared hostname coexist until one goes offline.
+- `DeviceReconciler.Reconcile()` skips online devices (`ConnectedToControl`). Two tsdproxy instances with same shared hostname coexist until one goes offline.
 - `certSem` shared across all proxies from same `Client`. Throttles concurrent TLS cert provisioning.
 - `whoisFromLocalClient` returns zero-value `Whois` for tagged nodes. Changing this allows tagged containers to impersonate users.
 - `CleanAuthState()` removes auth files but preserves TLS certificates (avoids Let's Encrypt rate limits).
 - RetryPolicy detects non-recoverable errors (e.g., invalid tags) and stops retrying early.
+
+## CONFIGURATION
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `authKey` | string | "" | Static Tailscale auth key |
+| `authKeyFile` | string | "" | Path to auth key file |
+| `clientId` | string | "" | OAuth client ID for API-backed features |
+| `clientSecret` | string | "" | OAuth client secret |
+| `clientSecretFile` | string | "" | Path to client secret file |
+| `controlUrl` | string | `https://controlplane.tailscale.com` | Tailscale control server URL |
+| `tags` | string | "" | Comma-separated ACL tags |
+| `hostname` | string | "" | Override hostname for shared/services modes |
+| `maxCertConcurrency` | int | 2 | Max concurrent TLS cert provisioning |
+| `preventDuplicates` | string | `"false"` | Tri-state: `"false"` / `"true"` / `"auto"` (enable when OAuth configured) |
+| `shared` | bool | false | Enable shared SNI mode |
+| `services` | bool | false | Enable VIP Services mode |
+| `autoApproveDevices` | bool | false | Auto-approve device registration (requires OAuth) |
+| `authRetry` | AuthRetryConfig | — | Retry policy for tsnet startup (see below) |
+| `reconcileInterval` | duration | `"0"` | Periodic device reconciliation interval (0 = disabled) |
+
+### AuthRetryConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | true | Enable retry on tsnet startup failure |
+| `maxAttempts` | int | 3 | Maximum retry attempts (1-10) |
+| `initialBackoff` | duration | `"2s"` | Initial backoff duration |
+| `maxBackoff` | duration | `"30s"` | Maximum backoff cap (exponential growth) |
