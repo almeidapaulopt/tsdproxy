@@ -74,7 +74,7 @@ func (c *WhoisCache) Lookup(ip string, resolve func() (model.Whois, error)) (mod
 	}
 	c.mu.RUnlock()
 
-	v, err, _ := c.sf.Do(key, func() (interface{}, error) {
+	v, err, _ := c.sf.Do(key, func() (any, error) {
 		who, resolveErr := resolve()
 		if resolveErr != nil {
 			return nil, resolveErr

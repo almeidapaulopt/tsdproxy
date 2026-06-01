@@ -268,7 +268,7 @@ func (p *Provider) DeleteRecords(ctx context.Context, zone string, recs []libdns
 	return deleted, nil
 }
 
-func (p *Provider) doRequest(ctx context.Context, method, path string, body interface{}) (json.RawMessage, error) {
+func (p *Provider) doRequest(ctx context.Context, method, path string, body any) (json.RawMessage, error) {
 	// Rate limit to avoid hitting Cloudflare API limits.
 	if err := p.limiter.Wait(ctx); err != nil {
 		return nil, fmt.Errorf("rate limiter: %w", err)
