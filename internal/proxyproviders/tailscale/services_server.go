@@ -53,21 +53,22 @@ func (f tsnetServerFactory) Close(sl *tsnet.ServiceListener) error {
 
 // ServicesServerConfig holds the configuration for creating a ServicesServer.
 type ServicesServerConfig struct {
-	Log                zerolog.Logger
-	VIPServiceAPI      vipServiceAPI
-	APIClient          *tailscale.Client
-	APIFactory         *APIClientFactory
-	AuthManager        *AuthManager
-	DeviceReconciler   *DeviceReconciler
-	LifecycleConfig    *NodeLifecycleConfig
-	LifecycleProvider  NodeLifecycleProvider
-	Hostname           string
-	DataDir            string
-	AuthKey            string
-	ControlURL         string
-	Tags               string
-	Ephemeral          bool
-	AutoApproveDevices bool
+	Log                 zerolog.Logger
+	VIPServiceAPI       vipServiceAPI
+	APIClient           *tailscale.Client
+	APIFactory          *APIClientFactory
+	AuthManager         *AuthManager
+	DeviceReconciler    *DeviceReconciler
+	LifecycleConfig     *NodeLifecycleConfig
+	LifecycleProvider   NodeLifecycleProvider
+	Hostname            string
+	DataDir             string
+	AuthKey             string
+	ControlURL          string
+	Tags                string
+	Ephemeral           bool
+	AutoApproveDevices  bool
+	AutoRemoveConflicts bool
 }
 
 // serviceEntry tracks a single service listener.
@@ -153,37 +154,39 @@ func (servicesGetAuthURLCmd) cmd() {}
 // ServicesServer manages a shared, ref-counted tsnet.Server for services mode.
 // All mutable state is managed by a single event-loop goroutine.
 type ServicesServer struct {
-	log                zerolog.Logger
-	vipAPI             vipServiceAPI
-	localClient        atomic.Pointer[local.Client]
-	apiClient          *tailscale.Client
-	apiFactory         *APIClientFactory
-	authManager        *AuthManager
-	deviceReconciler   *DeviceReconciler
-	lifecycleCfg       *NodeLifecycleConfig
-	lifecycleProvider  NodeLifecycleProvider
-	ev                 *EventLoop[servicesCmd]
-	whoisCache         *WhoisCache
-	hostname           string
-	datadir            string
-	controlURL         string
-	tags               string
-	authKey            string
-	authURL            string // fallback for pre-runtime authURL events
-	ephemeral          bool
-	autoApproveDevices bool
+	log                 zerolog.Logger
+	vipAPI              vipServiceAPI
+	localClient         atomic.Pointer[local.Client]
+	apiClient           *tailscale.Client
+	apiFactory          *APIClientFactory
+	authManager         *AuthManager
+	deviceReconciler    *DeviceReconciler
+	lifecycleCfg        *NodeLifecycleConfig
+	lifecycleProvider   NodeLifecycleProvider
+	ev                  *EventLoop[servicesCmd]
+	whoisCache          *WhoisCache
+	hostname            string
+	datadir             string
+	controlURL          string
+	tags                string
+	authKey             string
+	authURL             string // fallback for pre-runtime authURL events
+	ephemeral           bool
+	autoApproveDevices  bool
+	autoRemoveConflicts bool
 }
 
 // NewServicesServer creates a ServicesServer and starts the event loop.
 func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 	ss := &ServicesServer{
-		hostname:           cfg.Hostname,
-		datadir:            cfg.DataDir,
-		authKey:            cfg.AuthKey,
-		controlURL:         cfg.ControlURL,
-		ephemeral:          cfg.Ephemeral,
-		autoApproveDevices: cfg.AutoApproveDevices,
-		log:                cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
+		hostname:            cfg.Hostname,
+		datadir:             cfg.DataDir,
+		authKey:             cfg.AuthKey,
+		controlURL:          cfg.ControlURL,
+		ephemeral:           cfg.Ephemeral,
+		autoApproveDevices:  cfg.AutoApproveDevices,
+		autoRemoveConflicts: cfg.AutoRemoveConflicts,
+		log:                 cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
 		ev:                 NewEventLoop[servicesCmd](64), //nolint:mnd
 		tags:               cfg.Tags,
 		vipAPI:             cfg.VIPServiceAPI,
@@ -676,7 +679,38 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 		Tags:  cleanTags(ss.tags),
 	})
 	firstCancel()
-	if err == nil || !strings.Contains(err.Error(), "addrs must contain") {
+
+	if err == nil {
+		return nil
+	}
+
+	// Handle 409 "name is in use but is not a service": a regular device with
+	// the same hostname blocks VIP service creation. When autoRemoveConflicts
+	// is enabled, delete the conflicting device and retry.
+	if ss.autoRemoveConflicts && isNameInUseError(err) {
+		ss.log.Info().
+			Str("service", serviceName).
+			Msg("VIP service name conflict detected, attempting auto-removal of conflicting device")
+
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), apiTimeout)
+		cleanupErr := ss.removeConflictingDevice(cleanupCtx, client, serviceName)
+		cleanupCancel()
+
+		if cleanupErr != nil {
+			return fmt.Errorf("auto-remove conflicting device for %q: %w (original: %v)", serviceName, cleanupErr, err)
+		}
+
+		// Retry after cleanup.
+		retryCtx, retryCancel := context.WithTimeout(context.Background(), apiTimeout)
+		defer retryCancel()
+		return client.Services().CreateOrUpdate(retryCtx, tailscale.VIPService{
+			Name:  serviceName,
+			Ports: ports,
+			Tags:  cleanTags(ss.tags),
+		})
+	}
+
+	if !strings.Contains(err.Error(), "addrs must contain") {
 		return err
 	}
 
@@ -866,4 +900,48 @@ func isNotFound(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "not found") || strings.Contains(msg, "404")
+}
+
+// isNameInUseError returns true if the error indicates the VIP service name
+// is already taken by a non-service device (HTTP 409).
+func isNameInUseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "name is in use") || strings.Contains(msg, "409")
+}
+
+// removeConflictingDevice finds and deletes Tailscale devices whose hostname
+// matches the service name, bypassing the tag filter and online-status checks
+// used by the normal DeviceReconciler. This is needed to resolve 409 errors
+// where a stale regular device blocks VIP service creation.
+func (ss *ServicesServer) removeConflictingDevice(ctx context.Context, client *tailscale.Client, serviceName string) error {
+	hostname := strings.TrimPrefix(serviceName, "svc:")
+	if hostname == serviceName {
+		return nil
+	}
+
+	devices, err := client.Devices().List(ctx)
+	if err != nil {
+		return fmt.Errorf("list devices: %w", err)
+	}
+
+	for _, d := range devices {
+		if d.Hostname != hostname {
+			continue
+		}
+
+		ss.log.Info().
+			Str("hostname", d.Hostname).
+			Str("node_id", d.NodeID).
+			Bool("was_online", d.ConnectedToControl).
+			Msg("auto-removing conflicting device for VIP service")
+
+		if deleteErr := client.Devices().Delete(ctx, d.NodeID); deleteErr != nil {
+			return fmt.Errorf("delete conflicting device %q (node %s): %w", d.Hostname, d.NodeID, deleteErr)
+		}
+	}
+
+	return nil
 }

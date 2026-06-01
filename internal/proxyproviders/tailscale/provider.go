@@ -45,9 +45,10 @@ type Client struct {
 	reconcileInterval time.Duration
 	sharedMu          sync.Mutex
 	preventDuplicates bool
-	shared            bool
-	services          bool
-	autoApprove       bool
+	shared              bool
+	services            bool
+	autoApprove         bool
+	autoRemoveConflicts bool
 }
 
 const userAgent = "tsdproxy"
@@ -145,6 +146,7 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		services:          provider.Services,
 		sharedHostname:    strings.TrimSpace(provider.Hostname),
 		autoApprove:       provider.AutoApproveDevices,
+		autoRemoveConflicts: provider.AutoRemoveConflicts,
 		reconcileInterval: reconcileInterval,
 		providerCtx:       providerCtx,
 		providerCancel:    providerCancel,
@@ -407,17 +409,18 @@ func (c *Client) newServiceProxy(config *model.Config) (proxyproviders.ProxyInte
 		})
 
 		c.servicesServer = NewServicesServer(ServicesServerConfig{
-			Hostname:           c.sharedHostname,
-			DataDir:            sharedDatadir,
-			ControlURL:         c.getControlURL(),
-			Ephemeral:          config.Tailscale.Ephemeral,
-			APIFactory:         c.apiFactory,
-			AuthManager:        lifecycleCfg.AuthManager,
-			Tags:               tags,
-			Log:                c.log,
-			DeviceReconciler:   lifecycleCfg.DeviceReconciler,
-			LifecycleConfig:    &lifecycleCfg,
-			AutoApproveDevices: c.autoApprove,
+			Hostname:            c.sharedHostname,
+			DataDir:             sharedDatadir,
+			ControlURL:          c.getControlURL(),
+			Ephemeral:           config.Tailscale.Ephemeral,
+			APIFactory:          c.apiFactory,
+			AuthManager:         lifecycleCfg.AuthManager,
+			Tags:                tags,
+			Log:                 c.log,
+			DeviceReconciler:    lifecycleCfg.DeviceReconciler,
+			LifecycleConfig:     &lifecycleCfg,
+			AutoApproveDevices:  c.autoApprove,
+			AutoRemoveConflicts: c.autoRemoveConflicts,
 		})
 	} else if config.Tailscale.Ephemeral != c.servicesServer.ephemeral {
 		c.log.Warn().

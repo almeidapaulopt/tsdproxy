@@ -137,7 +137,8 @@ type (
 		MaxCertConcurrency int64                     `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
 		Shared             bool                      `default:"false" yaml:"shared"`
 		Services           bool                      `default:"false" yaml:"services"`
-		AutoApproveDevices bool                      `default:"false" yaml:"autoApproveDevices"`
+		AutoApproveDevices  bool                      `default:"false" yaml:"autoApproveDevices"`
+		AutoRemoveConflicts bool                      `default:"false" yaml:"autoRemoveConflicts"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
