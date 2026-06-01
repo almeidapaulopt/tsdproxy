@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -66,7 +67,7 @@ func (f *APIClientFactory) NewClient(scopes ...string) *tailscale.Client {
 func (f *APIClientFactory) ValidateAccess(ctx context.Context, scopes []string) error {
 	client := f.NewClient(scopes...)
 	if client == nil {
-		return fmt.Errorf("OAuth credentials not configured")
+		return errors.New("OAuth credentials not configured")
 	}
 
 	if _, err := client.Devices().List(ctx); err != nil {
