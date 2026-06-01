@@ -22,7 +22,7 @@ func TestServicesServerCloseIsTerminal(t *testing.T) {
 
 	// Verify loop exited by checking done channel.
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 		// Expected.
 	default:
 		t.Fatal("done channel should be closed after Close")
@@ -51,7 +51,7 @@ func TestServicesServerGetAuthURLFromWatchUpdate(t *testing.T) {
 	})
 	defer ss.Close()
 
-	ss.cmds <- servicesWatchUpdateCmd{authURL: "https://login.tailscale.com/a/svcauth"}
+	ss.ev.SendCmd(servicesWatchUpdateCmd{authURL: "https://login.tailscale.com/a/svcauth"})
 
 	if url := ss.GetAuthURL(); url != "https://login.tailscale.com/a/svcauth" {
 		t.Fatalf("GetAuthURL should return auth URL from watchUpdate, got %q", url)
@@ -80,7 +80,7 @@ func TestServicesServerAcquireOnClosedServer(t *testing.T) {
 	})
 
 	ss.Close()
-	<-ss.done
+	<-ss.ev.Done()
 
 	_, err := ss.Acquire("svc:test", 443, true, false)
 	if err == nil {
@@ -95,7 +95,7 @@ func TestServicesServerReleaseOnClosedServer(t *testing.T) {
 	})
 
 	ss.Close()
-	<-ss.done
+	<-ss.ev.Done()
 
 	err := ss.Release("svc:test", 443)
 	if err == nil {
@@ -115,7 +115,7 @@ func TestServicesServerCloseIdempotent(t *testing.T) {
 
 	// Verify loop exited.
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 		// Expected.
 	default:
 		t.Fatal("done channel should be closed after Close")
@@ -128,19 +128,19 @@ func TestServicesServerAfterFuncNoLeakOnClose(t *testing.T) {
 		Log:      zerolog.Nop(),
 	})
 
-	// Close the server — exits the loop and closes ss.done.
+	// Close the server — exits the loop and closes ev.done.
 	ss.Close()
-	<-ss.done
+	<-ss.ev.Done()
 
 	// Simulate what the AfterFunc callback does: try to send idleTimeoutCmd
-	// with a select on ss.done. After Close, ss.done is closed so the
-	// <-ss.done case fires immediately, preventing the goroutine from leaking.
+	// with a select on ev.done. After Close, ev.done is closed so the
+	// <-ss.ev.Done() case fires immediately, preventing the goroutine from leaking.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		select {
-		case ss.cmds <- servicesIdleTimeoutCmd{}:
-		case <-ss.done:
+		case ss.ev.cmds <- servicesIdleTimeoutCmd{}:
+		case <-ss.ev.Done():
 		}
 	}()
 
@@ -162,14 +162,14 @@ func TestServicesServerCloseCleansUp(t *testing.T) {
 
 	// Verify done channel is closed.
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 		// Expected.
 	default:
 		t.Fatal("done channel should be closed after Close")
 	}
 
 	// Verify closed flag is set.
-	if !ss.closed.Load() {
+	if !ss.ev.IsClosed() {
 		t.Fatal("closed flag should be true after Close")
 	}
 }

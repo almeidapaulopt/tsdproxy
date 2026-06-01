@@ -111,11 +111,11 @@ func TestSharedProxyGetAuthURLDelegatesToServer(t *testing.T) {
 	ch := ss.SubscribeEvents()
 
 	// Send auth URL via command channel.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen:     0,
 		authURL: "https://login.tailscale.com/a/abc123",
 		evt:     model.ProxyEvent{Status: model.ProxyStatusAuthenticating},
-	}
+	})
 
 	<-ch // consume forwarded event
 

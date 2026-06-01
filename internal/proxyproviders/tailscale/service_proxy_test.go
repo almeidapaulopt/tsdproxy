@@ -33,7 +33,7 @@ func TestServiceProxyGetAuthURLDelegatesToServer(t *testing.T) {
 	defer ss.Close()
 
 	// Send auth URL via command channel.
-	ss.cmds <- servicesWatchUpdateCmd{authURL: "https://login.tailscale.com/a/xyz789"}
+	ss.ev.SendCmd(servicesWatchUpdateCmd{authURL: "https://login.tailscale.com/a/xyz789"})
 
 	p := &ServiceProxy{
 		services: ss,

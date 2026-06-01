@@ -4,6 +4,7 @@
 package tailscale
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -23,11 +24,11 @@ type vipCall struct {
 }
 
 type mockVIPAPI struct {
-	mu                  sync.Mutex
 	createOrUpdateErr   error
 	deleteErr           error
 	createOrUpdateCalls []vipCall
 	deleteCalls         []string
+	mu                  sync.Mutex
 }
 
 func (m *mockVIPAPI) createOrUpdateVIPService(serviceName string, ports []string) error {
@@ -97,7 +98,22 @@ func testSS(vip *mockVIPAPI, factory *mockListenerFactory) *ServicesServer {
 		Hostname:        "test-services",
 		Log:             zerolog.Nop(),
 		VIPServiceAPI:   vip,
-		ListenerFactory: factory,
+		LifecycleConfig: &NodeLifecycleConfig{},
+		LifecycleProvider: func(_ context.Context, _ zerolog.Logger, _ NodeLifecycleConfig) (
+			*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+		) {
+			ctx, cancel := context.WithCancel(context.Background())
+			nodeRt := &NodeRuntime{
+				Ctx:    ctx,
+				Cancel: cancel,
+			}
+
+			nl := &NodeLifecycle{
+				events: make(chan NodeEvent),
+			}
+
+			return nl, nodeRt, factory, nil
+		},
 	})
 }
 
@@ -323,7 +339,7 @@ func TestCloseWhileRunning(t *testing.T) {
 
 	// Verify done channel is closed.
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 	default:
 		t.Fatal("done channel should be closed after Close")
 	}
@@ -347,7 +363,7 @@ func TestCloseWhileRunningMultiPortSameService(t *testing.T) {
 	ss.Close()
 
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 	default:
 		t.Fatal("done channel should be closed after Close")
 	}

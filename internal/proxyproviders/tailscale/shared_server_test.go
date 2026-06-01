@@ -44,13 +44,13 @@ func TestSharedServerEventBroadcasting(t *testing.T) {
 
 	ch := ss.SubscribeEvents()
 
-	// Send event via command channel (same-package access).
+	// Send event via command channel.
 	// SubscribeEvents creates a minimal runtime with gen=0.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "test.example.com",
-	}
+	})
 
 	received := <-ch
 	if received.Status != model.ProxyStatusRunning {
@@ -104,11 +104,11 @@ func TestSharedServerGetAuthURLFromWatchUpdate(t *testing.T) {
 
 	ch := ss.SubscribeEvents()
 
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen:     0,
 		authURL: "https://login.tailscale.com/a/testauth",
 		evt:     model.ProxyEvent{Status: model.ProxyStatusAuthenticating},
-	}
+	})
 
 	<-ch // consume forwarded event
 
@@ -130,10 +130,10 @@ func TestSharedServerMultipleSubscribers(t *testing.T) {
 	ch2 := ss.SubscribeEvents()
 
 	// Broadcast event via command channel.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusStarting},
-	}
+	})
 
 	r1 := <-ch1
 	r2 := <-ch2
@@ -167,7 +167,7 @@ func TestSharedServerCloseCleansUpSubscribers(t *testing.T) {
 
 	// Done channel should be closed (loop exited).
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 		// Expected: loop has exited.
 	default:
 		t.Fatal("done channel should be closed after Close")
@@ -185,18 +185,18 @@ func TestSharedServerGenerationPreventsStaleEvents(t *testing.T) {
 
 	// Send a stale event with wrong generation (gen=99, current is 0).
 	// This should be ignored.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 99,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "stale.example.com",
-	}
+	})
 
 	// Send a current event with correct generation.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "current.example.com",
-	}
+	})
 
 	// Should receive the current event, not the stale one.
 	received := <-ch
@@ -236,11 +236,11 @@ func TestSharedServerURLClearedAfterRuntimeStops(t *testing.T) {
 	ch := ss.SubscribeEvents()
 
 	// Set URL via event.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "running.example.com",
-	}
+	})
 
 	// Wait for the event to be processed.
 	<-ch
@@ -256,7 +256,7 @@ func TestSharedServerURLClearedAfterRuntimeStops(t *testing.T) {
 	// because the runtime is discarded.
 	// But we can't call GetURL after Close because the loop has exited.
 	// Instead verify that Close completed successfully (no panic/deadlock).
-	<-ss.done
+	<-ss.ev.Done()
 }
 
 func TestSharedServerCloseIsTerminal(t *testing.T) {
@@ -269,7 +269,7 @@ func TestSharedServerCloseIsTerminal(t *testing.T) {
 
 	// Verify loop exited by checking done channel.
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 		// Expected.
 	default:
 		t.Fatal("done channel should be closed after Close")
@@ -283,7 +283,7 @@ func TestSharedServerAcquirePacketOnClosedServer(t *testing.T) {
 	})
 
 	ss.Close()
-	<-ss.done
+	<-ss.ev.Done()
 
 	_, err := ss.AcquirePacket("test.example.com", 53)
 	if err == nil {
@@ -383,11 +383,11 @@ func TestSharedServerCertInFlightPreventsDuplicate(_ *testing.T) {
 	ch := ss.SubscribeEvents()
 
 	// Send first Running event — certInFlight should be set to true.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "test.example.com",
-	}
+	})
 
 	// Read the event.
 	<-ch
@@ -397,21 +397,21 @@ func TestSharedServerCertInFlightPreventsDuplicate(_ *testing.T) {
 	// (This is a correctness test: the second Running event should NOT
 	// spawn another cert goroutine. We can't directly observe this,
 	// but we verify no panic or deadlock occurs.)
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "test.example.com",
-	}
+	})
 
 	// Send certDone to clear certInFlight.
-	ss.cmds <- certDoneCmd{gen: 0}
+	ss.ev.SendCmd(certDoneCmd{gen: 0})
 
 	// Now a third Running event should be able to spawn cert again.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "test.example.com",
-	}
+	})
 
 	ss.UnsubscribeEvents(ch)
 }
@@ -426,11 +426,11 @@ func TestSharedServerIdleTimerLifecycle(t *testing.T) {
 	ch := ss.SubscribeEvents()
 
 	// Send a running event to populate URL.
-	ss.cmds <- watchUpdateCmd{
+	ss.ev.SendCmd(watchUpdateCmd{
 		gen: 0,
 		evt: model.ProxyEvent{Status: model.ProxyStatusRunning},
 		url: "running.example.com",
-	}
+	})
 	<-ch // consume event
 
 	// Verify URL is set.
@@ -441,7 +441,7 @@ func TestSharedServerIdleTimerLifecycle(t *testing.T) {
 	// Simulate idle timeout: send idleTimeoutCmd.
 	// State is sharedIdle (default) and rt != nil (from subscribe),
 	// so stopRuntime should be called, closing subscriber channels.
-	ss.cmds <- idleTimeoutCmd{}
+	ss.ev.SendCmd(idleTimeoutCmd{})
 
 	// Subscriber channel should be closed by stopRuntime.
 	_, ok := <-ch
@@ -477,7 +477,7 @@ func TestSharedServerSubscribeBareRuntimeThenClose(t *testing.T) {
 
 	// Verify loop exited.
 	select {
-	case <-ss.done:
+	case <-ss.ev.Done():
 	default:
 		t.Fatal("done channel should be closed after Close")
 	}
@@ -491,19 +491,19 @@ func TestSharedServerAfterFuncNoLeakOnClose(t *testing.T) {
 
 	_ = ss.SubscribeEvents()
 
-	// Close the server — exits the loop and closes ss.done.
+	// Close the server — exits the loop and closes ss.ev.Done().
 	ss.Close()
-	<-ss.done
+	<-ss.ev.Done()
 
 	// Simulate what the AfterFunc callback does: try to send idleTimeoutCmd
-	// with a select on ss.done. After Close, ss.done is closed so the
-	// <-ss.done case fires immediately, preventing the goroutine from leaking.
+	// with a select on ev.Done(). After Close, ev.Done() is closed so the
+	// <-ss.ev.Done() case fires immediately, preventing the goroutine from leaking.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		select {
-		case ss.cmds <- idleTimeoutCmd{}:
-		case <-ss.done:
+		case ss.ev.cmds <- idleTimeoutCmd{}:
+		case <-ss.ev.Done():
 		}
 	}()
 
