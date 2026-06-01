@@ -129,10 +129,16 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, hostname string, tags 
 
 	for _, d := range devices {
 		if d.Hostname == hostname {
-			// When local tsnet state exists, the exact-hostname device is likely
-			// our own node from a previous run — tsnet will re-authenticate with
-			// existing state. Deleting it forces unnecessary re-auth.
-			if cfg.hasLocalState {
+			// When local tsnet state exists AND the exact-hostname device is
+			// still online, it's our own node from a previous run — tsnet will
+			// re-authenticate with existing state. Deleting it would force
+			// unnecessary re-auth.
+			//
+			// But if the device is offline, the auth state may be stale and
+			// tsnet may not successfully re-authenticate, causing Tailscale
+			// to append a "-1" suffix. Delete offline exact-match devices
+			// so the new node can claim the hostname cleanly.
+			if cfg.hasLocalState && d.ConnectedToControl {
 				continue
 			}
 		} else {

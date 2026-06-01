@@ -243,13 +243,13 @@ func TestReconcile_ContextCancelled_NoPanic(t *testing.T) {
 	require.Len(t, mock.deletedIDs, 1)
 }
 
-func TestReconcile_WithLocalState_SkipsExactHostname(t *testing.T) {
+func TestReconcile_WithLocalState_OnlineDeviceSkipped(t *testing.T) {
 	t.Parallel()
 
 	mock := &mockDeviceLister{
 		devices: []deviceEntry{
-			{Hostname: "myhost", NodeID: "exact-match", ConnectedToControl: false},
-			{Hostname: "myhost-1", NodeID: "suffix-match", ConnectedToControl: false},
+			{Hostname: "myhost", NodeID: "exact-online", ConnectedToControl: true},
+			{Hostname: "myhost-1", NodeID: "suffix-offline", ConnectedToControl: false},
 		},
 	}
 	r := newTestReconciler(mock)
@@ -257,7 +257,25 @@ func TestReconcile_WithLocalState_SkipsExactHostname(t *testing.T) {
 	r.Reconcile(context.Background(), "myhost", "tag:test", nil, WithLocalState(true))
 
 	require.Len(t, mock.deletedIDs, 1)
-	assert.Equal(t, "suffix-match", mock.deletedIDs[0])
+	assert.Equal(t, "suffix-offline", mock.deletedIDs[0])
+}
+
+func TestReconcile_WithLocalState_OfflineExactHostnameDeleted(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "exact-offline", ConnectedToControl: false},
+			{Hostname: "myhost-1", NodeID: "suffix-offline", ConnectedToControl: false},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil, WithLocalState(true))
+
+	require.Len(t, mock.deletedIDs, 2)
+	assert.Contains(t, mock.deletedIDs, "exact-offline")
+	assert.Contains(t, mock.deletedIDs, "suffix-offline")
 }
 
 func TestReconcile_WithoutLocalState_DeletesExactHostname(t *testing.T) {
