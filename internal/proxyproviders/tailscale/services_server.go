@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/sync/semaphore"
 	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/v2"
 	"tailscale.com/tsnet"
@@ -61,6 +62,7 @@ type ServicesServerConfig struct {
 	DeviceReconciler    *DeviceReconciler
 	LifecycleConfig     *NodeLifecycleConfig
 	LifecycleProvider   NodeLifecycleProvider
+	CertSem             *semaphore.Weighted
 	Hostname            string
 	DataDir             string
 	AuthKey             string
@@ -76,6 +78,7 @@ type serviceEntry struct {
 	listener    *tsnet.ServiceListener
 	serviceName string
 	port        uint16
+	https       bool
 }
 
 // servicesState represents the state of the ServicesServer state machine.
@@ -89,6 +92,7 @@ const (
 
 // servicesRuntime holds all mutable state owned exclusively by the loop goroutine.
 type servicesRuntime struct {
+	ctx        context.Context
 	factory    serviceListenerFactory
 	cancel     context.CancelFunc
 	tsServer   *tsnet.Server
@@ -98,6 +102,7 @@ type servicesRuntime struct {
 	authURL    string
 	refCount   int
 	gen        int
+	running    bool
 }
 
 // Command types for the state machine.
@@ -141,6 +146,7 @@ func (servicesIdleTimeoutCmd) cmd() {}
 
 type servicesWatchUpdateCmd struct {
 	authURL string
+	status  model.ProxyStatus
 }
 
 func (servicesWatchUpdateCmd) cmd() {}
@@ -163,6 +169,7 @@ type ServicesServer struct {
 	deviceReconciler    *DeviceReconciler
 	lifecycleCfg        *NodeLifecycleConfig
 	lifecycleProvider   NodeLifecycleProvider
+	certSem             *semaphore.Weighted
 	ev                  *EventLoop[servicesCmd]
 	whoisCache          *WhoisCache
 	hostname            string
@@ -187,16 +194,17 @@ func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 		autoApproveDevices:  cfg.AutoApproveDevices,
 		autoRemoveConflicts: cfg.AutoRemoveConflicts,
 		log:                 cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
-		ev:                 NewEventLoop[servicesCmd](64), //nolint:mnd
-		tags:               cfg.Tags,
-		vipAPI:             cfg.VIPServiceAPI,
-		apiClient:          cfg.APIClient,
-		apiFactory:         cfg.APIFactory,
-		authManager:        cfg.AuthManager,
-		deviceReconciler:   cfg.DeviceReconciler,
-		lifecycleCfg:       cfg.LifecycleConfig,
-		lifecycleProvider:  cfg.LifecycleProvider,
-		whoisCache:         NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
+		ev:                  NewEventLoop[servicesCmd](64), //nolint:mnd
+		certSem:             cfg.CertSem,
+		tags:                cfg.Tags,
+		vipAPI:              cfg.VIPServiceAPI,
+		apiClient:           cfg.APIClient,
+		apiFactory:          cfg.APIFactory,
+		authManager:         cfg.AuthManager,
+		deviceReconciler:    cfg.DeviceReconciler,
+		lifecycleCfg:        cfg.LifecycleConfig,
+		lifecycleProvider:   cfg.LifecycleProvider,
+		whoisCache:          NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}
 	go ss.loop()
 	return ss
@@ -333,8 +341,18 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 		return state, rt
 	}
 
-	rt.listeners[key] = &serviceEntry{listener: listener, serviceName: c.serviceName, port: c.port}
+	rt.listeners[key] = &serviceEntry{listener: listener, serviceName: c.serviceName, port: c.port, https: c.https}
 	rt.refCount++
+
+	if c.https && listener.FQDN != "" {
+		if rt.running {
+			lc := ss.localClient.Load()
+			if lc != nil {
+				fqdn := listener.FQDN
+				go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
+			}
+		}
+	}
 
 	if ss.autoApproveDevices {
 		if err := ss.approveServiceDevice(rt, c.serviceName); err != nil {
@@ -554,6 +572,7 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 	}
 
 	rt := &servicesRuntime{
+		ctx:       nodeRt.Ctx,
 		cancel:    nodeRt.Cancel,
 		tsServer:  nodeRt.Server,
 		listeners: make(map[string]*serviceEntry),
@@ -612,9 +631,10 @@ func (ss *ServicesServer) bridgeLifecycleEvents(ctx context.Context, lifecycle *
 		if ctx.Err() != nil {
 			return
 		}
-		if evt.AuthURL != "" {
-			ss.sendProducer(ctx, servicesWatchUpdateCmd{authURL: evt.AuthURL})
-		}
+		ss.sendProducer(ctx, servicesWatchUpdateCmd{
+			authURL: evt.AuthURL,
+			status:  evt.Status,
+		})
 	}
 }
 
@@ -624,6 +644,31 @@ func (ss *ServicesServer) handleWatchUpdate(c servicesWatchUpdateCmd, rt *servic
 		if rt != nil {
 			rt.authURL = c.authURL
 		}
+	}
+	if rt == nil {
+		return
+	}
+	if c.status == model.ProxyStatusRunning && !rt.running {
+		rt.running = true
+		ss.prefetchCerts(rt)
+	}
+}
+
+func (ss *ServicesServer) prefetchCerts(rt *servicesRuntime) {
+	lc := ss.localClient.Load()
+	if lc == nil {
+		return
+	}
+
+	fqdns := make(map[string]bool)
+	for _, entry := range rt.listeners {
+		if entry.https && entry.listener != nil && entry.listener.FQDN != "" {
+			fqdns[entry.listener.FQDN] = true
+		}
+	}
+
+	for fqdn := range fqdns {
+		go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
 	}
 }
 
@@ -697,7 +742,7 @@ func (ss *ServicesServer) createOrUpdateVIPServiceProd(serviceName string, ports
 		cleanupCancel()
 
 		if cleanupErr != nil {
-			return fmt.Errorf("auto-remove conflicting device for %q: %w (original: %v)", serviceName, cleanupErr, err)
+			return fmt.Errorf("auto-remove conflicting device for %q: %w (original: %w)", serviceName, cleanupErr, err)
 		}
 
 		// Retry after cleanup.

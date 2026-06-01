@@ -24,27 +24,27 @@ import (
 
 // Client struct implements proxyprovider for tailscale
 type Client struct {
-	log               zerolog.Logger
-	providerCtx       context.Context
-	certSem           *semaphore.Weighted
-	sharedServer      *SharedServer
-	servicesServer    *ServicesServer
-	apiFactory        *APIClientFactory
-	stateMgr          *StateManager
-	deviceReconciler  *DeviceReconciler
-	providerCancel    context.CancelFunc
-	tags              string
-	Hostname          string
-	sharedHostname    string
-	datadir           string
-	AuthKey           secretstring.SecretString
-	controlURL        string
-	authRetry         config.AuthRetryConfig
-	authRetryInit     time.Duration
-	authRetryMax      time.Duration
-	reconcileInterval time.Duration
-	sharedMu          sync.Mutex
-	preventDuplicates bool
+	log                 zerolog.Logger
+	providerCtx         context.Context
+	certSem             *semaphore.Weighted
+	sharedServer        *SharedServer
+	servicesServer      *ServicesServer
+	apiFactory          *APIClientFactory
+	stateMgr            *StateManager
+	deviceReconciler    *DeviceReconciler
+	providerCancel      context.CancelFunc
+	tags                string
+	Hostname            string
+	sharedHostname      string
+	datadir             string
+	AuthKey             secretstring.SecretString
+	controlURL          string
+	authRetry           config.AuthRetryConfig
+	authRetryInit       time.Duration
+	authRetryMax        time.Duration
+	reconcileInterval   time.Duration
+	sharedMu            sync.Mutex
+	preventDuplicates   bool
 	shared              bool
 	services            bool
 	autoApprove         bool
@@ -142,28 +142,28 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	providerCtx, providerCancel := context.WithCancel(context.Background()) //nolint:gosec // cancel stored in Client struct, called on shutdown
 
 	c := &Client{
-		log:               clientLog,
-		Hostname:          name,
-		AuthKey:           secretstring.SecretString(strings.TrimSpace(provider.AuthKey.Value())),
-		apiFactory:        apiFactory,
-		stateMgr:          NewStateManager(clientLog),
-		deviceReconciler:  NewDeviceReconciler(clientLog, apiFactory),
-		tags:              strings.TrimSpace(provider.Tags),
-		datadir:           datadir,
-		controlURL:        provider.ControlURL,
-		preventDuplicates: preventDuplicates,
-		authRetry:         provider.AuthRetry,
-		authRetryInit:     authRetryInit,
-		authRetryMax:      authRetryMax,
-		certSem:           semaphore.NewWeighted(concurrency),
-		shared:            provider.Shared,
-		services:          provider.Services,
-		sharedHostname:    strings.TrimSpace(provider.Hostname),
-		autoApprove:       provider.AutoApproveDevices,
+		log:                 clientLog,
+		Hostname:            name,
+		AuthKey:             secretstring.SecretString(strings.TrimSpace(provider.AuthKey.Value())),
+		apiFactory:          apiFactory,
+		stateMgr:            NewStateManager(clientLog),
+		deviceReconciler:    NewDeviceReconciler(clientLog, apiFactory),
+		tags:                strings.TrimSpace(provider.Tags),
+		datadir:             datadir,
+		controlURL:          provider.ControlURL,
+		preventDuplicates:   preventDuplicates,
+		authRetry:           provider.AuthRetry,
+		authRetryInit:       authRetryInit,
+		authRetryMax:        authRetryMax,
+		certSem:             semaphore.NewWeighted(concurrency),
+		shared:              provider.Shared,
+		services:            provider.Services,
+		sharedHostname:      strings.TrimSpace(provider.Hostname),
+		autoApprove:         provider.AutoApproveDevices,
 		autoRemoveConflicts: provider.AutoRemoveConflicts,
-		reconcileInterval: reconcileInterval,
-		providerCtx:       providerCtx,
-		providerCancel:    providerCancel,
+		reconcileInterval:   reconcileInterval,
+		providerCtx:         providerCtx,
+		providerCancel:      providerCancel,
 	}
 
 	// Start periodic device reconciliation goroutine if interval is configured
@@ -431,6 +431,7 @@ func (c *Client) newServiceProxy(config *model.Config) (proxyproviders.ProxyInte
 			AuthManager:         lifecycleCfg.AuthManager,
 			Tags:                tags,
 			Log:                 c.log,
+			CertSem:             c.certSem,
 			DeviceReconciler:    lifecycleCfg.DeviceReconciler,
 			LifecycleConfig:     &lifecycleCfg,
 			AutoApproveDevices:  c.autoApprove,

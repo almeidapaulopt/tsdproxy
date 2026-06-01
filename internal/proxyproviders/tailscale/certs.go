@@ -37,6 +37,17 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 	}
 	domain := certDomains[0]
 
+	acquireCertForDomain(ctx, lc, domain, sem, log)
+}
+
+// acquireCertForDomain provisions a TLS certificate for a specific domain via
+// CertPair with retry + backoff. Used by services mode to pre-warm certs for
+// VIP service FQDNs before the first TLS handshake arrives.
+func acquireCertForDomain(ctx context.Context, lc *local.Client, domain string, sem *semaphore.Weighted, log zerolog.Logger) {
+	if lc == nil || domain == "" || sem == nil {
+		return
+	}
+
 	backoff := certRetryInit
 	for attempt := 0; attempt < certMaxAttempts; attempt++ {
 		certCtx, cancel := context.WithTimeout(ctx, certTimeout)
@@ -45,16 +56,16 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 		if err := sem.Acquire(certCtx, 1); err != nil {
 			cancel()
 			if !errors.Is(err, context.Canceled) {
-				log.Error().Err(err).Msg("failed to acquire cert semaphore")
+				log.Error().Err(err).Str("domain", domain).Msg("failed to acquire cert semaphore")
 			}
 			return
 		}
 
 		if wait := time.Since(waitStart); wait > time.Second {
-			log.Warn().Dur("wait", wait).Msg("cert generation delayed by semaphore contention")
+			log.Warn().Dur("wait", wait).Str("domain", domain).Msg("cert generation delayed by semaphore contention")
 		}
 
-		log.Info().Int("attempt", attempt+1).Msg("Generating TLS certificate")
+		log.Info().Int("attempt", attempt+1).Str("domain", domain).Msg("Generating TLS certificate")
 		// Use a closure to guarantee sem.Release(1) on all exit paths,
 		// including panics from lc.CertPair(). Without this defer, a
 		// panic would permanently leak the semaphore token, eventually
@@ -67,7 +78,7 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 		}()
 
 		if err == nil {
-			log.Info().Msg("TLS certificate generated")
+			log.Info().Str("domain", domain).Msg("TLS certificate generated")
 			return
 		}
 
@@ -75,7 +86,7 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 			return
 		}
 
-		log.Warn().Err(err).Int("attempt", attempt+1).Dur("backoff", backoff).
+		log.Warn().Err(err).Int("attempt", attempt+1).Dur("backoff", backoff).Str("domain", domain).
 			Msg("cert generation failed, retrying")
 
 		select {
@@ -90,7 +101,7 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 		}
 	}
 
-	log.Error().Int("maxAttempts", certMaxAttempts).Msg("cert generation failed after max attempts")
+	log.Error().Int("maxAttempts", certMaxAttempts).Str("domain", domain).Msg("cert generation failed after max attempts")
 }
 
 // CertPairToTLSCertificate calls CertPair on the local client and wraps the
