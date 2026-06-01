@@ -231,18 +231,17 @@ func (e *PerProxyExposure) GetPacketConn(portName string) (net.PacketConn, error
 }
 
 type SharedSNIExposure struct {
+	certCacheTime   time.Time
 	vListeners      map[string]*VirtualListener
 	directListeners map[string]net.Listener
 	packetConns     map[string]net.PacketConn
 	sharedServer    *SharedServer
 	cfg             *model.Config
+	cachedCert      *tls.Certificate
 	domain          string
 	mtx             sync.RWMutex
+	certCacheMtx    sync.Mutex
 	started         bool
-
-	cachedCert    *tls.Certificate
-	certCacheTime time.Time
-	certCacheMtx  sync.Mutex
 }
 
 const certCacheTTL = 5 * time.Minute
