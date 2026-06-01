@@ -65,3 +65,25 @@ jobs:
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           TAILSCALE_VERSION: ${{ env.TAILSCALE_VERSION }}
+
+      - name: Push dev images and create manifests
+        run: |
+          set -euo pipefail
+          DOCKER_IMAGE="almeidapaulopt/tsdproxy"
+          GHCR_IMAGE="ghcr.io/almeidapaulopt/tsdproxy"
+          SUFFIXES=("amd64" "arm64" "armv6" "armv7")
+
+          for image in "${DOCKER_IMAGE}" "${GHCR_IMAGE}"; do
+            echo "=== Pushing per-arch images for ${image} ==="
+            PER_ARCH=()
+            for suffix in "${SUFFIXES[@]}"; do
+              img="${image}:dev-${suffix}"
+              docker push "${img}"
+              PER_ARCH+=("${img}")
+            done
+
+            echo "=== Creating multi-arch manifest :dev for ${image} ==="
+            docker manifest rm "${image}:dev" 2>/dev/null || true
+            docker manifest create "${image}:dev" "${PER_ARCH[@]}"
+            docker manifest push "${image}:dev"
+          done
