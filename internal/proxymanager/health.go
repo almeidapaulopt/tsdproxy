@@ -102,7 +102,7 @@ func newHealthChecker(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsValidate}, //nolint
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsValidate}, //nolint:gosec // G402: config-driven TLS validation toggle
 		DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
 	}
 
