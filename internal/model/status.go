@@ -25,6 +25,9 @@ const (
 	ProxyStatusError
 	ProxyStatusPaused
 	ProxyStatusAwaitingApproval
+	ProxyStatusAuthFailed
+	ProxyStatusDeviceConflict
+	ProxyStatusReconciling
 )
 
 var proxyStatusStrings = []string{
@@ -37,6 +40,9 @@ var proxyStatusStrings = []string{
 	"Error",
 	"Paused",
 	"AwaitingApproval",
+	"AuthFailed",
+	"DeviceConflict",
+	"Reconciling",
 }
 
 func (s *ProxyStatus) String() string {
