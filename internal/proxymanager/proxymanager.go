@@ -434,7 +434,9 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 }
 
 // newAndStartProxy method creates a new proxy and starts it.
-// Order: resolve auth → close old → NewProxy → Start → insert-map → metrics.
+// Order: resolve auth → close old → NewProxy → insert-map → broadcast → Start.
+// The proxy is inserted into the map before Start() so the dashboard can
+// display it immediately, even when Start() blocks on Tailscale auth.
 // Auth resolution runs before close so transient OAuth/network failures
 // don't tear down a working proxy. The old proxy must still be closed
 // before NewProxy() because both share the same tsnet state directory.
@@ -482,12 +484,9 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		return tp.ReResolve(targetID)
 	}
 
-	if err := p.Start(); err != nil {
-		p.Close()
-		pm.cleanupProxyMetrics(proxyConfig.Hostname)
-		return fmt.Errorf("proxy start failed: %w", err)
-	}
-
+	// Add proxy to map before starting so the dashboard can display it
+	// immediately. Start() may block on listener creation when interactive
+	// Tailscale login is required (tsnet.ListenTLS waits for Running state).
 	pm.mtx.Lock()
 	pm.Proxies[proxyConfig.Hostname] = p
 	pm.mtx.Unlock()
@@ -497,8 +496,13 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 
 	pm.broadcastStatusEvents(model.ProxyEvent{
 		ID:     p.Config.Hostname,
-		Status: p.GetStatus(),
+		Status: model.ProxyStatusInitializing,
 	})
+
+	if err := p.Start(); err != nil {
+		pm.closeAndRemoveProxy(proxyConfig.Hostname)
+		return fmt.Errorf("proxy start failed: %w", err)
+	}
 
 	return nil
 }
