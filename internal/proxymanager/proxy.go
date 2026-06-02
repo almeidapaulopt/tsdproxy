@@ -131,7 +131,6 @@ func NewProxy(log zerolog.Logger,
 
 func (proxy *Proxy) Start() error {
 	proxy.opMu.Lock()
-	defer proxy.opMu.Unlock()
 
 	proxy.startHealthChecker()
 
@@ -141,7 +140,20 @@ func (proxy *Proxy) Start() error {
 		}
 	}()
 
-	return proxy.start()
+	// Phase 1: start the proxy provider (quick — starts tsnet server and
+	// the watchStatus goroutine, but does not wait for authentication).
+	if err := proxy.startProvider(); err != nil {
+		proxy.opMu.Unlock()
+		return err
+	}
+
+	proxy.opMu.Unlock()
+
+	// Phase 2: create listeners. This may block when interactive Tailscale
+	// login is required — tsnet.ListenTLS calls s.Up() which waits for the
+	// node to reach Running state. opMu is released so Close() can proceed
+	// concurrently (e.g. container stops while auth is still pending).
+	return proxy.startListeners()
 }
 
 // Close method is a method that initiate proxy close procedure.
@@ -548,12 +560,10 @@ func (proxy *Proxy) initPorts() {
 	}
 }
 
-// Start method is a method that starts the proxy.
-func (proxy *Proxy) start() error {
+func (proxy *Proxy) startProvider() error {
 	proxy.log.Info().Msg("starting proxy")
 
 	proxy.mtx.RLock()
-	portsConfig := proxy.Config.Ports
 	portsCount := len(proxy.ports)
 	proxy.mtx.RUnlock()
 
@@ -564,6 +574,14 @@ func (proxy *Proxy) start() error {
 	if err := proxy.providerProxy.Start(proxy.ctx); err != nil {
 		return fmt.Errorf("error starting with proxy provider: %w", err)
 	}
+
+	return nil
+}
+
+func (proxy *Proxy) startListeners() error {
+	proxy.mtx.RLock()
+	portsConfig := proxy.Config.Ports
+	proxy.mtx.RUnlock()
 
 	var listenerErrors int
 	for k, pc := range portsConfig {
