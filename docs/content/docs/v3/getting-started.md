@@ -12,6 +12,21 @@ Docker Compose with the recommended **Services mode**.
 
 {{% steps %}}
 
+### Create Tailscale OAuth credentials
+
+1. Go to the [Tailscale OAuth clients settings](https://login.tailscale.com/admin/settings/oauth).
+2. Click **+ Credential**.
+3. Select **OAuth** and give it a description (e.g. "TSDProxy").
+4. Under **Scopes**, enable the required permissions:
+   - **General/Services**: `write` (to create and manage Tailscale services/VIP)
+   - **Devices/Core**: `write` (to create and manage Tailscale machines)
+   - **Keys/Auth Keys**: `write` (to generate single use keys for services)
+5. Assign tags to the OAuth client (e.g. `tag:example`) — Tailscale requires all OAuth-generated keys to have tags.
+6. Click **Generate client** and copy the **Client ID** and **Client Secret** — you'll need them in the config file.
+
+> [!WARNING]
+> Store the Client Secret securely. It is only shown once.
+
 ### Create a TSDProxy docker-compose.yaml
 
 ```yaml {filename="docker-compose.yml"}
@@ -27,43 +42,24 @@ services:
       - "8080:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    environment:
-      TSDPROXY_TAILSCALE_DEFAULT_CLIENTID: "${TS_CLIENT_ID}"
-      TSDPROXY_TAILSCALE_DEFAULT_CLIENTSECRET: "${TS_CLIENT_SECRET}"
+    labels:
+      tsdproxy.enable: "true"
+      tsdproxy.name: "dash"
+      tsdproxy.dash.visible: "false"
 
 volumes:
   datadir:
-```
-
-Create a `.env` file in the same directory with your Tailscale OAuth credentials:
-
-```text {filename=".env"}
-TS_CLIENT_ID=your_client_id
-TS_CLIENT_SECRET=your_client_secret
 ```
 
 > [!IMPORTANT]
 > The `extra_hosts` entry maps `host.docker.internal` to the Docker host gateway.
 > This allows TSDProxy to detect the Docker host IP for routing traffic to containers.
 
-> [!TIP]
-> Generate OAuth credentials at
-> [https://login.tailscale.com/admin/settings/oauth](https://login.tailscale.com/admin/settings/oauth).
-> Assign tags to the OAuth client (e.g. `tag:tsdproxy`) — Tailscale requires all
-> OAuth-generated keys to have tags.
-
-### Start the TSDProxy container
-
-```bash
-docker compose up -d
-```
-
 ### Configure TSDProxy
 
-After the TSDProxy container is started, a configuration file
-`/config/tsdproxy.yaml` is created and populated with the following:
+Create the configuration file `./config/tsdproxy.yaml` with the following:
 
-```yaml {filename="/config/tsdproxy.yaml"}
+```yaml {filename="./config/tsdproxy.yaml"}
 defaultProxyProvider: default
 
 docker:
@@ -88,6 +84,9 @@ http:
   hostname: 0.0.0.0
   port: 8080
 
+dashboard:
+  adminAllowLocalhost: true
+
 log:
   level: info
   json: false
@@ -95,11 +94,13 @@ log:
 ```
 
 > [!IMPORTANT]
-> Edit the config file to add your OAuth credentials and tags. Then restart:
->
-> ```bash
-> docker compose restart
-> ```
+> Add your OAuth credentials (from Step 1) to the config file before starting.
+
+### Start the TSDProxy container
+
+```bash
+docker compose up -d
+```
 
 ### Run a sample service
 
@@ -119,17 +120,12 @@ docker run -d --name sample-nginx -p 8111:80 --label "tsdproxy.enable=true" ngin
 3. After the proxy is running, the service is available at
    `https://sample-nginx.<tailnet-name>.ts.net`.
 
-> [!IMPORTANT]
-> All dashboard endpoints require authentication. When accessing via Docker port
-> mapping (not through a Tailscale proxy), enable
-> `adminAllowLocalhost: true` in your config. In Docker, this trusts requests
-> from the Docker bridge network automatically.
+> [!WARNING]
+> The example config has `adminAllowLocalhost: true`, which allows unauthenticated
+> dashboard access from the Docker bridge network. This is convenient for getting
+> started, but should be disabled in production. Remove or set it to `false` and
+> access the dashboard through a Tailscale proxy instead.
 > See [Admin Allowlist]({{< ref "/docs/v3/security/admin-allowlist" >}}) for details.
-
-> [!IMPORTANT]
-> The first time you run the proxy, it will take a few seconds to start, because
-> it needs to connect to the Tailscale network, create the VIP Service, and start
-> the proxy.
 
 {{% /steps %}}
 
