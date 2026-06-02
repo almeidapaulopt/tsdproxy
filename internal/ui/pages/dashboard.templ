@@ -398,184 +398,44 @@ templ Dashboard(d DashboardData) {
 						<option value="health" selected?={ d.Prefs.Sort == "health" }>Health</option>
 					</select>
 				</div>
-				<div class="flex items-center gap-1 min-w-0">
-					<label class="text-xs text-base-content/50 sm:mr-1 shrink-0">Status</label>
-					<div class="filter filter-scroll">
-						<input
-							class="btn btn-xs filter-reset"
-							type="radio"
-							name="filterStatus"
-							aria-label="All"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"all"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "all" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="Running"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"Running"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "Running" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="Stopped"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"Stopped"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "Stopped" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="Paused"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"Paused"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "Paused" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="Error"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"Error"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "Error" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="Auth"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"Authenticating"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "Authenticating" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="Approval"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"AwaitingApproval"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "AwaitingApproval" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="AuthFailed"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"AuthFailed"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "AuthFailed" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterStatus"
-							aria-label="Conflict"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterStatus":"DeviceConflict"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterStatus == "DeviceConflict" }
-						/>
-					</div>
+				<div class="flex items-center gap-1.5">
+					<label class="text-xs text-base-content/50 shrink-0">Status</label>
+					<select
+						class="select select-xs"
+						name="filterStatus"
+						hx-trigger="change"
+						hx-put="/api/dashboard/preferences"
+						hx-target="#proxy-list"
+						hx-swap="innerHTML"
+						hx-include="#searchInput,#sseConnId"
+					>
+						<option value="all" selected?={ d.Prefs.FilterStatus == "all" }>All</option>
+						<option value="Running" selected?={ d.Prefs.FilterStatus == "Running" }>Running</option>
+						<option value="Stopped" selected?={ d.Prefs.FilterStatus == "Stopped" }>Stopped</option>
+						<option value="Paused" selected?={ d.Prefs.FilterStatus == "Paused" }>Paused</option>
+						<option value="Error" selected?={ d.Prefs.FilterStatus == "Error" }>Error</option>
+						<option value="Authenticating" selected?={ d.Prefs.FilterStatus == "Authenticating" }>Authenticating</option>
+						<option value="AwaitingApproval" selected?={ d.Prefs.FilterStatus == "AwaitingApproval" }>Awaiting Approval</option>
+						<option value="AuthFailed" selected?={ d.Prefs.FilterStatus == "AuthFailed" }>Auth Failed</option>
+						<option value="DeviceConflict" selected?={ d.Prefs.FilterStatus == "DeviceConflict" }>Device Conflict</option>
+					</select>
 				</div>
-				<div class="flex items-center gap-1 min-w-0">
-					<label class="text-xs text-base-content/50 sm:mr-1 shrink-0">Health</label>
-					<div class="filter filter-scroll">
-						<input
-							class="btn btn-xs filter-reset"
-							type="radio"
-							name="filterHealth"
-							aria-label="All"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterHealth":"all"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterHealth == "all" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterHealth"
-							aria-label="Healthy"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterHealth":"healthy"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterHealth == "healthy" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterHealth"
-							aria-label="Unhealthy"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterHealth":"down"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterHealth == "down" }
-						/>
-						<input
-							class="btn btn-xs"
-							type="radio"
-							name="filterHealth"
-							aria-label="Unknown"
-							hx-trigger="change"
-							hx-put="/api/dashboard/preferences"
-							hx-vals={ `{"filterHealth":"unknown"}` }
-							hx-target="#proxy-list"
-							hx-swap="innerHTML"
-							hx-include="#searchInput,#sseConnId"
-							checked?={ d.Prefs.FilterHealth == "unknown" }
-						/>
-					</div>
+				<div class="flex items-center gap-1.5">
+					<label class="text-xs text-base-content/50 shrink-0">Health</label>
+					<select
+						class="select select-xs"
+						name="filterHealth"
+						hx-trigger="change"
+						hx-put="/api/dashboard/preferences"
+						hx-target="#proxy-list"
+						hx-swap="innerHTML"
+						hx-include="#searchInput,#sseConnId"
+					>
+						<option value="all" selected?={ d.Prefs.FilterHealth == "all" }>All</option>
+						<option value="healthy" selected?={ d.Prefs.FilterHealth == "healthy" }>Healthy</option>
+						<option value="down" selected?={ d.Prefs.FilterHealth == "down" }>Unhealthy</option>
+						<option value="unknown" selected?={ d.Prefs.FilterHealth == "unknown" }>Unknown</option>
+					</select>
 				</div>
 			</div>
 			<!-- MAIN -->
