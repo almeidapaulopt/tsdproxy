@@ -170,19 +170,21 @@ tailscale:
 ##### preventDuplicates
 
 Controls how TSDProxy handles stale Tailscale devices when the data directory
-has been lost. Accepts three string values (not a boolean):
+has been lost. A boolean option (default: `false`):
 
 | Value | Behavior |
 |-------|----------|
-| `"false"` | Do not check for duplicate devices (default) |
-| `"true"` | Always check and remove offline duplicates before creating a new node |
-| `"auto"` | Enable duplicate prevention when OAuth credentials are configured |
+| `false` | Do not check for duplicate devices (default) |
+| `true` | Check and remove offline duplicates before creating a new node (requires OAuth) |
+
+TSDProxy logs a warning and disables `preventDuplicates` if it is set to `true`
+without OAuth credentials (`clientId` + `clientSecret`).
 
 ```yaml {filename="/config/tsdproxy.yaml"}
 tailscale:
   providers:
     default:
-      preventDuplicates: "auto"
+      preventDuplicates: true
 ```
 
 > [!Warning]

@@ -126,17 +126,12 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		authRetryMax = 30 * time.Second //nolint:mnd
 	}
 
-	// Resolve preventDuplicates tri-state: "true"/"false"/"auto".
-	preventDuplicates := resolvePreventDuplicates(
-		provider.PreventDuplicates,
-		provider.ClientID,
-		provider.ClientSecret,
-	)
-	if provider.PreventDuplicates != "" && provider.PreventDuplicates != "true" &&
-		provider.PreventDuplicates != "false" && provider.PreventDuplicates != "auto" {
+	preventDuplicates := provider.PreventDuplicates
+	if preventDuplicates && (provider.ClientID == "" || provider.ClientSecret.Value() == "") {
 		clientLog.Warn().
-			Str("value", provider.PreventDuplicates).
-			Msg("unrecognized preventDuplicates value, treating as false (valid: false, true, auto)")
+			Msg("preventDuplicates is enabled but OAuth credentials (clientId/clientSecret) are not configured. " +
+				"Duplicate prevention requires OAuth. Disabling preventDuplicates.")
+		preventDuplicates = false
 	}
 
 	providerCtx, providerCancel := context.WithCancel(context.Background()) //nolint:gosec // cancel stored in Client struct, called on shutdown
@@ -196,20 +191,6 @@ func (c *Client) runPeriodicReconcile() {
 			c.deviceReconciler.Reconcile(reconcileCtx, c.sharedHostname, c.tags, nil)
 			cancel()
 		}
-	}
-}
-
-// resolvePreventDuplicates resolves the preventDuplicates tri-state string into
-// a boolean. "true" → true, "false" or unrecognized → false, "auto" → true
-// only if OAuth credentials (ClientID+ClientSecret) are configured.
-func resolvePreventDuplicates(value, clientID string, clientSecret secretstring.SecretString) bool {
-	switch value {
-	case "true":
-		return true
-	case "auto":
-		return clientID != "" && clientSecret.Value() != ""
-	default:
-		return false
 	}
 }
 

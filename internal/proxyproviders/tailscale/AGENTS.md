@@ -125,7 +125,7 @@ Per-proxy mode uses full chain. Shared/Services modes skip OAuth in `ResolveAuth
 | `tags` | string | "" | Comma-separated ACL tags |
 | `hostname` | string | "" | Override hostname for shared/services modes |
 | `maxCertConcurrency` | int | 2 | Max concurrent TLS cert provisioning |
-| `preventDuplicates` | string | `"false"` | Tri-state: `"false"` / `"true"` / `"auto"` (enable when OAuth configured) |
+| `preventDuplicates` | bool | `false` | Delete stale Tailscale devices before creating new nodes (requires OAuth; warns if enabled without OAuth) |
 | `shared` | bool | false | Enable shared SNI mode |
 | `services` | bool | false | Enable VIP Services mode |
 | `autoApproveDevices` | bool | false | Auto-approve device registration (requires OAuth) |

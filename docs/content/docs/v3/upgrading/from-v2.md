@@ -32,7 +32,7 @@ Benefits over per-proxy mode:
 | `authRetry` | Configurable retry policy for tsnet startup failures |
 | `reconcileInterval` | Periodic device reconciliation to clean up stale devices |
 | `clientSecretFile` | Load OAuth client secret from a file |
-| `preventDuplicates` | Now accepts `"auto"` to enable when OAuth is configured |
+| `preventDuplicates` | Now a boolean — warns if enabled without OAuth credentials |
 
 ### New proxy statuses
 
@@ -81,7 +81,7 @@ tailscale:
       services: true
       hostname: "tsdproxy"
       autoApproveDevices: true
-      preventDuplicates: "auto"
+      preventDuplicates: true
   dataDir: /data/
 
 http:

@@ -145,18 +145,17 @@ Docker volume), Tailscale creates a new machine instead of reconnecting the
 existing one. This results in duplicate machines in your tailnet, often with a
 `-1` suffix.
 
-The `preventDuplicates` option (default: `"false"`) tells TSDProxy to query the
+The `preventDuplicates` option (default: `false`) tells TSDProxy to query the
 Tailscale API before creating a new node. If an existing device with the same
 hostname and matching tags is found **and is offline**, it is deleted first so
 the new node can take its place.
 
-Accepts three string values:
+A boolean option:
 
 | Value | Behavior |
 |-------|----------|
-| `"false"` | Do not check for duplicate devices (default) |
-| `"true"` | Always check and remove offline duplicates before creating a new node |
-| `"auto"` | Enable duplicate prevention automatically when OAuth credentials are configured |
+| `false` | Do not check for duplicate devices (default) |
+| `true` | Check and remove offline duplicates before creating a new node (requires OAuth) |
 
 > [!Warning]
 > **This deletes devices from your tailnet.** Deleting a device also removes
@@ -181,7 +180,7 @@ tailscale:
       clientId: "your_client_id"
       clientSecret: "your_client_secret"
       tags: "tag:example"
-      preventDuplicates: "auto"
+      preventDuplicates: true
 ```
 
 > [!TIP]

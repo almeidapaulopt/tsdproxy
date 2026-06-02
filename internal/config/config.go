@@ -132,7 +132,7 @@ type (
 		ControlURL          string                    `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
 		ClientID            string                    `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
 		Hostname            string                    `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
-		PreventDuplicates   string                    `default:"false" yaml:"preventDuplicates"`
+		PreventDuplicates   bool                      `default:"false" yaml:"preventDuplicates"`
 		AuthRetry           AuthRetryConfig           `yaml:"authRetry"`
 		MaxCertConcurrency  int64                     `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
 		Shared              bool                      `default:"false" yaml:"shared"`
