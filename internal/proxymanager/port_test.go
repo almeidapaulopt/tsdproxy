@@ -301,6 +301,80 @@ func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
 	return captured
 }
 
+func runPortProxyProtoTest(t *testing.T, proxyProtocol string) http.Header {
+	t.Helper()
+
+	var captured http.Header
+	var capturedMu sync.Mutex
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedMu.Lock()
+		captured = r.Header.Clone()
+		capturedMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatalf("parse backend URL: %v", err)
+	}
+
+	pconfig := model.PortConfig{
+		ProxyProtocol: proxyProtocol,
+		TLSValidate:   false,
+	}
+	pconfig.AddTarget(backendURL)
+
+	whoisFunc := func(next http.Handler) http.Handler { return next }
+
+	p := newPortProxy(
+		context.Background(),
+		pconfig,
+		zerolog.Nop(),
+		false,
+		whoisFunc,
+		nil,
+		"test-proxy",
+		"test-port",
+		nil,
+		false,
+	)
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("frontend listen: %v", err)
+	}
+	go func() { _ = p.startWithListener(frontLn) }()
+	defer p.close()
+
+	resp, err := http.Get("http://" + frontLn.Addr().String() + "/")
+	if err != nil {
+		t.Fatalf("client GET: %v", err)
+	}
+	resp.Body.Close()
+
+	capturedMu.Lock()
+	defer capturedMu.Unlock()
+	if captured == nil {
+		t.Fatal("backend never received request")
+	}
+	return captured
+}
+
+func TestPortProxyForwardedProtoHTTPS(t *testing.T) {
+	hdr := runPortProxyProtoTest(t, model.ProtoHTTPS)
+	if got := hdr.Get("X-Forwarded-Proto"); got != "https" {
+		t.Errorf("X-Forwarded-Proto: want https, got %q", got)
+	}
+}
+
+func TestPortProxyForwardedProtoHTTP(t *testing.T) {
+	hdr := runPortProxyProtoTest(t, model.ProtoHTTP)
+	if got := hdr.Get("X-Forwarded-Proto"); got != "http" {
+		t.Errorf("X-Forwarded-Proto: want http, got %q", got)
+	}
+}
+
 func TestPortProxyInjectsIdentityHeadersByDefault(t *testing.T) {
 	hdr := runPortProxyHeaderTest(t, true)
 
