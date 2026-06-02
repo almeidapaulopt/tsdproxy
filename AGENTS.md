@@ -178,15 +178,16 @@ Steps 4–5 skipped for host-network containers.
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
-- **Global mutable state**: `config.Config` (package-level var) and `core.proxyAuthToken` — set during init, accessed everywhere without synchronization guarantees
-- **nolint directives**: Prolific across codebase; ~half are `//nolint:mnd` magic number suppression (concentrated in `model/port.go`, `tailscale/sni_router.go`); bare `//nolint` without specific linter also present (should specify which)
-- **InsecureSkipVerify**: `proxymanager/port.go:74`, `proxymanager/health.go:105` — config-driven TLS validation toggle, uses bare `//nolint`
-- **println/fmt.Print in prod**: `cmd/server/main.go`, `internal/core/log.go`, `internal/config/validator.go` — 6 instances using println instead of zerolog
-- **Swallowed errors**: `config/generateproviders.go` prints errors but continues; `dashboard/dash.go` discards render errors with `_ =`
-- **TODOs in validator**: `internal/config/validator.go` — incomplete per-provider validation
+- **Global mutable state**: `config.Config` (package-level var), `core.proxyAuthToken`, `core.csrfProtection` — set during init, accessed everywhere without synchronization guarantees
+- **nolint directives**: Prolific across codebase; ~half are `//nolint:mnd` magic number suppression (concentrated in `model/port.go`, `tailscale/sni_router.go`); bare `//nolint` without specific linter in `web/web.go:60-61` and `proxymanager/port.go:74` (should specify which)
+- **InsecureSkipVerify**: `proxymanager/port.go:74`, `proxymanager/health.go:105` — config-driven TLS validation toggle, uses `//nolint:gosec`
+- **println/fmt.Print in prod**: `cmd/server/main.go`, `internal/config/generateproviders.go` — 6 instances using `fmt.Fprintf(os.Stderr, ...)` instead of zerolog
+- **Swallowed errors**: `config/generateproviders.go` prints errors but continues; `dashboard/dash.go` discards render errors with `_ =`; `targetproviders/list/list.go` ignores `defaults.Set` error; ~10 cleanup `_ = Close()` patterns in tailscale provider
+- **Duplicate error definitions**: `core/log.go` and `core/metrics/metrics.go` both define `ErrHijackNotSupported` / `errHijackNotSupported` with same message
 - **Config case sensitivity**: YAML keys are case-sensitive (documented WARNING, no runtime validation)
 - **Makefile ldflags mismatch**: Makefile targets `AppVersion`/`BuildDate`/`GitCommit` vars that don't exist in `version.go` (only GoReleaser's `version` var works)
 - **`prod` build tag**: Set in GoReleaser but no `//go:build prod` constraints in source — inert
+- **`context.TODO()` in tests**: `tlsproviders/tailscale/tailscale_test.go` uses `TODO` instead of `Background`
 
 ## COMMANDS
 

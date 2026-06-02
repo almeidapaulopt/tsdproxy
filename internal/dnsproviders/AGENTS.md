@@ -65,3 +65,10 @@ Per-proxy cascade: `proxyCfg.DNSProvider` → `config.DefaultDNSProvider` → `E
 - MagicDNS is a no-op provider — it exists so the cascade resolution doesn't fail when using Tailscale-only mode.
 - `validateproviders.go` in config ensures `defaultDNSProvider` exists in the map before startup.
 - DNS validation uses retry with backoff — DNS propagation can take seconds to minutes.
+
+## TEST PATTERNS
+
+- `lifecycle_test.go`: `mockProvider` with error injection fields (`createErr`, `validateErr`, `deleteErr`). Tests status tracking through all lifecycle states.
+- `retry_test.go`: Tests exponential backoff, context cancellation, overflow guard.
+- `cloudflare/cloudflare_test.go`: `httptest.NewServer` for Cloudflare API mock.
+- All tests use `zerolog.Nop()` to suppress logging.

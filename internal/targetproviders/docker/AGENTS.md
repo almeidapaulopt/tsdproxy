@@ -13,7 +13,7 @@ Docker target provider: watches Docker daemon for containers with `tsdproxy.*` l
 | `utils.go` | Label parsing helpers: `getLabelBool`, `getLabelString`, `getLabelInt`, `getAuthKeyFromAuthFile`. |
 | `legacy.go` | Legacy label support: `tsdproxy.container_port`, `tsdproxy.scheme`, `tsdproxy.tlsvalidate`, `tsdproxy.funnel`. |
 | `errors.go` | Custom error types: `NoValidTargetFoundError`, `ErrNoPortFoundInContainer`. |
-| `container_test.go` | Tests covering all resolution strategies. |
+| `container_test.go` | ~564 lines, 25+ tests. `newTestContainer` helper. Uses stdlib `t.Fatalf` (not testify). Tests all 5 resolution strategies. |
 
 ## LABEL SCHEMA
 

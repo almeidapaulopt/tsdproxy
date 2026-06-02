@@ -55,6 +55,20 @@ Tailscale proxy provider: creates `tsnet.Server` instances in three modes (per-p
 | `retry_policy.go` | `RetryPolicy` — 3 attempts, exponential backoff, non-recoverable error detection for tsnet startup. |
 | `certs.go` | TLS cert provisioning with retry/backoff (10s initial, 2x growth, 5min max, 6 attempts). Throttled by `certSem`. |
 
+### Test files (13 test files, heavy `t.Parallel()` usage)
+
+| File | Tests |
+|------|-------|
+| `status_watcher_test.go` | `mockStatusSource` with thread-safe call tracking, BackendState→ProxyStatus classification |
+| `services_server_reconcile_test.go` | `mockVIPAPI`, `mockListenerFactory`, event-loop state machine testing via command injection |
+| `shared_server_test.go` | SharedServer event loop: acquire/release/close/idle timeout via direct command structs |
+| `device_reconciler_test.go` | `mockDeviceLister` with deleted-ID tracking, online/offline duplicate handling |
+| `auth_manager_test.go` | `httptest.NewServer` for Tailscale API mock, 5-level auth key resolution chain |
+| `state_manager_test.go` | Filesystem-based: `newStateManager`, `touchStateFile`, `writeMetaFile` |
+| `whois_cache_test.go` | TTL cache + singleflight dedup |
+| `virtual_listener_test.go` | Concurrent dispatch + close safety (goroutine swarm with `atomic` stop flag) |
+| `port_router_test.go` | SNI/HTTP Host routing, zero-copy peek, byte replay |
+
 ### Supporting
 
 | File | Role |

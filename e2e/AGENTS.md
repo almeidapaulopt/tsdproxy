@@ -70,3 +70,16 @@ Required: `TSDPROXY_E2E_AUTHKEY` or `TSDPROXY_E2E_AUTHKEY_FILE`. Optional: `TSDP
 - `requireOAuth` skips without `TSDPROXY_E2E_CLIENTID`/`TSDPROXY_E2E_CLIENTSECRET`.
 - Tailscale machine names must be unique. Timestamp-based hostnames for tsnet clients.
 - `proxyStartupTimeout` 120s. First-run Tailscale auth + cert can be slow.
+
+## TEST PATTERNS
+
+- **No `t.Parallel()`** — serial only (shared Docker daemon).
+- **Subprocess-based**: launches actual tsdproxy binaries, not library imports.
+- **Assertion library**: `stretchr/testify/require` (fatal) + `assert` (non-fatal).
+- **Skip patterns**: `requireTailscaleAuth(t)`, `requireOAuth(t)`, `requireCloudflare(t)` — graceful `t.Skip()`.
+- **testcontainers-go**: nginx containers tagged `tsdproxy.e2e=true` for cleanup.
+- **tsnet client**: ephemeral `TSNetClient` for HTTPS assertions (`GetNoFollowRedirect`).
+- **Config generation**: `generateConfig()` builds YAML from `configParams` struct.
+- **List provider**: `GenerateListProviderFile` / `RenderListProviderFile` for YAML-based list providers.
+- **No table-driven tests**: each test case is a separate `func Test*`. No `t.Run()`.
+- **TLS testing**: `StartSelfSignedHTTPSServer` / `StartSelfSignedHTTPSContainer` for TLS scenarios.

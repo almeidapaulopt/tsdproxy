@@ -11,7 +11,10 @@ Central orchestrator. Wires target, proxy, DNS, and TLS providers per container 
 | `port.go` | 545 | Port handlers: `httpProxy`, `httpRedirect`, `tcpForward`, `udpForward`. Reverse proxy, TLS, rate limiting |
 | `health.go` | ~120 | `healthChecker`. Periodic HTTP/TCP pings with configurable interval and thresholds |
 | `logbuffer.go` | ~100 | Ring buffer for per-proxy log lines. Broadcasts to SSE dashboard subscribers |
-| `providers_test.go` | ~200 | Mock provider tests. Includes BUG assertion: per-proxy ACME bypass when no global DNS default |
+| `providers_test.go` | ~200 | Mock provider tests (`mockDNSProvider`, `mockTLSProvider`, `domainRequiredStub`). Includes BUG assertion: per-proxy ACME bypass when no global DNS default. Compile-time interface checks on mocks. |
+| `port_test.go` | ~507 | Port handler tests with `startEchoBackend`, `newTestTCPConfig`, header injection tests. Uses stdlib `t.Fatalf` (not testify). |
+| `logbuffer_test.go` | ~100 | Ring buffer: concurrent writers, subscriber atomicity, slow consumer drop (goroutine swarm test). |
+| `health_test.go` | ~120 | Health checker: probe simulation, `clampDuration` overflow guard. |
 
 ## PROVIDER WIRING
 
