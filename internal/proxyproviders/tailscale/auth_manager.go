@@ -78,13 +78,7 @@ func (m *AuthManager) ResolveKey(ctx context.Context, cfg AuthConfig, tags strin
 
 // GenerateOAuthKey creates a fresh one-time OAuth auth key.
 // Returns empty string if OAuth is not configured or tags are empty.
-func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (authKey string, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in OAuth key generation: the Tailscale API request failed with no response. This may indicate a network issue or misconfigured OAuth credentials: %v", r)
-		}
-	}()
-
+func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string, error) {
 	cleanedTags := cleanTags(tags)
 	if len(cleanedTags) == 0 {
 		m.log.Warn().Msg("OAuth without tags: cannot create auth key, interactive login will be required")
