@@ -201,13 +201,16 @@ func ResolveWhois(r *http.Request) model.Whois {
 }
 
 // IsTrustedSource returns true when the request originates from a
-// trusted network: loopback (127.0.0.0/8, ::1) or RFC 1918 private
-// addresses (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16).
+// trusted network: loopback (127.0.0.0/8, ::1), RFC 1918 private
+// addresses (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16), or RFC 6598
+// Carrier-Grade NAT (100.64.0.0/10) used by Tailscale.
 //
 // The private-network check extends the loopback-only model.IsLocalhost to
 // cover Docker port-mapped requests, which arrive inside the container
 // from the Docker bridge gateway (e.g. 172.17.0.1) rather than
-// 127.0.0.1.
+// 127.0.0.1. The CGNAT check covers the case where a client on the LAN
+// has Tailscale running, causing the source IP to appear as a Tailscale
+// address (100.x.x.x) even when connecting to the host's LAN IP.
 //
 // IMPORTANT: This must NOT be used where loopback-only trust is
 // required (e.g. validating proxy auth tokens or identity headers).
@@ -223,7 +226,14 @@ func IsTrustedSource(remoteAddr string) bool {
 		return false
 	}
 
-	return ip.IsLoopback() || ip.IsPrivate()
+	return ip.IsLoopback() || isCGNAT(ip) || ip.IsPrivate()
+}
+
+// isCGNAT returns true for RFC 6598 Carrier-Grade NAT addresses
+// (100.64.0.0/10), which Tailscale uses for its mesh address space.
+func isCGNAT(ip net.IP) bool {
+	_, cgnat, _ := net.ParseCIDR("100.64.0.0/10")
+	return cgnat.Contains(ip)
 }
 
 // validProxyAuthToken checks whether the request carries a valid per-process
