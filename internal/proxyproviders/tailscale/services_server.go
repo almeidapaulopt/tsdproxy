@@ -92,17 +92,18 @@ const (
 
 // servicesRuntime holds all mutable state owned exclusively by the loop goroutine.
 type servicesRuntime struct {
-	ctx        context.Context
-	factory    serviceListenerFactory
-	cancel     context.CancelFunc
-	tsServer   *tsnet.Server
-	listeners  map[string]*serviceEntry
-	lifecycle  *NodeLifecycle
-	bridgeDone chan struct{}
-	authURL    string
-	refCount   int
-	gen        int
-	running    bool
+	ctx           context.Context
+	factory       serviceListenerFactory
+	cancel        context.CancelFunc
+	tsServer      *tsnet.Server
+	listeners     map[string]*serviceEntry
+	lifecycle     *NodeLifecycle
+	bridgeDone    chan struct{}
+	authURL       string
+	refCount      int
+	pendingCount  int
+	gen           int
+	running       bool
 }
 
 // Command types for the state machine.
@@ -156,6 +157,15 @@ type servicesGetAuthURLCmd struct {
 }
 
 func (servicesGetAuthURLCmd) cmd() {}
+
+type acquireServiceWorkResultCmd struct {
+	original acquireServiceCmd
+	listener *tsnet.ServiceListener
+	err      error
+	gen      int
+}
+
+func (acquireServiceWorkResultCmd) cmd() {}
 
 // ServicesServer manages a shared, ref-counted tsnet.Server for services mode.
 // All mutable state is managed by a single event-loop goroutine.
@@ -237,11 +247,9 @@ func (ss *ServicesServer) loop() {
 
 		switch c := cmd.(type) {
 		case acquireServiceCmd:
-			state, rt = ss.handleAcquireService(c, state, rt)
-			if rt != nil && rt.gen == 0 {
-				rt.gen = nextGen
-				nextGen++
-			}
+			state, rt = ss.handleAcquireService(c, state, rt, &nextGen)
+		case acquireServiceWorkResultCmd:
+			state, rt = ss.handleAcquireWorkResult(c, state, rt)
 		case releaseServiceCmd:
 			state, rt = ss.handleReleaseService(c, state, rt)
 			if state == servicesIdle && rt != nil {
@@ -254,7 +262,14 @@ func (ss *ServicesServer) loop() {
 		case servicesGetAuthURLCmd:
 			ss.handleGetAuthURL(c, rt)
 		case servicesCloseCmd:
+			state = servicesClosed
 			if rt != nil {
+				for rt.pendingCount > 0 {
+					resultCmd := <-ss.ev.Cmds()
+					if r, ok := resultCmd.(acquireServiceWorkResultCmd); ok {
+						state, rt = ss.handleAcquireWorkResult(r, state, rt)
+					}
+				}
 				ss.stopRuntime(rt)
 			}
 			c.reply <- nil
@@ -279,7 +294,7 @@ func (ss *ServicesServer) handleIdleTimeout(c servicesIdleTimeoutCmd, state serv
 	return rt
 }
 
-func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
+func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servicesState, rt *servicesRuntime, nextGen *int) (servicesState, *servicesRuntime) {
 	if state == servicesClosed {
 		c.reply <- acquireServiceResult{nil, errors.New("services server closed")}
 		return state, rt
@@ -292,6 +307,8 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 				c.reply <- acquireServiceResult{nil, errors.New("services server start failed")}
 				return state, rt
 			}
+			newRT.gen = *nextGen
+			(*nextGen)++
 			rt = newRT
 		}
 		state = servicesRunning
@@ -303,25 +320,41 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 		return state, rt
 	}
 
-	// Clean up stale per-proxy devices whose hostname collides with this VIP
-	// service name (causes Tailscale 409 "name is in use but is not a service").
-	ss.reconcileServiceHostname(c.serviceName)
-
-	// Collect all known ports for this service (including the new one).
 	allPorts := ss.collectServicePorts(rt, c.serviceName, c.port)
+	gen := rt.gen
+	factory := rt.factory
+	tsServer := rt.tsServer
+	ctx := rt.ctx
 
-	// Create or update VIP Service via API with ALL ports.
-	if err := ss.createOrUpdateVIPService(c.serviceName, allPorts); err != nil {
-		c.reply <- acquireServiceResult{nil, fmt.Errorf("create VIP service: %w", err)}
-		if rt.refCount <= 0 {
-			ss.stopRuntime(rt)
-			rt = nil
-			state = servicesIdle
+	rt.pendingCount++
+
+	go ss.acquireServiceAsync(ctx, gen, c, allPorts, factory, tsServer)
+
+	return state, rt
+}
+
+func (ss *ServicesServer) acquireServiceAsync(ctx context.Context, gen int, c acquireServiceCmd, allPorts []string, factory serviceListenerFactory, tsServer *tsnet.Server) {
+	sendResult := func(listener *tsnet.ServiceListener, err error) {
+		if !ss.sendProducer(ctx, acquireServiceWorkResultCmd{
+			original: c,
+			listener: listener,
+			err:      err,
+			gen:      gen,
+		}) {
+			if listener != nil {
+				factory.Close(listener)
+			}
+			c.reply <- acquireServiceResult{nil, errors.New("services server closed during acquire")}
 		}
-		return state, rt
 	}
 
-	// Determine the service mode.
+	ss.reconcileServiceHostname(c.serviceName)
+
+	if err := ss.createOrUpdateVIPService(c.serviceName, allPorts); err != nil {
+		sendResult(nil, fmt.Errorf("create VIP service: %w", err))
+		return
+	}
+
 	var mode tsnet.ServiceMode
 	if c.tcp {
 		mode = tsnet.ServiceModeTCP{Port: c.port}
@@ -329,11 +362,48 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 		mode = tsnet.ServiceModeHTTP{Port: c.port, HTTPS: c.https}
 	}
 
-	listener, err := rt.factory.ListenService(c.serviceName, mode)
+	listener, err := factory.ListenService(c.serviceName, mode)
 	if err != nil {
-		ss.reconcileVIPServiceOnFailure(rt, c.serviceName)
-		c.reply <- acquireServiceResult{nil, fmt.Errorf("listen service: %w", err)}
-		if rt.refCount <= 0 {
+		remaining := withoutPort(allPorts, c.port)
+		if len(remaining) == 0 {
+			if delErr := ss.deleteVIPService(c.serviceName); delErr != nil {
+				ss.log.Warn().Err(delErr).Str("service", c.serviceName).Msg("failed to delete VIP service after listen failure")
+			}
+		} else {
+			if updateErr := ss.createOrUpdateVIPService(c.serviceName, remaining); updateErr != nil {
+				ss.log.Warn().Err(updateErr).Str("service", c.serviceName).Msg("failed to update VIP service after listen failure")
+			}
+		}
+		sendResult(nil, fmt.Errorf("listen service: %w", err))
+		return
+	}
+
+	if ss.autoApproveDevices {
+		if err := ss.approveServiceDeviceForServer(ctx, tsServer, c.serviceName); err != nil {
+			ss.log.Warn().Err(err).Str("service", c.serviceName).
+				Msg("failed to auto-approve service device; manual approval required in Tailscale admin console")
+		}
+	}
+
+	sendResult(listener, nil)
+}
+
+func (ss *ServicesServer) handleAcquireWorkResult(c acquireServiceWorkResultCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
+	if rt != nil {
+		rt.pendingCount--
+	}
+
+	if state == servicesClosed || rt == nil || c.gen != rt.gen {
+		if c.listener != nil && rt != nil {
+			rt.factory.Close(c.listener)
+		}
+		c.original.reply <- acquireServiceResult{nil, errors.New("services server closed during acquire")}
+		return state, rt
+	}
+
+	if c.err != nil {
+		c.original.reply <- acquireServiceResult{nil, c.err}
+		if rt.refCount <= 0 && rt.pendingCount <= 0 {
 			ss.stopRuntime(rt)
 			rt = nil
 			state = servicesIdle
@@ -341,24 +411,100 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 		return state, rt
 	}
 
-	rt.listeners[key] = &serviceEntry{listener: listener, serviceName: c.serviceName, port: c.port, https: c.https}
+	key := serviceKey(c.original.serviceName, c.original.port)
+	if _, exists := rt.listeners[key]; exists {
+		rt.factory.Close(c.listener)
+		c.original.reply <- acquireServiceResult{nil, fmt.Errorf("service %s port %d already acquired", c.original.serviceName, c.original.port)}
+		if rt.refCount <= 0 && rt.pendingCount <= 0 {
+			ss.stopRuntime(rt)
+			rt = nil
+			state = servicesIdle
+		}
+		return state, rt
+	}
+
+	rt.listeners[key] = &serviceEntry{listener: c.listener, serviceName: c.original.serviceName, port: c.original.port, https: c.original.https}
 	rt.refCount++
 
-	if ss.autoApproveDevices {
-		if err := ss.approveServiceDevice(rt, c.serviceName); err != nil {
-			ss.log.Warn().Err(err).Str("service", c.serviceName).
-				Msg("failed to auto-approve service device; manual approval required in Tailscale admin console")
+	ss.log.Info().
+		Str("service", c.original.serviceName).
+		Uint16("port", c.original.port).
+		Str("fqdn", c.listener.FQDN).
+		Msg("service acquired")
+
+	if rt.running && c.original.https && c.listener != nil && c.listener.FQDN != "" {
+		lc := ss.localClient.Load()
+		if lc != nil {
+			validDomains := ss.validCertDomains(rt)
+			if validDomains[c.listener.FQDN] {
+				fqdn := c.listener.FQDN
+				go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
+			}
 		}
 	}
 
-	ss.log.Info().
-		Str("service", c.serviceName).
-		Uint16("port", c.port).
-		Str("fqdn", listener.FQDN).
-		Msg("service acquired")
-
-	c.reply <- acquireServiceResult{listener, nil}
+	c.original.reply <- acquireServiceResult{c.listener, nil}
 	return state, rt
+}
+
+func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsServer *tsnet.Server, serviceName string) error {
+	if tsServer == nil {
+		return nil
+	}
+
+	client := ss.getAPIClient()
+	if client == nil {
+		return errors.New("tailscale API client not configured")
+	}
+
+	lc, err := tsServer.LocalClient()
+	if err != nil {
+		return fmt.Errorf("get local client: %w", err)
+	}
+
+	statusCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+
+	status, err := lc.Status(statusCtx)
+	if err != nil {
+		return fmt.Errorf("get node status: %w", err)
+	}
+	if status.Self == nil {
+		return errors.New("no self in node status")
+	}
+
+	nodeID := string(status.Self.ID)
+	if nodeID == "" {
+		return errors.New("empty node ID in status")
+	}
+
+	client.Services()
+
+	u := client.BaseURL.JoinPath("api", "v2", "tailnet", "-", "services", serviceName, "device", nodeID, "approved")
+
+	body := `{"approved":true}`
+	req, err := http.NewRequestWithContext(statusCtx, http.MethodPost, u.String(), strings.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create approval request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("approval request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("approval failed (HTTP %d): unable to read response body: %w", resp.StatusCode, readErr)
+		}
+		return fmt.Errorf("approval failed (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	ss.log.Info().Str("service", serviceName).Str("nodeID", nodeID).Msg("service device approved")
+	return nil
 }
 
 func (ss *ServicesServer) handleReleaseService(c releaseServiceCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
@@ -827,68 +973,6 @@ func (ss *ServicesServer) deleteVIPServiceProd(serviceName string) error {
 	return client.Services().Delete(ctx, serviceName)
 }
 
-func (ss *ServicesServer) approveServiceDevice(rt *servicesRuntime, serviceName string) error {
-	if rt.tsServer == nil {
-		return nil
-	}
-
-	client := ss.getAPIClient()
-	if client == nil {
-		return errors.New("tailscale API client not configured")
-	}
-
-	lc, err := rt.tsServer.LocalClient()
-	if err != nil {
-		return fmt.Errorf("get local client: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
-	defer cancel()
-
-	status, err := lc.Status(ctx)
-	if err != nil {
-		return fmt.Errorf("get node status: %w", err)
-	}
-	if status.Self == nil {
-		return errors.New("no self in node status")
-	}
-
-	nodeID := string(status.Self.ID)
-	if nodeID == "" {
-		return errors.New("empty node ID in status")
-	}
-
-	// Trigger client lazy init (sets BaseURL from default).
-	client.Services()
-
-	// Endpoint: POST /api/v2/tailnet/{tailnet}/services/{svc}/device/{nodeId}/approved
-	u := client.BaseURL.JoinPath("api", "v2", "tailnet", "-", "services", serviceName, "device", nodeID, "approved")
-
-	body := `{"approved":true}`
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), strings.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("create approval request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.HTTP.Do(req)
-	if err != nil {
-		return fmt.Errorf("approval request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			return fmt.Errorf("approval failed (HTTP %d): unable to read response body: %w", resp.StatusCode, readErr)
-		}
-		return fmt.Errorf("approval failed (HTTP %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	ss.log.Info().Str("service", serviceName).Str("nodeID", nodeID).Msg("service device approved")
-	return nil
-}
-
 // collectServicePorts gathers all known ports for a service from active listeners,
 // plus the new port being acquired.
 func (ss *ServicesServer) collectServicePorts(rt *servicesRuntime, serviceName string, newPort uint16) []string {
@@ -918,20 +1002,15 @@ func (ss *ServicesServer) collectExistingServicePorts(rt *servicesRuntime, servi
 	return ports
 }
 
-// reconcileVIPServiceOnFailure rolls back the VIP service port list after a
-// ListenService failure. If other ports exist for the service, updates the
-// VIP service with only the remaining ports. Otherwise deletes the VIP service.
-func (ss *ServicesServer) reconcileVIPServiceOnFailure(rt *servicesRuntime, serviceName string) {
-	existingPorts := ss.collectExistingServicePorts(rt, serviceName)
-	if len(existingPorts) == 0 {
-		if err := ss.deleteVIPService(serviceName); err != nil {
-			ss.log.Warn().Err(err).Str("service", serviceName).Msg("failed to delete VIP service after listen failure")
-		}
-	} else {
-		if err := ss.createOrUpdateVIPService(serviceName, existingPorts); err != nil {
-			ss.log.Warn().Err(err).Str("service", serviceName).Msg("failed to reconcile VIP service after listen failure")
+func withoutPort(ports []string, port uint16) []string {
+	target := fmt.Sprintf("tcp:%d", port)
+	filtered := make([]string, 0, len(ports))
+	for _, p := range ports {
+		if p != target {
+			filtered = append(filtered, p)
 		}
 	}
+	return filtered
 }
 
 // serviceKey builds a map key from service name and port.

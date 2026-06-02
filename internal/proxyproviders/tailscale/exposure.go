@@ -235,6 +235,7 @@ type SharedSNIExposure struct {
 	vListeners      map[string]*VirtualListener
 	directListeners map[string]net.Listener
 	packetConns     map[string]net.PacketConn
+	tlsListeners    map[string]net.Listener
 	sharedServer    *SharedServer
 	cfg             *model.Config
 	cachedCert      *tls.Certificate
@@ -266,6 +267,7 @@ func (e *SharedSNIExposure) Start(ctx context.Context, _ *NodeRuntime, cfg *mode
 	e.cfg = cfg
 	e.vListeners = make(map[string]*VirtualListener)
 	e.directListeners = make(map[string]net.Listener)
+	e.tlsListeners = make(map[string]net.Listener)
 
 	for portName, portCfg := range cfg.Ports {
 		select {
@@ -276,7 +278,29 @@ func (e *SharedSNIExposure) Start(ctx context.Context, _ *NodeRuntime, cfg *mode
 		}
 
 		switch portCfg.ProxyProtocol {
-		case model.ProtoHTTPS, model.ProtoHTTP:
+		case model.ProtoHTTPS:
+			vl, _, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
+			if err != nil {
+				e.rollbackAcquired()
+				return err
+			}
+			e.vListeners[portName] = vl
+			// Create TLS wrapper eagerly so GetListener is read-only.
+			e.tlsListeners[portName] = tls.NewListener(vl, &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+					if hello.ServerName != "" && hello.ServerName != e.domain {
+						return nil, fmt.Errorf("SNI mismatch: got %q, want %q", hello.ServerName, e.domain)
+					}
+					lc := e.sharedServer.GetLocalClient()
+					if lc == nil {
+						return nil, errors.New("shared server local client not available")
+					}
+					return e.getCertificate(lc)
+				},
+			})
+
+		case model.ProtoHTTP:
 			vl, _, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
 			if err != nil {
 				e.rollbackAcquired()
@@ -347,6 +371,7 @@ func (e *SharedSNIExposure) Close(_ context.Context) error {
 	}
 	e.rollbackAcquired()
 	e.cfg = nil
+	e.tlsListeners = nil
 	e.started = false
 
 	e.certCacheMtx.Lock()
@@ -398,23 +423,7 @@ func (e *SharedSNIExposure) GetListener(portName string) (net.Listener, error) {
 
 	switch portCfg.ProxyProtocol {
 	case model.ProtoHTTPS:
-		vl, ok := e.vListeners[portName]
-		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrProxyPortNotFound, portName)
-		}
-		return tls.NewListener(vl, &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-				if hello.ServerName != "" && hello.ServerName != e.domain {
-					return nil, fmt.Errorf("SNI mismatch: got %q, want %q", hello.ServerName, e.domain)
-				}
-				lc := e.sharedServer.GetLocalClient()
-				if lc == nil {
-					return nil, errors.New("shared server local client not available")
-				}
-				return e.getCertificate(lc)
-			},
-		}), nil
+		return exposureLookup(e.started, e.tlsListeners, portName)
 
 	case model.ProtoHTTP:
 		return exposureLookup(e.started, e.vListeners, portName)

@@ -79,6 +79,9 @@ func (p *Proxy) GetURL() string {
 	url := p.url
 	p.mtx.RUnlock()
 
+	if url == "" {
+		return ""
+	}
 	scheme := primaryScheme(p.config.Ports)
 	return scheme + "://" + url
 }

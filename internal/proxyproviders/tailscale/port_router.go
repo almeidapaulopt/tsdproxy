@@ -232,18 +232,26 @@ func httpHostHeader(br *bufio.Reader) (hostname string, consumed []byte) {
 		if eofHeaders != -1 {
 			req, reqErr := http.ReadRequest(bufio.NewReader(bytes.NewReader(b[:eofHeaders+delimLen])))
 			if reqErr == nil {
-				return req.Host, b
+				return stripPort(req.Host), b
 			}
 			return "", nil
 		}
 
 		if err != nil {
-			return httpHostHeaderFromBytes(b), b
+			return stripPort(httpHostHeaderFromBytes(b)), b
 		}
 	}
 
 	b := buf.Bytes()
-	return httpHostHeaderFromBytes(b), b
+	return stripPort(httpHostHeaderFromBytes(b)), b
+}
+
+func stripPort(hostport string) string {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return hostport
+	}
+	return host
 }
 
 var (

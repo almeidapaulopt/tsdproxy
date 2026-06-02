@@ -92,6 +92,7 @@ func NewStatusWatcher(cfg StatusWatcherConfig) *StatusWatcher {
 
 // Watch polls the Tailscale backend status until ctx is canceled or a fatal
 // error occurs. Always calls onDone when finished.
+// The first check happens immediately; subsequent checks follow pollInterval.
 func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 	defer w.onDone()
 
@@ -112,12 +113,6 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 	defer ticker.Stop()
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-
 		backendState, authURL, dnsName, selfOK, err := source.getStatus(ctx)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -125,14 +120,18 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 			}
 			if errors.Is(err, net.ErrClosed) {
 				w.log.Debug().Msg("status watcher: status connection closed, retrying")
-				continue
-			}
-			// Transient errors: retry with a brief pause to avoid tight loop.
-			w.log.Warn().Err(err).Msg("status watcher: transient error, retrying")
-			select {
-			case <-time.After(1 * time.Second):
-			case <-ctx.Done():
-				return
+				select {
+				case <-ticker.C:
+				case <-ctx.Done():
+					return
+				}
+			} else {
+				w.log.Warn().Err(err).Msg("status watcher: transient error, retrying")
+				select {
+				case <-time.After(1 * time.Second):
+				case <-ctx.Done():
+					return
+				}
 			}
 			continue
 		}
@@ -140,10 +139,15 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 		evt := classifyState(backendState, authURL, dnsName)
 		if evt.Status == model.ProxyStatusRunning && !selfOK {
 			w.log.Warn().Msg("status watcher: Self is nil, skipping")
-			continue
+		} else {
+			w.onEvent(evt)
 		}
 
-		w.onEvent(evt)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

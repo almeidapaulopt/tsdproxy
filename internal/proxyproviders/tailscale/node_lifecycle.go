@@ -219,6 +219,13 @@ func (nl *NodeLifecycle) Close() error {
 	nl.mtx.Unlock()
 
 	if rt == nil {
+		// Clean up ephemeral DataDir even when Start() never succeeded
+		// (e.g. startWithRetry failed). Prevents leaked temp directories.
+		if nl.cfg.Ephemeral && nl.cfg.DataDir != "" {
+			if removeErr := os.RemoveAll(nl.cfg.DataDir); removeErr != nil {
+				nl.log.Error().Err(removeErr).Msg("failed to clean up ephemeral node state")
+			}
+		}
 		nl.eventsOnce.Do(func() { close(nl.events) })
 		return nil
 	}

@@ -376,3 +376,82 @@ func TestPortRouterHTTPHostMode(t *testing.T) {
 	client.Close()
 	vl.Close()
 }
+
+func TestHTTPHostHeader_StripsPort(t *testing.T) {
+	t.Parallel()
+
+	raw := "GET / HTTP/1.1\r\nHost: example.com:8080\r\n\r\n"
+	br := bufio.NewReaderSize(bytes.NewReader([]byte(raw)), 16384)
+
+	host, _ := httpHostHeader(br)
+	if host != "example.com" {
+		t.Fatalf("expected %q, got %q", "example.com", host)
+	}
+}
+
+func TestHTTPHostHeader_NoHeadersEnd_StripsPort(t *testing.T) {
+	t.Parallel()
+
+	raw := "GET / HTTP/1.1\r\nHost: example.com:8080\r\nUser-Agent: test"
+	br := bufio.NewReaderSize(bytes.NewReader([]byte(raw)), 16384)
+
+	host, _ := httpHostHeader(br)
+	if host != "example.com" {
+		t.Fatalf("expected %q, got %q", "example.com", host)
+	}
+}
+
+func TestStripPort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ input, want string }{
+		{"example.com:8080", "example.com"},
+		{"example.com", "example.com"},
+		{"[::1]:8080", "::1"},
+		{":8080", ""},
+	}
+	for _, tt := range tests {
+		if got := stripPort(tt.input); got != tt.want {
+			t.Errorf("stripPort(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestPortRouterHTTPHostMode_WithPort(t *testing.T) {
+	router := NewPortRouter(RouteHTTPHost, zerolog.Nop())
+
+	vl, err := router.Register("hostport.example.com")
+	if err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+
+	server, client := net.Pipe()
+
+	go func() {
+		router.handleConn(server)
+	}()
+
+	req := "GET / HTTP/1.1\r\nHost: hostport.example.com:9090\r\n\r\n"
+	_, err = client.Write([]byte(req))
+	if err != nil {
+		t.Fatalf("failed to write HTTP request: %v", err)
+	}
+
+	conn, err := vl.Accept()
+	if err != nil {
+		t.Fatalf("Accept returned error: %v", err)
+	}
+	defer conn.Close()
+
+	buf := make([]byte, len(req))
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatalf("Read from dispatched connection returned error: %v", err)
+	}
+	if n != len(req) {
+		t.Fatalf("expected %d bytes, got %d", len(req), n)
+	}
+
+	client.Close()
+	vl.Close()
+}
