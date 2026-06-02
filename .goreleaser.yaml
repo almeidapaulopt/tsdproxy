@@ -35,7 +35,7 @@ release:
   target_commitish: "{{ .Commit }}"
   discussion_category_name: General
   prerelease: auto
-  make_latest: "{{ if and (not .Prerelease) (not .Env.DISABLE_PACKAGE_MANAGERS) }}true{{ else }}false{{ end }}"
+  make_latest: "{{ if not .Prerelease }}true{{ else }}false{{ end }}"
 
 builds:
   - id: server
