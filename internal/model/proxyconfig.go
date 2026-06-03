@@ -4,6 +4,7 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/creasty/defaults"
@@ -90,7 +91,7 @@ func ValidateProxyConfigForMode(cfg *Config, mode string) error {
 	switch mode {
 	case ProviderModeServices:
 		if cfg.Domain != "" {
-			return fmt.Errorf("services mode does not support custom domains; VIP Services assign FQDNs automatically")
+			return errors.New("services mode does not support custom domains; VIP Services assign FQDNs automatically")
 		}
 		for key, port := range cfg.Ports {
 			if port.ProxyProtocol == ProtoUDP {
@@ -99,7 +100,7 @@ func ValidateProxyConfigForMode(cfg *Config, mode string) error {
 		}
 	case ProviderModeShared:
 		if cfg.Domain == "" {
-			return fmt.Errorf("shared mode requires a domain to be set on each proxy")
+			return errors.New("shared mode requires a domain to be set on each proxy")
 		}
 	}
 

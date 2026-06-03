@@ -138,17 +138,17 @@ func newPortProxy(
 				}
 			}
 
-		r.SetXForwarded()
+			r.SetXForwarded()
 
-		// Tailscale (and other TLS-terminating proxy providers) terminate TLS
-		// before the request reaches this handler, so r.In.TLS is always nil.
-		// Go's SetXForwarded incorrectly sets X-Forwarded-Proto to "http".
-		// Override based on the port's configured proxy protocol so upstream
-		// applications (e.g. Portainer CSRF) see the correct scheme.
-		if pconfig.ProxyProtocol == model.ProtoHTTPS {
-			r.Out.Header.Set("X-Forwarded-Proto", model.ProtoHTTPS)
-		}
-	},
+			// Tailscale (and other TLS-terminating proxy providers) terminate TLS
+			// before the request reaches this handler, so r.In.TLS is always nil.
+			// Go's SetXForwarded incorrectly sets X-Forwarded-Proto to "http".
+			// Override based on the port's configured proxy protocol so upstream
+			// applications (e.g. Portainer CSRF) see the correct scheme.
+			if pconfig.ProxyProtocol == model.ProtoHTTPS {
+				r.Out.Header.Set("X-Forwarded-Proto", model.ProtoHTTPS)
+			}
+		},
 	}
 
 	handler := whoisFunc(reverseProxy)
