@@ -22,6 +22,7 @@ import (
 	"tailscale.com/client/tailscale/v2"
 	"tailscale.com/tsnet"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
@@ -653,7 +654,7 @@ func (ss *ServicesServer) Whois(r *http.Request) model.Whois {
 		Bool("has_local_client", lc != nil).
 		Str("remote_addr", r.RemoteAddr).
 		Bool("is_localhost", isLocalhost(r.RemoteAddr)).
-		Str("x_forwarded_for", r.Header.Get("X-Forwarded-For")).
+		Str("x_forwarded_for", r.Header.Get(consts.HeaderXForwardedFor)).
 		Str("peer_ip", peerIP).
 		Msg("service whois")
 
@@ -681,7 +682,7 @@ func (ss *ServicesServer) trustedPeerIP(r *http.Request) string {
 	// trusted proxy hop should produce exactly one header. Multiple
 	// headers indicate header spoofing (Go's Header.Get merges them
 	// with commas, hiding the attack).
-	xffVals := r.Header.Values("X-Forwarded-For")
+	xffVals := r.Header.Values(consts.HeaderXForwardedFor)
 	if len(xffVals) != 1 {
 		return ""
 	}
