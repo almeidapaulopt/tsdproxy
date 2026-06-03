@@ -142,15 +142,13 @@ func newPortProxy(
 
 			r.SetXForwarded()
 
-			// Resolve the single authoritative client IP.  For localhost
-			// connections (services/VIP proxy hop) the real IP is extracted
-			// from the inbound X-Forwarded-For with anti-spoofing checks,
-			// rather than blindly forwarding 127.0.0.1 to the upstream.
+			// SetXForwarded appends RemoteAddr to the outbound
+			// X-Forwarded-For (stripped by TrustedProxyHeaders above).
+			// Override with the single authoritative client IP to
+			// prevent spoofing.
 			if peerIP := resolvePeerIP(r.In); peerIP != "" {
 				r.Out.Header.Set(consts.HeaderRealIP, peerIP)
-				// SetXForwarded appended the localhost RemoteAddr to
-				// X-Forwarded-For — replace with the real IP instead.
-				r.Out.Header.Set("X-Forwarded-For", peerIP)
+				r.Out.Header.Set(consts.HeaderXForwardedFor, peerIP)
 			}
 
 			// Tailscale (and other TLS-terminating proxy providers) terminate TLS
@@ -595,7 +593,7 @@ func resolvePeerIP(r *http.Request) string {
 	}
 
 	// Trusted proxy hop: extract from X-Forwarded-For.
-	xffVals := r.Header.Values("X-Forwarded-For")
+	xffVals := r.Header.Values(consts.HeaderXForwardedFor)
 	if len(xffVals) != 1 {
 		return ""
 	}
@@ -614,7 +612,7 @@ func isManagementTarget(target *url.URL) bool {
 		return false
 	}
 	host := target.Hostname()
-	// net.ParseIP does not recognise "localhost"; map to the numeric form so
+	// net.ParseIP does not recognize "localhost"; map to the numeric form so
 	// that list-provider targets like "http://localhost:8080" are detected.
 	if host == "localhost" {
 		host = "127.0.0.1"

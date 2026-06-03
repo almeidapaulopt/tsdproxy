@@ -481,6 +481,79 @@ func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
 	}
 }
 
+func TestPortProxyStripsSpoofedXForwardedFor(t *testing.T) {
+	// Regression test for GHSA-pqg7-v6wh-3pfp: a client must not be able
+	// to inject arbitrary X-Forwarded-For values that reach the upstream.
+	var captured http.Header
+	var capturedMu sync.Mutex
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedMu.Lock()
+		captured = r.Header.Clone()
+		capturedMu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatalf("parse backend URL: %v", err)
+	}
+
+	pconfig := model.PortConfig{ProxyProtocol: "http"}
+	pconfig.AddTarget(backendURL)
+
+	whoisFunc := func(next http.Handler) http.Handler { return next }
+
+	p := newPortProxy(
+		context.Background(),
+		pconfig,
+		zerolog.Nop(),
+		false,
+		whoisFunc,
+		nil,
+		"test-proxy",
+		"test-port",
+		nil,
+		false,
+	)
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("frontend listen: %v", err)
+	}
+	go func() { _ = p.startWithListener(frontLn) }()
+	defer p.close()
+
+	req, err := http.NewRequest(http.MethodGet, "http://"+frontLn.Addr().String()+"/", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Add(consts.HeaderXForwardedFor, "1.2.3.4")
+	req.Header.Add(consts.HeaderXForwardedFor, "5.6.7.8")
+	req.Header.Set(consts.HeaderRealIP, "10.0.0.1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("client GET: %v", err)
+	}
+	resp.Body.Close()
+
+	capturedMu.Lock()
+	defer capturedMu.Unlock()
+	if captured == nil {
+		t.Fatal("backend never received request")
+	}
+
+	xff := captured.Get(consts.HeaderXForwardedFor)
+	if xff != "127.0.0.1" {
+		t.Errorf("X-Forwarded-For: want 127.0.0.1, got %q", xff)
+	}
+
+	xRealIP := captured.Get(consts.HeaderRealIP)
+	if xRealIP == "10.0.0.1" {
+		t.Errorf("X-Real-IP: spoofed value leaked through: %q", xRealIP)
+	}
+}
+
 func TestTCPPortCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pconfig := model.PortConfig{ProxyProtocol: "tcp"}
