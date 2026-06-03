@@ -4,8 +4,6 @@
 package tailscale
 
 import (
-	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -59,7 +57,7 @@ func (c *WhoisCache) storeEntry(key string, entry *whoisCacheEntry) {
 // goroutine calls resolve — all others wait and share the result. The
 // fresh result is stored in the TTL cache before being returned.
 func (c *WhoisCache) Lookup(ip string, resolve func() (model.Whois, error)) (model.Whois, error) {
-	key := NormalizeIP(ip)
+	key := model.NormalizeIP(ip)
 	if key == "" {
 		return model.Whois{}, nil
 	}
@@ -117,27 +115,4 @@ func (c *WhoisCache) evict() {
 		}
 		delete(c.entries, oldest)
 	}
-}
-
-// NormalizeIP takes an address in "ip:port" or bare IP form and returns
-// the normalized IP string. It trims whitespace and strips any port
-// component. Returns empty string if the input cannot be parsed.
-func NormalizeIP(addr string) string {
-	addr = strings.TrimSpace(addr)
-
-	// Try splitting host:port first (handles "1.2.3.4:443" and "[::1]:443").
-	host, _, err := net.SplitHostPort(addr)
-	if err == nil {
-		if ip := net.ParseIP(host); ip != nil {
-			return host
-		}
-		return ""
-	}
-
-	// No port present — validate as a bare IP.
-	if ip := net.ParseIP(addr); ip != nil {
-		return addr
-	}
-
-	return ""
 }

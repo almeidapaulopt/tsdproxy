@@ -674,7 +674,7 @@ func (ss *ServicesServer) Whois(r *http.Request) model.Whois {
 // ever exposed beyond the local machine, XFF spoofing becomes possible.
 func (ss *ServicesServer) trustedPeerIP(r *http.Request) string {
 	if !isLocalhost(r.RemoteAddr) {
-		return NormalizeIP(r.RemoteAddr)
+		return model.NormalizeIP(r.RemoteAddr)
 	}
 
 	// Reject if multiple X-Forwarded-For headers are present — a single
@@ -694,7 +694,7 @@ func (ss *ServicesServer) trustedPeerIP(r *http.Request) string {
 		return ""
 	}
 
-	ip := NormalizeIP(strings.TrimSpace(xff))
+	ip := model.NormalizeIP(strings.TrimSpace(xff))
 	if ip == "" {
 		return ""
 	}

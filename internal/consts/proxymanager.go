@@ -16,4 +16,10 @@ const (
 	HeaderXForwardedEmail             = "X-Forwarded-Email"
 	HeaderXAuthRequestEmail           = "X-Auth-Request-Email"
 	HeaderXForwardedPreferredUsername = "X-Forwarded-Preferred-Username"
+
+	// HeaderRealIP is the de-facto standard header for passing the single
+	// authoritative client IP address to upstream services (popularized by
+	// nginx).  Unlike X-Forwarded-For (which may carry a comma-separated
+	// chain of proxies), X-Real-IP always contains exactly one IP.
+	HeaderRealIP = "X-Real-IP"
 )

@@ -53,7 +53,7 @@ func cachedWhoisFromAddr(ctx context.Context, cache *WhoisCache, lc *local.Clien
 		return whoisFromAddr(ctx, lc, addr)
 	}
 
-	ip := NormalizeIP(addr)
+	ip := model.NormalizeIP(addr)
 	if ip == "" {
 		return model.Whois{}
 	}

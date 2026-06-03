@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -117,6 +118,7 @@ func newPortProxy(
 			r.Out.Header.Del(consts.HeaderXForwardedEmail)
 			r.Out.Header.Del(consts.HeaderXAuthRequestEmail)
 			r.Out.Header.Del(consts.HeaderXForwardedPreferredUsername)
+			r.Out.Header.Del(consts.HeaderRealIP)
 
 			// Inject authenticated user headers when enabled (default).
 			// Some upstream services (e.g. wetty) consume Remote-User as the
@@ -139,6 +141,17 @@ func newPortProxy(
 			}
 
 			r.SetXForwarded()
+
+			// Resolve the single authoritative client IP.  For localhost
+			// connections (services/VIP proxy hop) the real IP is extracted
+			// from the inbound X-Forwarded-For with anti-spoofing checks,
+			// rather than blindly forwarding 127.0.0.1 to the upstream.
+			if peerIP := resolvePeerIP(r.In); peerIP != "" {
+				r.Out.Header.Set(consts.HeaderRealIP, peerIP)
+				// SetXForwarded appended the localhost RemoteAddr to
+				// X-Forwarded-For — replace with the real IP instead.
+				r.Out.Header.Set("X-Forwarded-For", peerIP)
+			}
 
 			// Tailscale (and other TLS-terminating proxy providers) terminate TLS
 			// before the request reaches this handler, so r.In.TLS is always nil.
@@ -565,4 +578,33 @@ func (p *udpPort) close() error {
 	p.cancel()
 
 	return errs
+}
+
+// resolvePeerIP extracts the single authoritative client IP from a request.
+//
+// When RemoteAddr is localhost (services/VIP proxy hop), the original
+// client IP is read from the inbound X-Forwarded-For with anti-spoofing:
+//   - exactly one X-Forwarded-For header must be present
+//   - the value must be a single IP (no comma-separated chain)
+//   - loopback addresses are rejected
+//
+// For non-localhost connections RemoteAddr is used directly.
+func resolvePeerIP(r *http.Request) string {
+	if !model.IsLocalhost(r.RemoteAddr) {
+		return model.NormalizeIP(r.RemoteAddr)
+	}
+
+	// Trusted proxy hop: extract from X-Forwarded-For.
+	xffVals := r.Header.Values("X-Forwarded-For")
+	if len(xffVals) != 1 {
+		return ""
+	}
+	if strings.Contains(xffVals[0], ",") {
+		return ""
+	}
+	ip := model.NormalizeIP(xffVals[0])
+	if parsed := net.ParseIP(ip); parsed != nil && parsed.IsLoopback() {
+		return ""
+	}
+	return ip
 }

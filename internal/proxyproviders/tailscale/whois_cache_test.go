@@ -195,31 +195,31 @@ func TestWhoisCache_DifferentIPs(t *testing.T) {
 func TestNormalizeIP_InvalidHostPort(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "", NormalizeIP("not-an-ip:1234"))
+	assert.Equal(t, "", model.NormalizeIP("not-an-ip:1234"))
 }
 
 func TestNormalizeIP_ValidHostPort(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "1.2.3.4", NormalizeIP("1.2.3.4:443"))
-	assert.Equal(t, "::1", NormalizeIP("[::1]:443"))
+	assert.Equal(t, "1.2.3.4", model.NormalizeIP("1.2.3.4:443"))
+	assert.Equal(t, "::1", model.NormalizeIP("[::1]:443"))
 }
 
 func TestNormalizeIP_BareIP(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "100.64.0.1", NormalizeIP("100.64.0.1"))
+	assert.Equal(t, "100.64.0.1", model.NormalizeIP("100.64.0.1"))
 }
 
 func TestNormalizeIP_Empty(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "", NormalizeIP(""))
-	assert.Equal(t, "", NormalizeIP("  "))
+	assert.Equal(t, "", model.NormalizeIP(""))
+	assert.Equal(t, "", model.NormalizeIP("  "))
 }
 
 func TestNormalizeIP_InvalidBare(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "", NormalizeIP("not-an-ip"))
+	assert.Equal(t, "", model.NormalizeIP("not-an-ip"))
 }
