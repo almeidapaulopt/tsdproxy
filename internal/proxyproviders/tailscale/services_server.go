@@ -92,18 +92,18 @@ const (
 
 // servicesRuntime holds all mutable state owned exclusively by the loop goroutine.
 type servicesRuntime struct {
-	ctx           context.Context
-	factory       serviceListenerFactory
-	cancel        context.CancelFunc
-	tsServer      *tsnet.Server
-	listeners     map[string]*serviceEntry
-	lifecycle     *NodeLifecycle
-	bridgeDone    chan struct{}
-	authURL       string
-	refCount      int
-	pendingCount  int
-	gen           int
-	running       bool
+	ctx          context.Context
+	factory      serviceListenerFactory
+	cancel       context.CancelFunc
+	tsServer     *tsnet.Server
+	listeners    map[string]*serviceEntry
+	lifecycle    *NodeLifecycle
+	bridgeDone   chan struct{}
+	authURL      string
+	refCount     int
+	pendingCount int
+	gen          int
+	running      bool
 }
 
 // Command types for the state machine.
@@ -159,9 +159,9 @@ type servicesGetAuthURLCmd struct {
 func (servicesGetAuthURLCmd) cmd() {}
 
 type acquireServiceWorkResultCmd struct {
-	original acquireServiceCmd
-	listener *tsnet.ServiceListener
 	err      error
+	listener *tsnet.ServiceListener
+	original acquireServiceCmd
 	gen      int
 }
 
@@ -262,17 +262,7 @@ func (ss *ServicesServer) loop() {
 		case servicesGetAuthURLCmd:
 			ss.handleGetAuthURL(c, rt)
 		case servicesCloseCmd:
-			state = servicesClosed
-			if rt != nil {
-				for rt.pendingCount > 0 {
-					resultCmd := <-ss.ev.Cmds()
-					if r, ok := resultCmd.(acquireServiceWorkResultCmd); ok {
-						state, rt = ss.handleAcquireWorkResult(r, state, rt)
-					}
-				}
-				ss.stopRuntime(rt)
-			}
-			c.reply <- nil
+			ss.handleClose(c, rt)
 			return
 		}
 	}
@@ -292,6 +282,30 @@ func (ss *ServicesServer) handleIdleTimeout(c servicesIdleTimeoutCmd, state serv
 		return nil
 	}
 	return rt
+}
+
+func (ss *ServicesServer) handleClose(c servicesCloseCmd, rt *servicesRuntime) {
+	if rt != nil {
+		for rt.pendingCount > 0 {
+			cmd := <-ss.ev.Cmds()
+			switch v := cmd.(type) {
+			case acquireServiceWorkResultCmd:
+				_, rt = ss.handleAcquireWorkResult(v, servicesClosed, rt)
+			case acquireServiceCmd:
+				v.reply <- acquireServiceResult{nil, errors.New("services server closed")}
+			case releaseServiceCmd:
+				v.reply <- nil
+			case servicesGetAuthURLCmd:
+				v.reply <- ""
+			case servicesCloseCmd:
+				v.reply <- nil
+			default:
+				// servicesIdleTimeoutCmd, servicesWatchUpdateCmd have no reply channel — safe to drop.
+			}
+		}
+		ss.stopRuntime(rt)
+	}
+	c.reply <- nil
 }
 
 func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servicesState, rt *servicesRuntime, nextGen *int) (servicesState, *servicesRuntime) {
@@ -333,7 +347,10 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 	return state, rt
 }
 
-func (ss *ServicesServer) acquireServiceAsync(ctx context.Context, gen int, c acquireServiceCmd, allPorts []string, factory serviceListenerFactory, tsServer *tsnet.Server) {
+func (ss *ServicesServer) acquireServiceAsync(
+	ctx context.Context, gen int, c acquireServiceCmd,
+	allPorts []string, factory serviceListenerFactory, tsServer *tsnet.Server,
+) {
 	sendResult := func(listener *tsnet.ServiceListener, err error) {
 		if !ss.sendProducer(ctx, acquireServiceWorkResultCmd{
 			original: c,
@@ -364,16 +381,7 @@ func (ss *ServicesServer) acquireServiceAsync(ctx context.Context, gen int, c ac
 
 	listener, err := factory.ListenService(c.serviceName, mode)
 	if err != nil {
-		remaining := withoutPort(allPorts, c.port)
-		if len(remaining) == 0 {
-			if delErr := ss.deleteVIPService(c.serviceName); delErr != nil {
-				ss.log.Warn().Err(delErr).Str("service", c.serviceName).Msg("failed to delete VIP service after listen failure")
-			}
-		} else {
-			if updateErr := ss.createOrUpdateVIPService(c.serviceName, remaining); updateErr != nil {
-				ss.log.Warn().Err(updateErr).Str("service", c.serviceName).Msg("failed to update VIP service after listen failure")
-			}
-		}
+		ss.rollbackVIPServiceOnListenFailure(c.serviceName, allPorts, c.port)
 		sendResult(nil, fmt.Errorf("listen service: %w", err))
 		return
 	}
@@ -386,6 +394,19 @@ func (ss *ServicesServer) acquireServiceAsync(ctx context.Context, gen int, c ac
 	}
 
 	sendResult(listener, nil)
+}
+
+func (ss *ServicesServer) rollbackVIPServiceOnListenFailure(serviceName string, allPorts []string, failedPort uint16) {
+	remaining := withoutPort(allPorts, failedPort)
+	if len(remaining) == 0 {
+		if delErr := ss.deleteVIPService(serviceName); delErr != nil {
+			ss.log.Warn().Err(delErr).Str("service", serviceName).Msg("failed to delete VIP service after listen failure")
+		}
+	} else {
+		if updateErr := ss.createOrUpdateVIPService(serviceName, remaining); updateErr != nil {
+			ss.log.Warn().Err(updateErr).Str("service", serviceName).Msg("failed to update VIP service after listen failure")
+		}
+	}
 }
 
 func (ss *ServicesServer) handleAcquireWorkResult(c acquireServiceWorkResultCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
@@ -403,24 +424,14 @@ func (ss *ServicesServer) handleAcquireWorkResult(c acquireServiceWorkResultCmd,
 
 	if c.err != nil {
 		c.original.reply <- acquireServiceResult{nil, c.err}
-		if rt.refCount <= 0 && rt.pendingCount <= 0 {
-			ss.stopRuntime(rt)
-			rt = nil
-			state = servicesIdle
-		}
-		return state, rt
+		return ss.maybeTransitionToIdle(state, rt)
 	}
 
 	key := serviceKey(c.original.serviceName, c.original.port)
 	if _, exists := rt.listeners[key]; exists {
 		rt.factory.Close(c.listener)
 		c.original.reply <- acquireServiceResult{nil, fmt.Errorf("service %s port %d already acquired", c.original.serviceName, c.original.port)}
-		if rt.refCount <= 0 && rt.pendingCount <= 0 {
-			ss.stopRuntime(rt)
-			rt = nil
-			state = servicesIdle
-		}
-		return state, rt
+		return ss.maybeTransitionToIdle(state, rt)
 	}
 
 	rt.listeners[key] = &serviceEntry{listener: c.listener, serviceName: c.original.serviceName, port: c.original.port, https: c.original.https}
@@ -432,19 +443,33 @@ func (ss *ServicesServer) handleAcquireWorkResult(c acquireServiceWorkResultCmd,
 		Str("fqdn", c.listener.FQDN).
 		Msg("service acquired")
 
-	if rt.running && c.original.https && c.listener != nil && c.listener.FQDN != "" {
-		lc := ss.localClient.Load()
-		if lc != nil {
-			validDomains := ss.validCertDomains(rt)
-			if validDomains[c.listener.FQDN] {
-				fqdn := c.listener.FQDN
-				go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
-			}
-		}
-	}
+	ss.prefetchCertForService(c, rt)
 
 	c.original.reply <- acquireServiceResult{c.listener, nil}
 	return state, rt
+}
+
+func (ss *ServicesServer) maybeTransitionToIdle(state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
+	if rt.refCount <= 0 && rt.pendingCount <= 0 {
+		ss.stopRuntime(rt)
+		return servicesIdle, nil
+	}
+	return state, rt
+}
+
+func (ss *ServicesServer) prefetchCertForService(c acquireServiceWorkResultCmd, rt *servicesRuntime) {
+	if !rt.running || !c.original.https || c.listener == nil || c.listener.FQDN == "" {
+		return
+	}
+	lc := ss.localClient.Load()
+	if lc == nil {
+		return
+	}
+	if !ss.validCertDomains(rt)[c.listener.FQDN] {
+		return
+	}
+	fqdn := c.listener.FQDN
+	go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
 }
 
 func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsServer *tsnet.Server, serviceName string) error {

@@ -115,23 +115,8 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 	for {
 		backendState, authURL, dnsName, selfOK, err := source.getStatus(ctx)
 		if err != nil {
-			if errors.Is(err, context.Canceled) {
+			if w.handleStatusError(ctx, err, ticker) {
 				return
-			}
-			if errors.Is(err, net.ErrClosed) {
-				w.log.Debug().Msg("status watcher: status connection closed, retrying")
-				select {
-				case <-ticker.C:
-				case <-ctx.Done():
-					return
-				}
-			} else {
-				w.log.Warn().Err(err).Msg("status watcher: transient error, retrying")
-				select {
-				case <-time.After(1 * time.Second):
-				case <-ctx.Done():
-					return
-				}
 			}
 			continue
 		}
@@ -148,6 +133,33 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+func (w *StatusWatcher) handleStatusError(ctx context.Context, err error, ticker *time.Ticker) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	if errors.Is(err, net.ErrClosed) {
+		w.log.Debug().Msg("status watcher: status connection closed, retrying")
+	} else {
+		w.log.Warn().Err(err).Msg("status watcher: transient error, retrying")
+	}
+	return waitForRetry(ctx, ticker, errors.Is(err, net.ErrClosed))
+}
+
+func waitForRetry(ctx context.Context, ticker *time.Ticker, useTicker bool) bool {
+	var delay <-chan time.Time
+	if useTicker {
+		delay = ticker.C
+	} else {
+		delay = time.After(1 * time.Second)
+	}
+	select {
+	case <-delay:
+		return false
+	case <-ctx.Done():
+		return true
 	}
 }
 

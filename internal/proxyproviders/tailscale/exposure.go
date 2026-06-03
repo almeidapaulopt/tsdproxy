@@ -277,59 +277,62 @@ func (e *SharedSNIExposure) Start(ctx context.Context, _ *NodeRuntime, cfg *mode
 		default:
 		}
 
-		switch portCfg.ProxyProtocol {
-		case model.ProtoHTTPS:
-			vl, _, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
-			if err != nil {
-				e.rollbackAcquired()
-				return err
-			}
-			e.vListeners[portName] = vl
-			// Create TLS wrapper eagerly so GetListener is read-only.
-			e.tlsListeners[portName] = tls.NewListener(vl, &tls.Config{
-				MinVersion: tls.VersionTLS12,
-				GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-					if hello.ServerName != "" && hello.ServerName != e.domain {
-						return nil, fmt.Errorf("SNI mismatch: got %q, want %q", hello.ServerName, e.domain)
-					}
-					lc := e.sharedServer.GetLocalClient()
-					if lc == nil {
-						return nil, errors.New("shared server local client not available")
-					}
-					return e.getCertificate(lc)
-				},
-			})
-
-		case model.ProtoHTTP:
-			vl, _, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
-			if err != nil {
-				e.rollbackAcquired()
-				return err
-			}
-			e.vListeners[portName] = vl
-
-		case model.ProtoTCP:
-			_, direct, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
-			if err != nil {
-				e.rollbackAcquired()
-				return err
-			}
-			e.directListeners[portName] = direct
-
-		case model.ProtoUDP:
-			pc, err := e.sharedServer.AcquirePacket(e.domain, portCfg.ProxyPort)
-			if err != nil {
-				e.rollbackAcquired()
-				return err
-			}
-			if e.packetConns == nil {
-				e.packetConns = make(map[string]net.PacketConn)
-			}
-			e.packetConns[portName] = pc
+		if err := e.acquirePort(portName, portCfg); err != nil {
+			e.rollbackAcquired()
+			return err
 		}
 	}
 
 	e.started = true
+	return nil
+}
+
+func (e *SharedSNIExposure) acquirePort(portName string, portCfg model.PortConfig) error {
+	switch portCfg.ProxyProtocol {
+	case model.ProtoHTTPS:
+		vl, _, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
+		if err != nil {
+			return err
+		}
+		e.vListeners[portName] = vl
+		e.tlsListeners[portName] = tls.NewListener(vl, &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				if hello.ServerName != "" && hello.ServerName != e.domain {
+					return nil, fmt.Errorf("SNI mismatch: got %q, want %q", hello.ServerName, e.domain)
+				}
+				lc := e.sharedServer.GetLocalClient()
+				if lc == nil {
+					return nil, errors.New("shared server local client not available")
+				}
+				return e.getCertificate(lc)
+			},
+		})
+
+	case model.ProtoHTTP:
+		vl, _, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
+		if err != nil {
+			return err
+		}
+		e.vListeners[portName] = vl
+
+	case model.ProtoTCP:
+		_, direct, err := e.sharedServer.Acquire(e.domain, portCfg.ProxyPort, portCfg.ProxyProtocol)
+		if err != nil {
+			return err
+		}
+		e.directListeners[portName] = direct
+
+	case model.ProtoUDP:
+		pc, err := e.sharedServer.AcquirePacket(e.domain, portCfg.ProxyPort)
+		if err != nil {
+			return err
+		}
+		if e.packetConns == nil {
+			e.packetConns = make(map[string]net.PacketConn)
+		}
+		e.packetConns[portName] = pc
+	}
 	return nil
 }
 

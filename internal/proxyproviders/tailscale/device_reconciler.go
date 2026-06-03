@@ -128,54 +128,70 @@ func (r *DeviceReconciler) Reconcile(ctx context.Context, hostname string, tags 
 	}
 
 	for _, d := range devices {
-		if d.Hostname == hostname {
-			// When local tsnet state exists AND the exact-hostname device is
-			// still online, it's our own node from a previous run — tsnet will
-			// re-authenticate with existing state. Deleting it would force
-			// unnecessary re-auth.
-			//
-			// But if the device is offline, the auth state may be stale and
-			// tsnet may not successfully re-authenticate, causing Tailscale
-			// to append a "-1" suffix. Delete offline exact-match devices
-			// so the new node can claim the hostname cleanly.
-			if cfg.hasLocalState && d.ConnectedToControl {
-				continue
-			}
-		} else {
-			// Tailscale appends "-N" to device hostnames when a duplicate exists
-			// (e.g. "app", "app-1", "app-2"). Only match that pattern — not arbitrary
-			// prefixed names like "app-prod" or "app-staging".
-			if !strings.HasPrefix(d.Hostname, hostname+"-") {
-				continue
-			}
-			suffix := d.Hostname[len(hostname)+1:]
-			if !isNumeric(suffix) {
-				continue
-			}
-		}
-		if d.ConnectedToControl && !cfg.force {
-			r.log.Warn().
-				Str("hostname", d.Hostname).
-				Str("node_id", d.NodeID).
-				Msg("device with same hostname is currently online, skipping cleanup")
-			if onConflict != nil {
-				onConflict(d.Hostname, d.NodeID)
-			}
-			continue
-		}
+		r.processDevice(ctx, lister, d, hostname, cfg, onConflict)
+	}
+}
 
-		r.log.Info().
+// processDevice handles a single device during reconciliation: checks if it
+// matches the target hostname pattern, and deletes it if safe to do so.
+func (r *DeviceReconciler) processDevice(
+	ctx context.Context, lister deviceLister,
+	d deviceEntry, hostname string, cfg reconcileOpts,
+	onConflict func(hostname, nodeID string),
+) {
+	if !r.isDeviceMatch(d, hostname, cfg) {
+		return
+	}
+
+	if d.ConnectedToControl && !cfg.force {
+		r.log.Warn().
 			Str("hostname", d.Hostname).
 			Str("node_id", d.NodeID).
-			Bool("was_online", d.ConnectedToControl).
-			Msg("removing device from tailnet to prevent duplicate")
-
-		if err := lister.deleteDevice(ctx, d.NodeID); err != nil {
-			r.log.Error().Err(err).
-				Str("hostname", d.Hostname).
-				Msg("failed to delete stale device")
+			Msg("device with same hostname is currently online, skipping cleanup")
+		if onConflict != nil {
+			onConflict(d.Hostname, d.NodeID)
 		}
+		return
 	}
+
+	r.log.Info().
+		Str("hostname", d.Hostname).
+		Str("node_id", d.NodeID).
+		Bool("was_online", d.ConnectedToControl).
+		Msg("removing device from tailnet to prevent duplicate")
+
+	if err := lister.deleteDevice(ctx, d.NodeID); err != nil {
+		r.log.Error().Err(err).
+			Str("hostname", d.Hostname).
+			Msg("failed to delete stale device")
+	}
+}
+
+// isDeviceMatch reports whether the device is a candidate for cleanup:
+// either an exact hostname match (skipped if local state exists and device is online),
+// or a Tailscale "-N" suffix duplicate.
+func (r *DeviceReconciler) isDeviceMatch(d deviceEntry, hostname string, cfg reconcileOpts) bool {
+	if d.Hostname == hostname {
+		// When local tsnet state exists AND the exact-hostname device is
+		// still online, it's our own node from a previous run — tsnet will
+		// re-authenticate with existing state. Deleting it would force
+		// unnecessary re-auth.
+		//
+		// But if the device is offline, the auth state may be stale and
+		// tsnet may not successfully re-authenticate, causing Tailscale
+		// to append a "-1" suffix. Delete offline exact-match devices
+		// so the new node can claim the hostname cleanly.
+		return !cfg.hasLocalState || !d.ConnectedToControl
+	}
+
+	// Tailscale appends "-N" to device hostnames when a duplicate exists
+	// (e.g. "app", "app-1", "app-2"). Only match that pattern — not arbitrary
+	// prefixed names like "app-prod" or "app-staging".
+	if !strings.HasPrefix(d.Hostname, hostname+"-") {
+		return false
+	}
+	suffix := d.Hostname[len(hostname)+1:]
+	return isNumeric(suffix)
 }
 
 // isNumeric reports whether s consists entirely of digits.
