@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -104,6 +105,12 @@ type servicesRuntime struct {
 	pendingCount int
 	gen          int
 	running      bool
+
+	// listenMu serializes ListenService and ServiceListener.Close calls on the
+	// shared tsnet.Server. Both operations perform a read-modify-write on the
+	// serve config using an etag for optimistic concurrency; concurrent calls
+	// cause etag mismatch errors (tailscale/tailscale#18742).
+	listenMu sync.Mutex
 }
 
 // Command types for the state machine.
@@ -339,10 +346,11 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 	factory := rt.factory
 	tsServer := rt.tsServer
 	ctx := rt.ctx
+	listenMu := &rt.listenMu
 
 	rt.pendingCount++
 
-	go ss.acquireServiceAsync(ctx, gen, c, allPorts, factory, tsServer)
+	go ss.acquireServiceAsync(ctx, gen, c, allPorts, factory, tsServer, listenMu)
 
 	return state, rt
 }
@@ -350,6 +358,7 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 func (ss *ServicesServer) acquireServiceAsync(
 	ctx context.Context, gen int, c acquireServiceCmd,
 	allPorts []string, factory serviceListenerFactory, tsServer *tsnet.Server,
+	listenMu *sync.Mutex,
 ) {
 	sendResult := func(listener *tsnet.ServiceListener, err error) {
 		if !ss.sendProducer(ctx, acquireServiceWorkResultCmd{
@@ -359,7 +368,9 @@ func (ss *ServicesServer) acquireServiceAsync(
 			gen:      gen,
 		}) {
 			if listener != nil {
+				listenMu.Lock()
 				factory.Close(listener)
+				listenMu.Unlock()
 			}
 			c.reply <- acquireServiceResult{nil, errors.New("services server closed during acquire")}
 		}
@@ -379,7 +390,9 @@ func (ss *ServicesServer) acquireServiceAsync(
 		mode = tsnet.ServiceModeHTTP{Port: c.port, HTTPS: c.https}
 	}
 
+	listenMu.Lock()
 	listener, err := factory.ListenService(c.serviceName, mode)
+	listenMu.Unlock()
 	if err != nil {
 		ss.rollbackVIPServiceOnListenFailure(c.serviceName, allPorts, c.port)
 		sendResult(nil, fmt.Errorf("listen service: %w", err))
@@ -416,7 +429,9 @@ func (ss *ServicesServer) handleAcquireWorkResult(c acquireServiceWorkResultCmd,
 
 	if state == servicesClosed || rt == nil || c.gen != rt.gen {
 		if c.listener != nil && rt != nil {
+			rt.listenMu.Lock()
 			rt.factory.Close(c.listener)
+			rt.listenMu.Unlock()
 		}
 		c.original.reply <- acquireServiceResult{nil, errors.New("services server closed during acquire")}
 		return state, rt
@@ -429,7 +444,9 @@ func (ss *ServicesServer) handleAcquireWorkResult(c acquireServiceWorkResultCmd,
 
 	key := serviceKey(c.original.serviceName, c.original.port)
 	if _, exists := rt.listeners[key]; exists {
+		rt.listenMu.Lock()
 		rt.factory.Close(c.listener)
+		rt.listenMu.Unlock()
 		c.original.reply <- acquireServiceResult{nil, fmt.Errorf("service %s port %d already acquired", c.original.serviceName, c.original.port)}
 		return ss.maybeTransitionToIdle(state, rt)
 	}
@@ -548,7 +565,9 @@ func (ss *ServicesServer) handleReleaseService(c releaseServiceCmd, state servic
 		return state, rt
 	}
 
+	rt.listenMu.Lock()
 	rt.factory.Close(entry.listener)
+	rt.listenMu.Unlock()
 	delete(rt.listeners, key)
 	rt.refCount--
 
@@ -756,7 +775,9 @@ func (ss *ServicesServer) stopRuntime(rt *servicesRuntime) {
 	// Collect unique service names to avoid redundant API delete calls.
 	seen := make(map[string]bool)
 	for key, entry := range rt.listeners {
+		rt.listenMu.Lock()
 		rt.factory.Close(entry.listener)
+		rt.listenMu.Unlock()
 		if !seen[entry.serviceName] {
 			if err := ss.deleteVIPService(entry.serviceName); err != nil {
 				ss.log.Warn().Err(err).Str("service", entry.serviceName).Msg("failed to delete VIP service during shutdown")
