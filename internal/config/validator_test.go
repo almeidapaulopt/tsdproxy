@@ -354,7 +354,7 @@ func TestHasOAuthCredentials_WithClientSecret(t *testing.T) {
 }
 
 func TestHasOAuthCredentials_WithClientSecretFile(t *testing.T) {
-	p := &TailscaleServerConfig{
+	p := &TailscaleServerConfig{ //nolint:gosec
 		ClientID:         "id-123",
 		ClientSecretFile: "/run/secrets/ts_secret",
 	}

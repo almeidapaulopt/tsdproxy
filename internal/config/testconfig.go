@@ -7,13 +7,13 @@ import "github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 
 func SetTestConfig(dataDir, authKey string) {
 	Config = &config{
-		DefaultProxyProvider: "default",
+		DefaultProxyProvider: TailscaleDefaultProviderName,
 	}
 	Config.Tailscale = TailscaleProxyProviderConfig{
 		DataDir:   dataDir,
 		Providers: make(map[string]*TailscaleServerConfig),
 	}
-	Config.Tailscale.Providers["default"] = &TailscaleServerConfig{
+	Config.Tailscale.Providers[TailscaleDefaultProviderName] = &TailscaleServerConfig{
 		AuthKey:    secretstring.SecretString(authKey),
 		ControlURL: "https://controlplane.tailscale.com",
 	}
