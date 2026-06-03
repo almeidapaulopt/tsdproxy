@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
@@ -129,6 +130,18 @@ func ValidateProxyConfig(domain, dnsProvider, tlsProvider, defaultDNSProvider, d
 	return nil
 }
 
+func hasOAuthCredentials(p *TailscaleServerConfig) bool {
+	return p.ClientID != "" && (p.ClientSecret.Value() != "" || p.ClientSecretFile != "")
+}
+
+func isReconcileIntervalPositive(p *TailscaleServerConfig) bool {
+	d, err := time.ParseDuration(p.ReconcileInterval)
+	if err != nil {
+		return false
+	}
+	return d > 0
+}
+
 func (c *config) validateProxyProviders() error {
 	if len(c.Tailscale.Providers) == 0 {
 		return errors.New("no tailscale proxy providers configured")
@@ -147,6 +160,9 @@ func (c *config) validateProxyProviders() error {
 			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("shared tsnet provider configured")
 		}
 		if err := c.validateServicesProvider(name, p); err != nil {
+			return err
+		}
+		if err := c.validateProviderOAuthFeatures(name, p); err != nil {
 			return err
 		}
 	}
@@ -173,6 +189,44 @@ func (c *config) validateServicesProvider(name string, p *TailscaleServerConfig)
 		log.Info().Str("provider", name).Str("hostname", p.Hostname).Str("tags", p.Tags).
 			Msg("services tsnet provider configured")
 	}
+
+	if p.AutoApproveDevices && !hasOAuthCredentials(p) {
+		return fmt.Errorf("tailscale provider %q: autoApproveDevices requires OAuth credentials (clientId + clientSecret)", name)
+	}
+	if p.AutoRemoveConflicts && !hasOAuthCredentials(p) {
+		return fmt.Errorf("tailscale provider %q: autoRemoveConflicts requires OAuth credentials (clientId + clientSecret)", name)
+	}
+
+	return nil
+}
+
+func (c *config) validateProviderOAuthFeatures(name string, p *TailscaleServerConfig) error {
+	if isReconcileIntervalPositive(p) {
+		if !hasOAuthCredentials(p) && !p.PreventDuplicates {
+			return fmt.Errorf("tailscale provider %q: reconcileInterval requires OAuth credentials (clientId + clientSecret) or preventDuplicates enabled", name)
+		}
+		if !p.PreventDuplicates {
+			log.Warn().Str("provider", name).
+				Msg("reconcileInterval is set but preventDuplicates is disabled; periodic reconciliation will not run in per-proxy mode")
+		}
+	}
+
+	if p.AuthKey != "" && hasOAuthCredentials(p) {
+		log.Warn().Str("provider", name).
+			Msg("tailscale provider has both authKey and OAuth credentials (clientId/clientSecret) configured; authKey takes precedence in per-proxy mode")
+	}
+
+	if !p.Services {
+		if p.AutoApproveDevices {
+			log.Warn().Str("provider", name).
+				Msg("autoApproveDevices has no effect outside services mode")
+		}
+		if p.AutoRemoveConflicts {
+			log.Warn().Str("provider", name).
+				Msg("autoRemoveConflicts has no effect outside services mode")
+		}
+	}
+
 	return nil
 }
 
