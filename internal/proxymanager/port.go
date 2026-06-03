@@ -12,7 +12,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -72,8 +74,8 @@ func newPortProxy(
 	//
 	tr := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: !pconfig.TLSValidate}, //nolint
-		MaxIdleConnsPerHost: 10,           //nolint:mnd
-		IdleConnTimeout:     30 * time.Second, //nolint:mnd
+		MaxIdleConnsPerHost: 10,                                                    //nolint:mnd
+		IdleConnTimeout:     30 * time.Second,                                      //nolint:mnd
 	}
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,
@@ -106,35 +108,34 @@ func newPortProxy(
 			// Always remove trusted identity headers to prevent spoofing.
 			// Unauthenticated requests (e.g. Funnel) must not pass
 			// attacker-controlled values through to the upstream.
-			r.Out.Header.Del(consts.HeaderID)
-			r.Out.Header.Del(consts.HeaderUsername)
-			r.Out.Header.Del(consts.HeaderDisplayName)
-			r.Out.Header.Del(consts.HeaderProfilePicURL)
-			r.Out.Header.Del(consts.HeaderAuthToken)
-			r.Out.Header.Del(consts.HeaderRemoteUser)
-			r.Out.Header.Del(consts.HeaderXForwardedUser)
-			r.Out.Header.Del(consts.HeaderXAuthRequestUser)
-			r.Out.Header.Del(consts.HeaderXForwardedEmail)
-			r.Out.Header.Del(consts.HeaderXAuthRequestEmail)
-			r.Out.Header.Del(consts.HeaderXForwardedPreferredUsername)
+			for _, h := range consts.TrustedProxyHeaders {
+				r.Out.Header.Del(h)
+			}
 
 			// Inject authenticated user headers when enabled (default).
 			// Some upstream services (e.g. wetty) consume Remote-User as the
 			// SSH login username, which conflicts with their own auth flag —
 			// the opt-out lets those services run without spurious overrides.
 			if identityHeaders {
-				if user, ok := model.WhoisFromContext(r.In.Context()); ok {
+				if user, ok := model.WhoisFromContext(r.In.Context()); ok && user.ID != "" {
 					r.Out.Header.Set(consts.HeaderID, user.ID)
 					r.Out.Header.Set(consts.HeaderUsername, user.Username)
 					r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
 					r.Out.Header.Set(consts.HeaderProfilePicURL, user.ProfilePicURL)
-					r.Out.Header.Set(consts.HeaderAuthToken, core.ProxyAuthToken())
 					r.Out.Header.Set(consts.HeaderRemoteUser, user.Username)
 					r.Out.Header.Set(consts.HeaderXForwardedUser, user.Username)
 					r.Out.Header.Set(consts.HeaderXAuthRequestUser, user.Username)
 					r.Out.Header.Set(consts.HeaderXForwardedEmail, user.Username)
 					r.Out.Header.Set(consts.HeaderXAuthRequestEmail, user.Username)
 					r.Out.Header.Set(consts.HeaderXForwardedPreferredUsername, user.DisplayName)
+
+					// Forward the auth token only to the internal management
+					// server (self-proxy case).  Never expose it to external
+					// backends — a leaked token allows identity spoofing on
+					// the management API.
+					if isManagementTarget(pconfig.GetFirstTarget()) {
+						r.Out.Header.Set(consts.HeaderAuthToken, core.ProxyAuthToken())
+					}
 				}
 			}
 
@@ -542,4 +543,13 @@ func (p *udpPort) close() error {
 	p.cancel()
 
 	return errs
+}
+
+func isManagementTarget(target *url.URL) bool {
+	if target == nil {
+		return false
+	}
+	ip := net.ParseIP(target.Hostname())
+	return ip != nil && ip.IsLoopback() &&
+		target.Port() == strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)
 }
