@@ -613,7 +613,13 @@ func isManagementTarget(target *url.URL) bool {
 	if target == nil {
 		return false
 	}
-	ip := net.ParseIP(target.Hostname())
+	host := target.Hostname()
+	// net.ParseIP does not recognise "localhost"; map to the numeric form so
+	// that list-provider targets like "http://localhost:8080" are detected.
+	if host == "localhost" {
+		host = "127.0.0.1"
+	}
+	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback() &&
 		target.Port() == strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)
 }
