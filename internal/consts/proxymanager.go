@@ -16,6 +16,18 @@ const (
 	HeaderXForwardedEmail             = "X-Forwarded-Email"
 	HeaderXAuthRequestEmail           = "X-Auth-Request-Email"
 	HeaderXForwardedPreferredUsername = "X-Forwarded-Preferred-Username"
+
+	// HeaderRealIP is the de-facto standard header for passing the single
+	// authoritative client IP address to upstream services (popularized by
+	// nginx).  Unlike X-Forwarded-For (which may carry a comma-separated
+	// chain of proxies), X-Real-IP always contains exactly one IP.
+	HeaderRealIP = "X-Real-IP"
+
+	// HeaderXForwardedFor is the standard hop-by-hop header that carries
+	// the chain of client IP addresses through proxies.  The reverse proxy
+	// strips any client-supplied value before rebuilding it with the
+	// authoritative client IP via SetXForwarded().
+	HeaderXForwardedFor = "X-Forwarded-For"
 )
 
 // IdentityHeaders lists the x-tsdproxy-* headers that carry authenticated
@@ -44,4 +56,6 @@ var TrustedProxyHeaders = []string{
 	HeaderXForwardedEmail,
 	HeaderXAuthRequestEmail,
 	HeaderXForwardedPreferredUsername,
+	HeaderXForwardedFor,
+	HeaderRealIP,
 }

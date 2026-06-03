@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -140,6 +141,24 @@ func newPortProxy(
 			}
 
 			r.SetXForwarded()
+
+			// SetXForwarded appends RemoteAddr to the outbound
+			// X-Forwarded-For (stripped by TrustedProxyHeaders above).
+			// Override with the single authoritative client IP to
+			// prevent spoofing.
+			if peerIP := resolvePeerIP(r.In); peerIP != "" {
+				r.Out.Header.Set(consts.HeaderRealIP, peerIP)
+				r.Out.Header.Set(consts.HeaderXForwardedFor, peerIP)
+			}
+
+			// Tailscale (and other TLS-terminating proxy providers) terminate TLS
+			// before the request reaches this handler, so r.In.TLS is always nil.
+			// Go's SetXForwarded incorrectly sets X-Forwarded-Proto to "http".
+			// Override based on the port's configured proxy protocol so upstream
+			// applications (e.g. Portainer CSRF) see the correct scheme.
+			if pconfig.ProxyProtocol == model.ProtoHTTPS {
+				r.Out.Header.Set("X-Forwarded-Proto", model.ProtoHTTPS)
+			}
 		},
 	}
 
@@ -545,12 +564,41 @@ func (p *udpPort) close() error {
 	return errs
 }
 
+// resolvePeerIP extracts the single authoritative client IP from a request.
+//
+// When RemoteAddr is localhost (services/VIP proxy hop), the original
+// client IP is read from the inbound X-Forwarded-For with anti-spoofing:
+//   - exactly one X-Forwarded-For header must be present
+//   - the value must be a single IP (no comma-separated chain)
+//   - loopback addresses are rejected
+//
+// For non-localhost connections RemoteAddr is used directly.
+func resolvePeerIP(r *http.Request) string {
+	if !model.IsLocalhost(r.RemoteAddr) {
+		return model.NormalizeIP(r.RemoteAddr)
+	}
+
+	// Trusted proxy hop: extract from X-Forwarded-For.
+	xffVals := r.Header.Values(consts.HeaderXForwardedFor)
+	if len(xffVals) != 1 {
+		return ""
+	}
+	if strings.Contains(xffVals[0], ",") {
+		return ""
+	}
+	ip := model.NormalizeIP(xffVals[0])
+	if parsed := net.ParseIP(ip); parsed != nil && parsed.IsLoopback() {
+		return ""
+	}
+	return ip
+}
+
 func isManagementTarget(target *url.URL) bool {
 	if target == nil {
 		return false
 	}
 	host := target.Hostname()
-	// net.ParseIP does not recognise "localhost"; map to the numeric form so
+	// net.ParseIP does not recognize "localhost"; map to the numeric form so
 	// that list-provider targets like "http://localhost:8080" are detected.
 	if host == "localhost" {
 		host = "127.0.0.1"
