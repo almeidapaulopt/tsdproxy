@@ -268,10 +268,9 @@ func StripProxyIdentityHeaders(next http.Handler) http.Handler {
 			return
 		}
 
-		r.Header.Del(consts.HeaderID)
-		r.Header.Del(consts.HeaderUsername)
-		r.Header.Del(consts.HeaderDisplayName)
-		r.Header.Del(consts.HeaderProfilePicURL)
+		for _, h := range consts.IdentityHeaders {
+			r.Header.Del(h)
+		}
 		next.ServeHTTP(w, r)
 	})
 }

@@ -259,6 +259,7 @@ func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
 	whoisFunc := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := model.WhoisNewContext(r.Context(), model.Whois{
+				ID:            "user-alice",
 				Username:      "alice",
 				DisplayName:   "Alice",
 				ProfilePicURL: "https://example.com/alice.png",

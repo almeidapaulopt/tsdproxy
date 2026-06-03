@@ -23,3 +23,32 @@ const (
 	// chain of proxies), X-Real-IP always contains exactly one IP.
 	HeaderRealIP = "X-Real-IP"
 )
+
+// IdentityHeaders lists the x-tsdproxy-* headers that carry authenticated
+// user identity.  Both the reverse proxy (injection) and the management
+// server (stripping) use this list to stay in sync.
+var IdentityHeaders = []string{
+	HeaderID,
+	HeaderUsername,
+	HeaderDisplayName,
+	HeaderProfilePicURL,
+}
+
+// TrustedProxyHeaders lists all headers that the reverse proxy may set on
+// outbound requests (identity headers + standard auth-proxy headers + the
+// internal auth token).  The reverse proxy strips all of these from
+// client-supplied requests before re-injecting authenticated values.
+var TrustedProxyHeaders = []string{
+	HeaderID,
+	HeaderUsername,
+	HeaderDisplayName,
+	HeaderProfilePicURL,
+	HeaderAuthToken,
+	HeaderRemoteUser,
+	HeaderXForwardedUser,
+	HeaderXAuthRequestUser,
+	HeaderXForwardedEmail,
+	HeaderXAuthRequestEmail,
+	HeaderXForwardedPreferredUsername,
+	HeaderRealIP,
+}

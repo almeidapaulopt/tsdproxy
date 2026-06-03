@@ -6,6 +6,20 @@ weight: 500
 
 {{% steps %}}
 
+### 2.3.2
+
+#### Fixes
+
+- Fix Docker and List providers ignoring `proxyAccessLog: false` server config — both providers now read the server-level setting as default instead of hardcoding to `true`. Closes [#457](https://github.com/almeidapaulopt/tsdproxy/issues/457).
+- Fix CI releases not marked as latest on GitHub — `LATEST_TAG` and `DISABLE_PACKAGE_MANAGERS` env vars now properly passed to GoReleaser.
+
+### 2.3.1
+
+#### Fixes
+
+- Auto-enable `adminAllowLocalhost` when running inside Docker containers — port-mapped dashboard requests arriving from the Docker bridge gateway now work without manual config. Closes [#455](https://github.com/almeidapaulopt/tsdproxy/issues/455).
+- Improve 403 forbidden page with actionable resolution steps instead of a dead-end error.
+
 ### 2.3.0
 
 #### New features
