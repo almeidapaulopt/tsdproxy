@@ -88,8 +88,8 @@ func TestFile_Load_DidYouMeanSuggestion(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	// "nmae" is Levenshtein distance 2 from "name" — within the suggestion threshold.
-	require.NoError(t, os.WriteFile(path, []byte("nmae: test\n"), 0o600))
+	// "nme" is Levenshtein distance 1 from "name" — within the suggestion threshold.
+	require.NoError(t, os.WriteFile(path, []byte("nme: test\n"), 0o600))
 
 	f := NewConfigFile(zerolog.Nop(), path, &testConfigData{})
 	err := f.Load()

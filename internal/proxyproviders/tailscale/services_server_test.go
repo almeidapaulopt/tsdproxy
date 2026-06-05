@@ -20,11 +20,9 @@ func TestServicesServerCloseIsTerminal(t *testing.T) {
 
 	ss.Close()
 
-	// Verify loop exited by checking done channel.
 	select {
 	case <-ss.ev.Done():
-		// Expected.
-	default:
+	case <-time.After(5 * time.Second):
 		t.Fatal("done channel should be closed after Close")
 	}
 }
@@ -116,8 +114,7 @@ func TestServicesServerCloseIdempotent(t *testing.T) {
 	// Verify loop exited.
 	select {
 	case <-ss.ev.Done():
-		// Expected.
-	default:
+	case <-time.After(5 * time.Second):
 		t.Fatal("done channel should be closed after Close")
 	}
 }
@@ -163,8 +160,7 @@ func TestServicesServerCloseCleansUp(t *testing.T) {
 	// Verify done channel is closed.
 	select {
 	case <-ss.ev.Done():
-		// Expected.
-	default:
+	case <-time.After(5 * time.Second):
 		t.Fatal("done channel should be closed after Close")
 	}
 

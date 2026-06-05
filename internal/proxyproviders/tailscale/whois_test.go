@@ -25,8 +25,8 @@ var _ whoisResolver = (*local.Client)(nil)
 type mockWhoisClient struct {
 	err      error
 	resp     *apitype.WhoIsResponse
-	addrMu   sync.Mutex
 	addrSeen []string
+	addrMu   sync.Mutex
 	calls    int32
 }
 

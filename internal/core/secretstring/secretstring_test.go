@@ -90,7 +90,7 @@ func TestSecretString_MarshalJSON(t *testing.T) {
 		Name:   "test",
 	}
 
-	data, err := json.Marshal(cfg)
+	data, err := json.Marshal(cfg) //nolint:gosec // G117: intentionally testing SecretString marshaling
 	require.NoError(t, err)
 
 	jsonStr := string(data)
@@ -132,7 +132,7 @@ func TestSecretString_Format(t *testing.T) {
 func TestSecretString_ValueNeverLeaks(t *testing.T) {
 	t.Parallel()
 
-	secret := "tskey-auth-DO-NOT-LEAK-12345"
+	secret := "tskey-auth-DO-NOT-LEAK-12345" //nolint:gosec // G101: test fixture, not a real credential
 	s := SecretString(secret)
 
 	// String()

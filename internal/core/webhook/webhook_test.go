@@ -146,7 +146,7 @@ func TestRedactURL(t *testing.T) {
 			url:  "https://hooks.example.com/secret#token",
 			want: "https://hooks.example.com",
 		},
-		{
+		{ //nolint:gosec // G101: test fixture URL with credentials
 			name: "URL with userinfo strips credentials",
 			url:  "https://user:secret@hooks.example.com/webhook",
 			want: "https://hooks.example.com",
@@ -156,7 +156,7 @@ func TestRedactURL(t *testing.T) {
 			url:  "https://token@hooks.example.com/path",
 			want: "https://hooks.example.com",
 		},
-		{
+		{ //nolint:gosec // G101: test fixture URL with credentials
 			name: "URL with userinfo and port",
 			url:  "http://user:pass@host.com:9090/hook",
 			want: "http://host.com:9090",
@@ -288,12 +288,12 @@ func TestEventMatchesFilter(t *testing.T) {
 		{
 			name:   "case-insensitive match (lowercase filter)",
 			event:  Event{Status: "Running"},
-			filter: []string{"running"},
+			filter: []string{statusRunning},
 			want:   true,
 		},
 		{
 			name:   "case-insensitive match (uppercase filter)",
-			event:  Event{Status: "error"},
+			event:  Event{Status: statusError},
 			filter: []string{"Error"},
 			want:   true,
 		},
@@ -341,9 +341,15 @@ func TestFormatDiscord(t *testing.T) {
 
 	body, ct := s.formatDiscord(event)
 
-	if ct != "application/json" {
-		t.Errorf("content type = %q, want %q", ct, "application/json")
+	if ct != contentTypeJSON {
+		t.Errorf("content type = %q, want %q", ct, contentTypeJSON)
 	}
+
+	validateDiscordPayload(t, body)
+}
+
+func validateDiscordPayload(t *testing.T, body []byte) {
+	t.Helper()
 
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -363,6 +369,12 @@ func TestFormatDiscord(t *testing.T) {
 		t.Fatal("embed is not a map")
 	}
 
+	validateDiscordEmbed(t, embed)
+}
+
+func validateDiscordEmbed(t *testing.T, embed map[string]any) {
+	t.Helper()
+
 	if title, _ := embed["title"].(string); title != "TSDProxy Status Update" {
 		t.Errorf("title = %q, want %q", title, "TSDProxy Status Update")
 	}
@@ -380,6 +392,12 @@ func TestFormatDiscord(t *testing.T) {
 	if len(fields) != 3 {
 		t.Fatalf("expected 3 fields, got %d", len(fields))
 	}
+
+	validateDiscordFields(t, fields)
+}
+
+func validateDiscordFields(t *testing.T, fields []any) {
+	t.Helper()
 
 	field0 := fields[0].(map[string]any)
 	if v, _ := field0["value"].(string); !strings.Contains(v, "\u200b") {
@@ -486,8 +504,8 @@ func TestFormatNtfy(t *testing.T) {
 
 	body, ct := s.formatNtfy(event)
 
-	if ct != "text/plain" {
-		t.Errorf("content type = %q, want %q", ct, "text/plain")
+	if ct != contentTypeTextPlain {
+		t.Errorf("content type = %q, want %q", ct, contentTypeTextPlain)
 	}
 
 	want := fmt.Sprintf("Proxy: %s\nStatus: %s\nPrevious: %s",
@@ -530,188 +548,201 @@ func TestSendOne(t *testing.T) {
 
 	event := testEvent()
 
-	t.Run("generic type", func(t *testing.T) {
-		t.Parallel()
-
-		var (
-			contentType  string
-			customHeader string
-			reqMethod    string
-			bodyBytes    []byte
-		)
-
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			contentType = r.Header.Get("Content-Type")
-			customHeader = r.Header.Get("X-Test-Header")
-			reqMethod = r.Method
-			bodyBytes, _ = io.ReadAll(r.Body)
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		s := &Sender{
-			log:    zerolog.Nop(),
-			client: &http.Client{Timeout: webhookTimeout},
-			ctx:    context.Background(),
-		}
-
-		cfg := config.WebhookConfig{
-			URL:     server.URL,
-			Type:    "generic",
-			Headers: map[string]string{"X-Test-Header": "test-value"},
-		}
-
-		if err := s.sendOne(cfg, event); err != nil {
-			t.Fatalf("sendOne error: %v", err)
-		}
-		if reqMethod != http.MethodPost {
-			t.Errorf("method = %q, want %q", reqMethod, http.MethodPost)
-		}
-		if contentType != "application/json" {
-			t.Errorf("Content-Type = %q, want %q", contentType, "application/json")
-		}
-		if customHeader != "test-value" {
-			t.Errorf("X-Test-Header = %q, want %q", customHeader, "test-value")
-		}
-
-		var decoded Event
-		if err := json.Unmarshal(bodyBytes, &decoded); err != nil {
-			t.Fatalf("json.Unmarshal error: %v", err)
-		}
-		if decoded.ProxyName != event.ProxyName {
-			t.Errorf("proxy name = %q, want %q", decoded.ProxyName, event.ProxyName)
-		}
-	})
-
-	t.Run("discord type", func(t *testing.T) {
-		t.Parallel()
-
-		var contentType string
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			contentType = r.Header.Get("Content-Type")
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		s := &Sender{
-			log:    zerolog.Nop(),
-			client: &http.Client{Timeout: webhookTimeout},
-			ctx:    context.Background(),
-		}
-
-		if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "discord"}, event); err != nil {
-			t.Fatalf("sendOne error: %v", err)
-		}
-		if contentType != "application/json" {
-			t.Errorf("Content-Type = %q, want %q", contentType, "application/json")
-		}
-	})
-
-	t.Run("slack type", func(t *testing.T) {
-		t.Parallel()
-
-		var contentType string
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			contentType = r.Header.Get("Content-Type")
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		s := &Sender{
-			log:    zerolog.Nop(),
-			client: &http.Client{Timeout: webhookTimeout},
-			ctx:    context.Background(),
-		}
-
-		if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "slack"}, event); err != nil {
-			t.Fatalf("sendOne error: %v", err)
-		}
-		if contentType != "application/json" {
-			t.Errorf("Content-Type = %q, want %q", contentType, "application/json")
-		}
-	})
-
-	t.Run("ntfy type", func(t *testing.T) {
-		t.Parallel()
-
-		var (
-			contentType string
-			bodyBytes   []byte
-		)
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			contentType = r.Header.Get("Content-Type")
-			bodyBytes, _ = io.ReadAll(r.Body)
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		s := &Sender{
-			log:    zerolog.Nop(),
-			client: &http.Client{Timeout: webhookTimeout},
-			ctx:    context.Background(),
-		}
-
-		if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "ntfy"}, event); err != nil {
-			t.Fatalf("sendOne error: %v", err)
-		}
-		if contentType != "text/plain" {
-			t.Errorf("Content-Type = %q, want %q", contentType, "text/plain")
-		}
-		if !bytes.Contains(bodyBytes, []byte("Proxy: test-proxy")) {
-			t.Errorf("body should contain proxy name, got %q", string(bodyBytes))
-		}
-	})
-
+	t.Run("generic type", func(t *testing.T) { t.Parallel(); testSendOneGeneric(t, event) })
+	t.Run("discord type", func(t *testing.T) { t.Parallel(); testSendOneDiscord(t, event) })
+	t.Run("slack type", func(t *testing.T) { t.Parallel(); testSendOneSlack(t, event) })
+	t.Run("ntfy type", func(t *testing.T) { t.Parallel(); testSendOneNtfy(t, event) })
 	t.Run("type casing is case-insensitive", func(t *testing.T) {
 		t.Parallel()
-
-		var contentType string
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			contentType = r.Header.Get("Content-Type")
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		s := &Sender{
-			log:    zerolog.Nop(),
-			client: &http.Client{Timeout: webhookTimeout},
-			ctx:    context.Background(),
-		}
-
-		if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "DISCORD"}, event); err != nil {
-			t.Fatalf("sendOne error: %v", err)
-		}
-		if contentType != "application/json" {
-			t.Errorf("Content-Type = %q, want %q for uppercase type", contentType, "application/json")
-		}
+		testSendOneCasing(t, event)
 	})
-
 	t.Run("error on status >= 300", func(t *testing.T) {
 		t.Parallel()
-
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte("invalid payload"))
-		}))
-		defer server.Close()
-
-		s := &Sender{
-			log:    zerolog.Nop(),
-			client: &http.Client{Timeout: webhookTimeout},
-			ctx:    context.Background(),
-		}
-
-		err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
-		if err == nil {
-			t.Fatal("expected error for status 400")
-		}
-		if !strings.Contains(err.Error(), "400") {
-			t.Errorf("error should contain status code, got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "invalid payload") {
-			t.Errorf("error should contain response body, got: %v", err)
-		}
+		testSendOneErrorStatus(t, event)
 	})
+}
+
+func testSendOneGeneric(t *testing.T, event Event) {
+	t.Helper()
+
+	var (
+		contentType  string
+		customHeader string
+		reqMethod    string
+		bodyBytes    []byte
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		customHeader = r.Header.Get("X-Test-Header")
+		reqMethod = r.Method
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: &http.Client{Timeout: webhookTimeout},
+		ctx:    context.Background(),
+	}
+
+	cfg := config.WebhookConfig{
+		URL:     server.URL,
+		Type:    "generic",
+		Headers: map[string]string{"X-Test-Header": "test-value"},
+	}
+
+	if err := s.sendOne(cfg, event); err != nil {
+		t.Fatalf("sendOne error: %v", err)
+	}
+	if reqMethod != http.MethodPost {
+		t.Errorf("method = %q, want %q", reqMethod, http.MethodPost)
+	}
+	if contentType != contentTypeJSON {
+		t.Errorf("Content-Type = %q, want %q", contentType, contentTypeJSON)
+	}
+	if customHeader != "test-value" {
+		t.Errorf("X-Test-Header = %q, want %q", customHeader, "test-value")
+	}
+
+	var decoded Event
+	if err := json.Unmarshal(bodyBytes, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal error: %v", err)
+	}
+	if decoded.ProxyName != event.ProxyName {
+		t.Errorf("proxy name = %q, want %q", decoded.ProxyName, event.ProxyName)
+	}
+}
+
+func testSendOneDiscord(t *testing.T, event Event) {
+	t.Helper()
+
+	var contentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: &http.Client{Timeout: webhookTimeout},
+		ctx:    context.Background(),
+	}
+
+	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: providerDiscord}, event); err != nil {
+		t.Fatalf("sendOne error: %v", err)
+	}
+	if contentType != contentTypeJSON {
+		t.Errorf("Content-Type = %q, want %q", contentType, contentTypeJSON)
+	}
+}
+
+func testSendOneSlack(t *testing.T, event Event) {
+	t.Helper()
+
+	var contentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: &http.Client{Timeout: webhookTimeout},
+		ctx:    context.Background(),
+	}
+
+	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "slack"}, event); err != nil {
+		t.Fatalf("sendOne error: %v", err)
+	}
+	if contentType != contentTypeJSON {
+		t.Errorf("Content-Type = %q, want %q", contentType, contentTypeJSON)
+	}
+}
+
+func testSendOneNtfy(t *testing.T, event Event) {
+	t.Helper()
+
+	var (
+		contentType string
+		bodyBytes   []byte
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		bodyBytes, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: &http.Client{Timeout: webhookTimeout},
+		ctx:    context.Background(),
+	}
+
+	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "ntfy"}, event); err != nil {
+		t.Fatalf("sendOne error: %v", err)
+	}
+	if contentType != contentTypeTextPlain {
+		t.Errorf("Content-Type = %q, want %q", contentType, contentTypeTextPlain)
+	}
+	if !bytes.Contains(bodyBytes, []byte("Proxy: test-proxy")) {
+		t.Errorf("body should contain proxy name, got %q", string(bodyBytes))
+	}
+}
+
+func testSendOneCasing(t *testing.T, event Event) {
+	t.Helper()
+
+	var contentType string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		contentType = r.Header.Get("Content-Type")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: &http.Client{Timeout: webhookTimeout},
+		ctx:    context.Background(),
+	}
+
+	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "DISCORD"}, event); err != nil {
+		t.Fatalf("sendOne error: %v", err)
+	}
+	if contentType != contentTypeJSON {
+		t.Errorf("Content-Type = %q, want %q for uppercase type", contentType, contentTypeJSON)
+	}
+}
+
+func testSendOneErrorStatus(t *testing.T, event Event) {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("invalid payload"))
+	}))
+	defer server.Close()
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: &http.Client{Timeout: webhookTimeout},
+		ctx:    context.Background(),
+	}
+
+	err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
+	if err == nil {
+		t.Fatal("expected error for status 400")
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("error should contain status code, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid payload") {
+		t.Errorf("error should contain response body, got: %v", err)
+	}
 }
 
 func TestSendWithRetry(t *testing.T) {
@@ -723,7 +754,7 @@ func TestSendWithRetry(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -747,7 +778,7 @@ func TestSendWithRetry(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			if callCount.Add(1) < 2 {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
@@ -774,7 +805,7 @@ func TestSendWithRetry(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
@@ -801,7 +832,7 @@ func TestSendWithRetry(t *testing.T) {
 	t.Run("context canceled", func(t *testing.T) {
 		t.Parallel()
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
 		defer server.Close()
@@ -832,7 +863,7 @@ func TestSend(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -856,7 +887,7 @@ func TestSend(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -879,7 +910,7 @@ func TestSend(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -907,7 +938,7 @@ func TestSendSync(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -931,7 +962,7 @@ func TestSendSync(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -954,7 +985,7 @@ func TestSendSync(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
@@ -979,13 +1010,13 @@ func TestSendSync(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		successServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		successServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer successServer.Close()
 
-		failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
@@ -1015,7 +1046,7 @@ func TestNewSenderClose(t *testing.T) {
 
 		cfg := config.WebhookConfig{
 			URL:  "http://example.com/webhook",
-			Type: "discord",
+			Type: providerDiscord,
 		}
 		s := NewSender(zerolog.Nop(), []config.WebhookConfig{cfg})
 
@@ -1042,7 +1073,7 @@ func TestNewSenderClose(t *testing.T) {
 		t.Parallel()
 
 		var callCount atomic.Int32
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			callCount.Add(1)
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -1060,7 +1091,7 @@ func TestNewSenderClose(t *testing.T) {
 		}
 	})
 
-	t.Run("double close does not panic", func(t *testing.T) {
+	t.Run("double close does not panic", func(_ *testing.T) {
 		s := NewSender(zerolog.Nop(), nil)
 		s.Close()
 		s.Close()

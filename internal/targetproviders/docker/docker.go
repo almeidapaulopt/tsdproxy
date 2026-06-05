@@ -323,7 +323,7 @@ func (c *Client) setDefaultBridgeAddress() {
 	}
 
 	for _, network := range networkListResult.Items {
-		if network.Options["com.docker.network.bridge.default_bridge"] == "true" {
+		if network.Options["com.docker.network.bridge.default_bridge"] == "true" { //nolint:goconst // Docker API string value
 			if len(network.IPAM.Config) == 0 {
 				c.log.Warn().Str("network", network.Name).Msg("default bridge network has no IPAM config")
 				continue

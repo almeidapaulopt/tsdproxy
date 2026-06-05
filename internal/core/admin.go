@@ -22,6 +22,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 )
 
+const localhostUserID = "__localhost__"
+
 var proxyAuthToken string
 
 // InitProxyAuth generates the per-process secret used to authenticate
@@ -139,7 +141,7 @@ func UserIDIsAdmin(id string) bool {
 	if len(admins) == 0 {
 		return true
 	}
-	if id == "__localhost__" {
+	if id == localhostUserID {
 		return config.Config.AdminAllowLocalhost
 	}
 	return slices.Contains(admins, id)

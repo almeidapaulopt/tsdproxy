@@ -43,7 +43,12 @@ func TestValidateDatadir(t *testing.T) {
 		{name: "nested traversal", baseDir: "data", hostname: "valid/../../../etc", wantErr: true},
 
 		// Edge cases
-		{name: "long hostname", baseDir: "data", hostname: "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz", wantErr: false, wantPath: "data/abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz"},
+		{
+			name: "long hostname", baseDir: "data",
+			hostname: "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz",
+			wantErr:  false,
+			wantPath: "data/abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz",
+		},
 		{name: "unicode hostname", baseDir: "data", hostname: "serviço", wantErr: false, wantPath: "data/serviço"},
 		{name: "empty baseDir", baseDir: "", hostname: "myapp", wantErr: false, wantPath: "myapp"},
 		{name: "empty both", baseDir: "", hostname: "", wantErr: false, wantPath: ""},

@@ -134,9 +134,9 @@ func TestUserIDIsAdmin(t *testing.T) {
 		{name: "empty admins list", admins: nil, id: "anyuser@ts.com", want: true},
 		{name: "user in admins list", admins: []string{"admin@ts.com"}, id: "admin@ts.com", want: true},
 		{name: "user not in admins list", admins: []string{"admin@ts.com"}, id: "other@ts.com", want: false},
-		{name: "__localhost__ in populated admins with allow", admins: []string{"admin@ts.com"}, adminAllowLocalhost: true, id: "__localhost__", want: true},
-		{name: "__localhost__ in populated admins without allow", admins: []string{"admin@ts.com"}, adminAllowLocalhost: false, id: "__localhost__", want: false},
-		{name: "empty admins, localhost id", admins: nil, id: "__localhost__", want: true},
+		{name: "localhost in populated admins with allow", admins: []string{"admin@ts.com"}, adminAllowLocalhost: true, id: localhostUserID, want: true},
+		{name: "localhost in populated admins without allow", admins: []string{"admin@ts.com"}, adminAllowLocalhost: false, id: localhostUserID, want: false},
+		{name: "empty admins, localhost id", admins: nil, id: localhostUserID, want: true},
 		{name: "empty string id", admins: []string{"admin@ts.com"}, id: "", want: false},
 	}
 
@@ -217,16 +217,28 @@ func TestAdminMiddleware(t *testing.T) {
 		adminAllowLocalhost bool
 	}{
 		{name: "valid API key bypasses admin check", apiKey: "secret", requestAPIKey: "secret", wantStatus: http.StatusOK},
-		{name: "invalid API key admin Whois", apiKey: "secret", requestAPIKey: "wrong", admins: []string{"admin@ts.com"}, whoisID: "admin@ts.com", wantStatus: http.StatusOK},
-		{name: "invalid API key non-admin Whois", apiKey: "secret", requestAPIKey: "wrong", admins: []string{"admin@ts.com"}, whoisID: "other@ts.com", wantStatus: http.StatusForbidden},
+		{
+			name: "invalid API key admin Whois", apiKey: "secret", requestAPIKey: "wrong",
+			admins: []string{"admin@ts.com"}, whoisID: "admin@ts.com", wantStatus: http.StatusOK,
+		},
+		{
+			name: "invalid API key non-admin Whois", apiKey: "secret", requestAPIKey: "wrong",
+			admins: []string{"admin@ts.com"}, whoisID: "other@ts.com", wantStatus: http.StatusForbidden,
+		},
 		{name: "Whois admin in populated admins", admins: []string{"admin@ts.com"}, whoisID: "admin@ts.com", wantStatus: http.StatusOK},
 		{name: "Whois non-admin in populated admins", admins: []string{"admin@ts.com"}, whoisID: "other@ts.com", wantStatus: http.StatusForbidden},
 		{name: "Whois any user with empty admins", whoisID: "anyuser@ts.com", wantStatus: http.StatusOK},
 		{name: "localhost with AdminAllowLocalhost", adminAllowLocalhost: true, remoteAddr: "127.0.0.1:12345", wantStatus: http.StatusOK},
 		{name: "localhost without AdminAllowLocalhost", adminAllowLocalhost: false, remoteAddr: "127.0.0.1:12345", wantStatus: http.StatusForbidden},
 		{name: "non-localhost no identity", remoteAddr: "8.8.8.8:8080", wantStatus: http.StatusForbidden},
-		{name: "admins populated, no Whois, localhost allowed", admins: []string{"admin@ts.com"}, adminAllowLocalhost: true, remoteAddr: "127.0.0.1:12345", wantStatus: http.StatusOK},
-		{name: "admins populated, no Whois, localhost not allowed", admins: []string{"admin@ts.com"}, adminAllowLocalhost: false, remoteAddr: "127.0.0.1:12345", wantStatus: http.StatusForbidden},
+		{
+			name: "admins populated, no Whois, localhost allowed", admins: []string{"admin@ts.com"},
+			adminAllowLocalhost: true, remoteAddr: "127.0.0.1:12345", wantStatus: http.StatusOK,
+		},
+		{
+			name: "admins populated, no Whois, localhost not allowed", admins: []string{"admin@ts.com"},
+			adminAllowLocalhost: false, remoteAddr: "127.0.0.1:12345", wantStatus: http.StatusForbidden,
+		},
 		// Docker bridge IPs (172.16.0.0/12) hit the middleware when Docker
 		// port-maps to tsdproxy — they must be treated as trusted when
 		// AdminAllowLocalhost is true, but still rejected otherwise.
@@ -238,7 +250,10 @@ func TestAdminMiddleware(t *testing.T) {
 		// when connecting to the host's LAN IP.
 		{name: "CGNAT with AdminAllowLocalhost", adminAllowLocalhost: true, remoteAddr: "100.78.209.50:8080", wantStatus: http.StatusOK},
 		{name: "CGNAT without AdminAllowLocalhost", adminAllowLocalhost: false, remoteAddr: "100.78.209.50:8080", wantStatus: http.StatusForbidden},
-		{name: "admins populated, Docker bridge allowed", admins: []string{"admin@ts.com"}, adminAllowLocalhost: true, remoteAddr: "172.17.0.1:8080", wantStatus: http.StatusOK},
+		{
+			name: "admins populated, Docker bridge allowed", admins: []string{"admin@ts.com"},
+			adminAllowLocalhost: true, remoteAddr: "172.17.0.1:8080", wantStatus: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -261,7 +276,7 @@ func TestAdminMiddleware(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			handler := AdminMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := AdminMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			handler.ServeHTTP(rec, req)
@@ -312,7 +327,7 @@ func TestViewerMiddleware(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			handler := ViewerMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := ViewerMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			handler.ServeHTTP(rec, req)
@@ -359,27 +374,36 @@ func TestWriteForbidden(t *testing.T) {
 			}
 
 			body := rec.Body.String()
-
 			if strings.Contains(tt.wantCT, "text/html") {
-				if !strings.Contains(body, "access denied") {
-					t.Error("writeForbidden() HTML body missing message")
-				}
-				if !strings.Contains(body, "<html") && !strings.Contains(body, "<!DOCTYPE") {
-					t.Error("writeForbidden() HTML body missing HTML markup")
-				}
+				assertHTMLForbiddenBody(t, body)
 			} else {
-				var resp map[string]any
-				if err := json.Unmarshal([]byte(body), &resp); err != nil {
-					t.Fatalf("writeForbidden() JSON body decode error: %v", err)
-				}
-				if msg, _ := resp["message"].(string); msg != "access denied" {
-					t.Errorf("writeForbidden() JSON message = %q, want %q", msg, "access denied")
-				}
-				if code, _ := resp["code"].(float64); int(code) != http.StatusForbidden {
-					t.Errorf("writeForbidden() JSON code = %v, want %d", code, http.StatusForbidden)
-				}
+				assertJSONForbiddenBody(t, body)
 			}
 		})
+	}
+}
+
+func assertHTMLForbiddenBody(t *testing.T, body string) {
+	t.Helper()
+	if !strings.Contains(body, "access denied") {
+		t.Error("writeForbidden() HTML body missing message")
+	}
+	if !strings.Contains(body, "<html") && !strings.Contains(body, "<!DOCTYPE") {
+		t.Error("writeForbidden() HTML body missing HTML markup")
+	}
+}
+
+func assertJSONForbiddenBody(t *testing.T, body string) {
+	t.Helper()
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatalf("writeForbidden() JSON body decode error: %v", err)
+	}
+	if msg, _ := resp["message"].(string); msg != "access denied" {
+		t.Errorf("writeForbidden() JSON message = %q, want %q", msg, "access denied")
+	}
+	if code, _ := resp["code"].(float64); int(code) != http.StatusForbidden {
+		t.Errorf("writeForbidden() JSON code = %v, want %d", code, http.StatusForbidden)
 	}
 }
 
@@ -387,15 +411,15 @@ func TestResolveWhois(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		headers           map[string]string
 		name              string
 		remoteAddr        string
 		whoisCtxID        string
-		setEmptyWhois     bool
-		headers           map[string]string
 		wantID            string
 		wantUsername      string
 		wantDisplayName   string
 		wantProfilePicURL string
+		setEmptyWhois     bool
 	}{
 		{
 			name:       "Whois in context takes priority over localhost headers",

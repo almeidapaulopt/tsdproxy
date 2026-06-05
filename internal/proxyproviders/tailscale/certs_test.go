@@ -27,7 +27,7 @@ import (
 )
 
 var (
-	_ certPairer  = (*local.Client)(nil)
+	_ certPairer   = (*local.Client)(nil)
 	_ certDomainer = (*tsnet.Server)(nil)
 )
 

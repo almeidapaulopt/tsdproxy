@@ -23,7 +23,7 @@ func TestPollCNAME_Timeout(t *testing.T) {
 
 	err := PollCNAME(ctx, "nonexistent.invalid", "target.example.com.", 50*time.Millisecond)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
+	assert.Contains(t, err.Error(), "deadline exceeded")
 }
 
 func TestEnsureTrailingDot(t *testing.T) {

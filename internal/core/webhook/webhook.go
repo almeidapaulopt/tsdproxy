@@ -26,11 +26,15 @@ const (
 	webhookWorkers   = 8
 	webhookQueueSize = 256
 
-	contentTypeJSON = "application/json"
-	fieldInline     = "inline"
-	fieldText       = "text"
-	fieldName       = "name"
-	fieldValue      = "value"
+	contentTypeJSON      = "application/json"
+	contentTypeTextPlain = "text/plain"
+	providerDiscord      = "discord"
+	statusRunning        = "running"
+	statusError          = "error"
+	fieldInline          = "inline"
+	fieldText            = "text"
+	fieldName            = "name"
+	fieldValue           = "value"
 
 	webhookTimeout     = 10 * time.Second
 	webhookMaxBody     = 512
@@ -198,7 +202,7 @@ func (s *Sender) sendOne(cfg config.WebhookConfig, event Event) error {
 	var contentType string
 
 	switch strings.ToLower(cfg.Type) {
-	case "discord":
+	case providerDiscord:
 		body, contentType = s.formatDiscord(event)
 	case "slack":
 		body, contentType = s.formatSlack(event)
@@ -264,9 +268,9 @@ func (s *Sender) formatDiscord(event Event) ([]byte, string) {
 
 func discordColor(status string) int {
 	switch strings.ToLower(status) {
-	case "running":
+	case statusRunning:
 		return discordColorGreen
-	case "error", "stopped", "stopping", "authfailed":
+	case statusError, "stopped", "stopping", "authfailed":
 		return discordColorRed
 	case "authenticating", "awaitingapproval", "paused":
 		return discordColorOrange
@@ -302,7 +306,7 @@ func (s *Sender) formatNtfy(event Event) ([]byte, string) {
 	name := sanitizeWebhookField(event.ProxyName)
 	payload := fmt.Sprintf("Proxy: %s\nStatus: %s\nPrevious: %s",
 		name, event.Status, event.OldStatus)
-	return []byte(payload), "text/plain"
+	return []byte(payload), contentTypeTextPlain
 }
 
 func NewEvent(proxyName string, oldStatus, newStatus model.ProxyStatus) Event {
