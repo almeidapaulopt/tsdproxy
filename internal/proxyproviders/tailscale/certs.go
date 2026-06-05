@@ -12,9 +12,19 @@ import (
 
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
-	"tailscale.com/client/local"
-	"tailscale.com/tsnet"
 )
+
+// certPairer abstracts CertPair so cert provisioning can be unit-tested
+// without a running tailscaled. *local.Client satisfies this structurally.
+type certPairer interface {
+	CertPair(ctx context.Context, domain string) (certPEM, keyPEM []byte, err error)
+}
+
+// certDomainer abstracts CertDomains for the same reason.
+// *tsnet.Server satisfies this structurally.
+type certDomainer interface {
+	CertDomains() []string
+}
 
 const (
 	certTimeout     = 5 * time.Minute
@@ -25,8 +35,8 @@ const (
 
 // acquireCert provisions a TLS certificate via CertPair with retry + backoff
 // for transient failures (rate limits, timeouts).
-func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, sem *semaphore.Weighted, log zerolog.Logger) {
-	if lc == nil || tsServer == nil || sem == nil {
+func acquireCert(ctx context.Context, lc certPairer, tsServer certDomainer, sem *semaphore.Weighted, log zerolog.Logger) {
+	if isNilInterface(lc) || isNilInterface(tsServer) || sem == nil {
 		return
 	}
 
@@ -43,8 +53,8 @@ func acquireCert(ctx context.Context, lc *local.Client, tsServer *tsnet.Server, 
 // acquireCertForDomain provisions a TLS certificate for a specific domain via
 // CertPair with retry + backoff. Used by services mode to pre-warm certs for
 // VIP service FQDNs before the first TLS handshake arrives.
-func acquireCertForDomain(ctx context.Context, lc *local.Client, domain string, sem *semaphore.Weighted, log zerolog.Logger) {
-	if lc == nil || domain == "" || sem == nil {
+func acquireCertForDomain(ctx context.Context, lc certPairer, domain string, sem *semaphore.Weighted, log zerolog.Logger) {
+	if isNilInterface(lc) || domain == "" || sem == nil {
 		return
 	}
 
@@ -106,7 +116,10 @@ func acquireCertForDomain(ctx context.Context, lc *local.Client, domain string, 
 
 // CertPairToTLSCertificate calls CertPair on the local client and wraps the
 // PEM blocks into a tls.Certificate. Shared by per-proxy and shared-proxy paths.
-func CertPairToTLSCertificate(ctx context.Context, lc *local.Client, domain string) (*tls.Certificate, error) {
+func CertPairToTLSCertificate(ctx context.Context, lc certPairer, domain string) (*tls.Certificate, error) {
+	if isNilInterface(lc) {
+		return nil, fmt.Errorf("tailscale CertPair for %s: nil local client", domain)
+	}
 	certPEM, keyPEM, err := lc.CertPair(ctx, domain)
 	if err != nil {
 		return nil, fmt.Errorf("tailscale CertPair for %s: %w", domain, err)
