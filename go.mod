@@ -3,7 +3,7 @@ module github.com/almeidapaulopt/tsdproxy
 go 1.26.4
 
 require (
-	codeberg.org/miekg/dns v0.6.79
+	codeberg.org/miekg/dns v0.6.80
 	github.com/a-h/templ v0.3.1020
 	github.com/caddyserver/certmagic v0.25.3
 	github.com/creasty/defaults v1.8.0
