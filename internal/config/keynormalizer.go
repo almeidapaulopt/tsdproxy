@@ -197,7 +197,7 @@ func suggest(input string, valid []string) []string {
 		lv := strings.ToLower(v)
 		d := levenshtein(lower, lv)
 		prefix := commonPrefixLen(lower, lv)
-		if d <= 3 || prefix >= 3 {
+		if d <= 3 || prefix >= 3 { //nolint:mnd // suggestion thresholds per spec
 			cands = append(cands, cand{name: v, dist: d})
 		}
 	}
@@ -207,8 +207,8 @@ func suggest(input string, valid []string) []string {
 		}
 		return cands[i].name < cands[j].name
 	})
-	if len(cands) > 3 {
-		cands = cands[:3]
+	if len(cands) > 3 { //nolint:mnd // max suggestions per spec
+		cands = cands[:3] //nolint:mnd // max suggestions per spec
 	}
 	out := make([]string, 0, len(cands))
 	for _, c := range cands {
@@ -300,76 +300,95 @@ func walkNode(node *yaml.Node, typ reflect.Type, lookup *keyLookup, issues *[]ke
 		}
 		return
 	}
-	for typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
+	typ = indirectType(typ)
+	switch {
+	case node.Kind != yaml.MappingNode:
+		walkSequence(node, typ, lookup, issues, log, path)
+	case typ.Kind() == reflect.Map:
+		walkMapValues(node, typ, lookup, issues, log, path)
+	case typ.Kind() == reflect.Struct:
+		walkStructMapping(node, typ, lookup, issues, log, path)
 	}
-	if node.Kind != yaml.MappingNode {
-		if node.Kind == yaml.SequenceNode {
-			elemType := typ
-			if elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Array {
-				elemType = elemType.Elem()
-			}
-			for _, item := range node.Content {
-				walkNode(item, elemType, lookup, issues, log, path+"[]")
-			}
-		}
+}
+
+func indirectType(t reflect.Type) reflect.Type {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
+func walkSequence(node *yaml.Node, typ reflect.Type, lookup *keyLookup, issues *[]keyIssue, log zerolog.Logger, path string) {
+	if node.Kind != yaml.SequenceNode {
 		return
 	}
-	if typ.Kind() == reflect.Map {
-		valueType := typ.Elem()
-		for i := 1; i < len(node.Content); i += 2 {
-			keyNode := node.Content[i-1]
-			valNode := node.Content[i]
-			walkNode(valNode, valueType, lookup, issues, log, path+"."+keyNode.Value)
-		}
-		return
+	elemType := typ
+	if elemType.Kind() == reflect.Slice || elemType.Kind() == reflect.Array {
+		elemType = elemType.Elem()
 	}
-	if typ.Kind() != reflect.Struct {
-		return
+	for _, item := range node.Content {
+		walkNode(item, elemType, lookup, issues, log, path+"[]")
 	}
+}
+
+func walkMapValues(node *yaml.Node, typ reflect.Type, lookup *keyLookup, issues *[]keyIssue, log zerolog.Logger, path string) {
+	valueType := typ.Elem()
+	for i := 1; i < len(node.Content); i += 2 {
+		keyNode := node.Content[i-1]
+		valNode := node.Content[i]
+		walkNode(valNode, valueType, lookup, issues, log, path+"."+keyNode.Value)
+	}
+}
+
+func walkStructMapping(node *yaml.Node, typ reflect.Type, lookup *keyLookup, issues *[]keyIssue, log zerolog.Logger, path string) {
 	for i := 0; i < len(node.Content); i += 2 {
 		keyNode := node.Content[i]
 		valNode := node.Content[i+1]
 		if keyNode.Kind != yaml.ScalarNode {
 			continue
 		}
-		original := keyNode.Value
-		canonical, _, found := lookup.find(original)
-		if !found {
-			*issues = append(*issues, keyIssue{
-				Line:        keyNode.Line,
-				Column:      keyNode.Column,
-				Original:    original,
-				Suggestions: suggest(original, lookup.validFields(typ)),
-			})
-			continue
-		}
-		if canonical != original {
-			log.Debug().
-				Str("from", original).
-				Str("to", canonical).
-				Str("path", path).
-				Msg("normalized YAML key")
-			keyNode.Value = canonical
-		}
-		fieldType, ok := lookup.fieldTypeByCanonical(typ, canonical)
-		if !ok {
-			continue
-		}
-		childPath := canonical
-		if path != "" {
-			childPath = path + "." + canonical
-		}
-		ft := fieldType
-		for ft.Kind() == reflect.Pointer {
-			ft = ft.Elem()
-		}
-		switch ft.Kind() {
-		case reflect.Struct, reflect.Map:
-			walkNode(valNode, ft, lookup, issues, log, childPath)
-		case reflect.Slice, reflect.Array:
-			walkNode(valNode, ft.Elem(), lookup, issues, log, childPath)
-		}
+		processStructField(keyNode, valNode, typ, lookup, issues, log, path)
+	}
+}
+
+func processStructField(keyNode, valNode *yaml.Node, typ reflect.Type, lookup *keyLookup, issues *[]keyIssue, log zerolog.Logger, path string) {
+	original := keyNode.Value
+	canonical, _, found := lookup.find(original)
+	if !found {
+		*issues = append(*issues, keyIssue{
+			Line:        keyNode.Line,
+			Column:      keyNode.Column,
+			Original:    original,
+			Suggestions: suggest(original, lookup.validFields(typ)),
+		})
+		return
+	}
+	if canonical != original {
+		log.Debug().
+			Str("from", original).
+			Str("to", canonical).
+			Str("path", path).
+			Msg("normalized YAML key")
+		keyNode.Value = canonical
+	}
+	fieldType, ok := lookup.fieldTypeByCanonical(typ, canonical)
+	if !ok {
+		return
+	}
+	childPath := canonical
+	if path != "" {
+		childPath = path + "." + canonical
+	}
+	recurseFieldValue(valNode, fieldType, lookup, issues, log, childPath)
+}
+
+func recurseFieldValue(valNode *yaml.Node, fieldType reflect.Type, lookup *keyLookup, issues *[]keyIssue, log zerolog.Logger, path string) {
+	ft := indirectType(fieldType)
+	switch ft.Kind() {
+	case reflect.Struct, reflect.Map:
+		walkNode(valNode, ft, lookup, issues, log, path)
+	case reflect.Slice, reflect.Array:
+		walkNode(valNode, ft.Elem(), lookup, issues, log, path)
 	}
 }
 
