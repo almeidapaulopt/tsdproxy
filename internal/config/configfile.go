@@ -4,18 +4,19 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,7 +45,7 @@ func (f *File) Load() error {
 		return err
 	}
 
-	err = unmarshalStrict(data, f.data)
+	err = unmarshalNormalized(data, f.data)
 	if err != nil {
 		return err
 	}
@@ -157,13 +158,29 @@ func (f *File) handleEvent(event fsnotify.Event, file string, realFile *string) 
 	}
 }
 
-func unmarshalStrict(data []byte, out any) error {
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-
-	if err := dec.Decode(out); err != nil && !errors.Is(err, io.EOF) {
+func unmarshalNormalized(data []byte, out any) error {
+	lookup := buildKeyLookup(out)
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
 		return err
 	}
-
+	if root.Kind == 0 || (root.Kind == yaml.DocumentNode && len(root.Content) == 0) {
+		return nil
+	}
+	issues := normalizeNodeKeys(&root, lookup, log.Logger)
+	if len(issues) > 0 {
+		var b strings.Builder
+		for _, iss := range issues {
+			fmt.Fprintf(&b, "line %d column %d: unknown field %q", iss.Line, iss.Column, iss.Original)
+			if len(iss.Suggestions) > 0 {
+				fmt.Fprintf(&b, " — did you mean %s?", quoteList(iss.Suggestions))
+			}
+			b.WriteString("\n")
+		}
+		return fmt.Errorf("configuration contains unknown fields:\n%s", b.String())
+	}
+	if err := root.Decode(out); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
 	return nil
 }
