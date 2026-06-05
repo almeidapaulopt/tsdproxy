@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
 	"tailscale.com/client/local"
 	"tailscale.com/tsnet"
 
@@ -242,6 +243,7 @@ type SharedSNIExposure struct {
 	domain          string
 	mtx             sync.RWMutex
 	certCacheMtx    sync.Mutex
+	certSF          singleflight.Group
 	started         bool
 }
 
@@ -386,7 +388,8 @@ func (e *SharedSNIExposure) Close(_ context.Context) error {
 
 // getCertificate returns a cached TLS certificate for this exposure's domain.
 // CertPairToTLSCertificate involves IPC to the local Tailscale client and
-// crypto parsing — caching avoids repeating this on every TLS handshake.
+// crypto parsing — caching avoids repeating this on every TLS handshake, and
+// singleflight deduplicates concurrent misses on the same domain.
 func (e *SharedSNIExposure) getCertificate(lc *local.Client) (*tls.Certificate, error) {
 	e.certCacheMtx.Lock()
 	if e.cachedCert != nil && time.Since(e.certCacheTime) < certCacheTTL {
@@ -396,17 +399,33 @@ func (e *SharedSNIExposure) getCertificate(lc *local.Client) (*tls.Certificate, 
 	}
 	e.certCacheMtx.Unlock()
 
-	cert, err := CertPairToTLSCertificate(context.Background(), lc, e.domain)
+	v, err, _ := e.certSF.Do("cert:"+e.domain, func() (any, error) {
+		// Re-check after winning the race — another goroutine may have
+		// populated the cache while we waited for the singleflight leader.
+		e.certCacheMtx.Lock()
+		if e.cachedCert != nil && time.Since(e.certCacheTime) < certCacheTTL {
+			cert := e.cachedCert
+			e.certCacheMtx.Unlock()
+			return cert, nil
+		}
+		e.certCacheMtx.Unlock()
+
+		cert, err := CertPairToTLSCertificate(context.Background(), lc, e.domain)
+		if err != nil {
+			return nil, err
+		}
+
+		e.certCacheMtx.Lock()
+		e.cachedCert = cert
+		e.certCacheTime = time.Now()
+		e.certCacheMtx.Unlock()
+
+		return cert, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	e.certCacheMtx.Lock()
-	e.cachedCert = cert
-	e.certCacheTime = time.Now()
-	e.certCacheMtx.Unlock()
-
-	return cert, nil
+	return v.(*tls.Certificate), nil
 }
 
 // GetListener returns the listener for the given port configuration.
