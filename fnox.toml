@@ -7,8 +7,9 @@ prefix = "tsdproxy"
 
 [secrets]
 TSDPROXY_E2E_AUTHKEY = { provider = "keychain", value = "TS_AUTHKEY" }
-TSDPROXY_E2E_CLIENTID = { provider = "keychain", value = "TSDPROXY_E2E_CLIENTID" }
-TSDPROXY_E2E_CLIENTSECRET = { provider = "keychain", value = "TSDPROXY_E2E_CLIENTSECRET" }
+TSDPROXY_E2E_CLIENTID = { provider = "keychain", value = "TSDPROXY_TAILSCALE_SERVICES_CLIENTID" }
+TSDPROXY_E2E_CLIENTSECRET = { provider = "keychain", value = "TSDPROXY_TAILSCALE_SERVICES_CLIENTID" }
+
 CF_API_TOKEN = { provider = "keychain", value = "CF_API_TOKEN" }
 CF_DOMAIN = { provider = "keychain", value = "CF_DOMAIN" }
 
