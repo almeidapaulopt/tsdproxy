@@ -1086,10 +1086,18 @@ func isNameInUseError(err error) bool {
 	return strings.Contains(msg, "name is in use") || strings.Contains(msg, "409")
 }
 
+// ErrConflictingDeviceOnline is returned by removeConflictingDevice when a
+// device matching the VIP service hostname is currently online. The caller
+// must NOT retry the VIP service creation in this case — a legitimate user
+// device is squatting on the name.
+var ErrConflictingDeviceOnline = errors.New("conflicting device is currently online")
+
 // removeConflictingDevice finds and deletes Tailscale devices whose hostname
-// matches the service name, bypassing the tag filter and online-status checks
-// used by the normal DeviceReconciler. This is needed to resolve 409 errors
-// where a stale regular device blocks VIP service creation.
+// matches the service name, bypassing the tag filter used by the normal
+// DeviceReconciler. Only OFFLINE devices are removed; an online device is
+// treated as a legitimate owner and surfaced as ErrConflictingDeviceOnline so
+// the caller can abort the retry. This is needed to resolve 409 errors where
+// a stale regular device blocks VIP service creation.
 func (ss *ServicesServer) removeConflictingDevice(ctx context.Context, client *tailscale.Client, serviceName string) error {
 	hostname := strings.TrimPrefix(serviceName, "svc:")
 	if hostname == serviceName {
@@ -1106,11 +1114,23 @@ func (ss *ServicesServer) removeConflictingDevice(ctx context.Context, client *t
 			continue
 		}
 
+		// Never delete an online device. Unlike stale duplicate nodes
+		// cleaned by DeviceReconciler (where we own both nodes), a name
+		// collision here may be a legitimate user device. Deleting it
+		// would silently kick the user off their tailnet node.
+		if d.ConnectedToControl {
+			ss.log.Warn().
+				Str("hostname", d.Hostname).
+				Str("node_id", d.NodeID).
+				Msg("conflicting device for VIP service is online, refusing to delete")
+			return fmt.Errorf("%w: hostname %q node %s", ErrConflictingDeviceOnline, d.Hostname, d.NodeID)
+		}
+
 		ss.log.Info().
 			Str("hostname", d.Hostname).
 			Str("node_id", d.NodeID).
 			Bool("was_online", d.ConnectedToControl).
-			Msg("auto-removing conflicting device for VIP service")
+			Msg("auto-removing conflicting offline device for VIP service")
 
 		if deleteErr := client.Devices().Delete(ctx, d.NodeID); deleteErr != nil {
 			return fmt.Errorf("delete conflicting device %q (node %s): %w", d.Hostname, d.NodeID, deleteErr)
