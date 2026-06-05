@@ -56,6 +56,13 @@ const userAgent = "tsdproxy"
 // validateDatadir joins baseDir and hostname into a path, then verifies the result
 // does not escape baseDir via path traversal (e.g. "../../etc").
 func validateDatadir(baseDir, hostname string) (string, error) {
+	if strings.ContainsRune(hostname, 0) {
+		return "", fmt.Errorf("hostname %q contains null byte", hostname)
+	}
+	if filepath.IsAbs(hostname) {
+		return "", fmt.Errorf("hostname %q is an absolute path", hostname)
+	}
+
 	datadir := filepath.Join(baseDir, hostname)
 	cleanDir := filepath.Clean(datadir)
 	rel, err := filepath.Rel(filepath.Clean(baseDir), cleanDir)
