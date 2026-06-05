@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -67,7 +66,7 @@ type (
 		configs []config.WebhookConfig
 		wg      sync.WaitGroup
 		closeMu sync.Mutex
-		closed  atomic.Bool
+		closed  bool
 	}
 )
 
@@ -90,9 +89,12 @@ func NewSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
 
 func (s *Sender) Close() {
 	s.closeMu.Lock()
-	s.closed.Store(true)
+	defer s.closeMu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
 	close(s.queue)
-	s.closeMu.Unlock()
 
 	s.wg.Wait()
 	s.cancel()
@@ -109,7 +111,7 @@ func (s *Sender) Send(event Event) {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 
-	if s.closed.Load() {
+	if s.closed {
 		return
 	}
 	for _, cfg := range s.configs {
