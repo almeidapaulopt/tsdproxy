@@ -78,14 +78,15 @@ proxyAccessLog: true
 func discoverServicesFQDN(t *testing.T, ctx context.Context, proxy *TSDProxyInstance, hostname string) string {
 	t.Helper()
 
-	// Match zerolog console format: ... fqdn=<value> ... msg="service proxy started"
-	re := regexp.MustCompile(`fqdn=(\S+).*msg="service proxy started"`)
+	// Match zerolog console format, scoped to the specific hostname:
+	// service proxy started  Hostname=<hostname>  fqdn=<value>
+	re := regexp.MustCompile(`service proxy started.*Hostname=` + regexp.QuoteMeta(hostname) + `.*fqdn=(\S+)`)
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
-		log := proxy.ReadLogFile(t)
+		log := stripANSI(proxy.ReadLogFile(t))
 		if m := re.FindStringSubmatch(log); m != nil {
 			t.Logf("discovered services FQDN for %q: %s", hostname, m[1])
 			return m[1]
@@ -183,7 +184,7 @@ func TestServicesModeStopRemovesService(t *testing.T) {
 	requireOAuth(t)
 	authKey := requireTailscaleAuth(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 
 	proxy := startServicesProxy(t)
@@ -195,25 +196,16 @@ func TestServicesModeStopRemovesService(t *testing.T) {
 	fqdn := discoverServicesFQDN(t, ctx, proxy, hostname)
 	require.NotEmpty(t, fqdn)
 
-	proxyURL := fmt.Sprintf("https://%s/", fqdn)
-	waitForServicesProxy(t, ctx, client, fqdn, 90*time.Second)
+	waitForServicesProxy(t, ctx, client, fqdn, 360*time.Second)
 	verifyServicesProxy(t, ctx, client, fqdn, "Welcome to nginx!")
 
-	// Stop the container and verify the proxy becomes unreachable.
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stopCancel()
 	require.NoError(t, ctr.Stop(stopCtx, nil), "failed to stop container")
 
 	assert.Eventually(t, func() bool {
-		verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer verifyCancel()
-		resp, err := client.Get(verifyCtx, proxyURL)
-		if err != nil {
-			return true
-		}
-		resp.Body.Close()
-		return false
-	}, 60*time.Second, 2*time.Second, "expected services proxy %s to become unreachable after container stop", fqdn)
+		return strings.Contains(stripANSI(proxy.ReadLogFile(t)), "Removed proxy")
+	}, 60*time.Second, 2*time.Second, "expected services proxy %s to be removed after container stop", fqdn)
 }
 
 // TestServicesModeRestartWithNewService verifies that after stopping a

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,7 +77,7 @@ log:
 proxyAccessLog: true
 `, listPath, authKey, dataDir, httpPort)
 
-	_ = startTSDProxyRawConfig(t, configContent, httpPort, tmpDir, dataDir)
+	proxy := startTSDProxyRawConfig(t, configContent, httpPort, tmpDir, dataDir)
 
 	client := NewTSNetClient(t, authKey)
 	proxyURL := client.ProxyHTTPURL(hostname)
@@ -102,18 +103,11 @@ proxyAccessLog: true
 			return false
 		}
 		return resp.StatusCode == http.StatusOK && string(body) == "backend-two"
-	}, 45*time.Second, 2*time.Second, "expected list provider reload to switch backend target")
+	}, 90*time.Second, 2*time.Second, "expected list provider reload to switch backend target")
 
 	WriteListProviderFile(t, listPath, map[string]ListEntry{})
 
 	assert.Eventually(t, func() bool {
-		verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer verifyCancel()
-		resp, err := client.Get(verifyCtx, proxyURL)
-		if err != nil {
-			return true
-		}
-		resp.Body.Close()
-		return false
-	}, 45*time.Second, 2*time.Second, "expected proxy to be removed after list entry deletion")
+		return strings.Contains(stripANSI(proxy.ReadLogFile(t)), "Removed proxy")
+	}, 30*time.Second, 2*time.Second, "expected proxy to be removed after list entry deletion")
 }

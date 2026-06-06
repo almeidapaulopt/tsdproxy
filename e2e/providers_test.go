@@ -264,7 +264,7 @@ func startTSDProxyRawConfig(t *testing.T, configContent string, httpPort int, tm
 	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
 
 	cmd := exec.CommandContext(ctx, tsdproxyBinPath, "-config", configPath)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(filteredEnviron(),
 		fmt.Sprintf("TSDPROXY_HTTP_PORT=%d", httpPort),
 	)
 

@@ -110,7 +110,7 @@ func StartTSDProxy(t *testing.T, cfg TSDProxyConfig) *TSDProxyInstance {
 	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
 
 	cmd := exec.CommandContext(ctx, tsdproxyBinPath, "-config", configPath)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(filteredEnviron(),
 		fmt.Sprintf("TSDPROXY_HTTP_PORT=%d", cfg.HTTPPort),
 	)
 
@@ -834,6 +834,23 @@ func getFreePort() int {
 	}
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
+}
+
+// filteredEnviron returns the current process environment with all
+// TSDPROXY_TAILSCALE_* variables removed. This prevents the config
+// loader's LoadTailscaleEnvOverrides() from injecting OAuth credentials
+// into test instances that intend to use static auth keys only. Tests
+// that need OAuth must embed clientId/clientSecret directly in their
+// YAML config.
+func filteredEnviron() []string {
+	filtered := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "TSDPROXY_TAILSCALE_") {
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	return filtered
 }
 
 type testLogWriter struct {

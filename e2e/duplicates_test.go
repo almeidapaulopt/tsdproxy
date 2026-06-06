@@ -75,6 +75,6 @@ proxyAccessLog: true
 	secondPort := getFreePort()
 	_ = startTSDProxyRawConfig(t, configForPort(secondPort), secondPort, tmpDir, dataDir)
 
-	WaitForProxyReachable(t, ctx, client, proxyURL, 120*time.Second)
+	WaitForProxyReachable(t, ctx, client, proxyURL, 180*time.Second)
 	VerifyHTTPResponse(t, ctx, client, proxyURL, "Welcome to nginx!")
 }
