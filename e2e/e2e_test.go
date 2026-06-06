@@ -11,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	tailscale "tailscale.com/client/tailscale/v2"
 )
 
 const (
@@ -96,11 +99,16 @@ func TestMain(m *testing.M) {
 	}
 	fmt.Println("tsdproxy binary built successfully")
 
-	// Clean up leftover e2e test containers to avoid ACME rate-limit
-	// interference from previous runs.
 	cleanupTestContainers(ctx)
+	cleanupTailscale(ctx)
 
 	code := m.Run()
+
+	postCtx, postCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	cleanupTestContainers(postCtx)
+	cleanupTailscale(postCtx)
+	postCancel()
+
 	os.Remove(tsdproxyBinPath)
 	os.Exit(code)
 }
@@ -169,4 +177,78 @@ func cleanupTestContainers(ctx context.Context) {
 	args := append([]string{"rm", "-f"}, ids...)
 	cleanupCmd := exec.CommandContext(ctx, "docker", args...)
 	cleanupCmd.Run()
+}
+
+func cleanupTailscale(ctx context.Context) {
+	if tsClientID == "" || tsClientSecret == "" {
+		fmt.Println("Cleanup: skipping Tailscale cleanup (no OAuth credentials)")
+		return
+	}
+
+	client := &tailscale.Client{
+		Tailnet: "-",
+		Auth: &tailscale.OAuth{
+			ClientID:     tsClientID,
+			ClientSecret: tsClientSecret,
+			Scopes:       []string{"devices:core", "services"},
+		},
+	}
+
+	tag := tsTags
+	cleanupTailscaleDevices(ctx, client, tag)
+	cleanupTailscaleServices(ctx, client, tag)
+}
+
+func cleanupTailscaleDevices(ctx context.Context, client *tailscale.Client, tag string) {
+	devices, err := client.Devices().List(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleDevices: failed to list devices: %v\n", err)
+		return
+	}
+
+	deleted := 0
+	for _, dev := range devices {
+		if !slices.Contains(dev.Tags, tag) {
+			continue
+		}
+		if err := client.Devices().Delete(ctx, dev.NodeID); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleDevices: failed to delete %s (%s): %v\n", dev.NodeID, dev.Hostname, err)
+			continue
+		}
+		deleted++
+		fmt.Printf("Cleanup: deleted Tailscale device %s (%s)\n", dev.NodeID, dev.Hostname)
+	}
+
+	if deleted > 0 {
+		fmt.Printf("Cleanup: removed %d Tailscale device(s) tagged %s\n", deleted, tag)
+	} else {
+		fmt.Printf("Cleanup: no Tailscale devices found tagged %s\n", tag)
+	}
+}
+
+func cleanupTailscaleServices(ctx context.Context, client *tailscale.Client, tag string) {
+	services, err := client.Services().List(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleServices: failed to list services: %v\n", err)
+		return
+	}
+
+	deleted := 0
+	for _, svc := range services {
+		if !slices.Contains(svc.Tags, tag) {
+			continue
+		}
+		if err := client.Services().Delete(ctx, svc.Name); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleServices: failed to delete %s: %v\n", svc.Name, err)
+			continue
+		}
+		deleted++
+		fmt.Printf("Cleanup: deleted Tailscale service %s\n", svc.Name)
+	}
+
+	if deleted > 0 {
+		fmt.Printf("Cleanup: removed %d Tailscale service(s) tagged %s\n", deleted, tag)
+	} else {
+		fmt.Printf("Cleanup: no Tailscale services found tagged %s\n", tag)
+	}
 }
