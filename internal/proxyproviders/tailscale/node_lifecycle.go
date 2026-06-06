@@ -107,12 +107,16 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 		nl.log.Info().Msg("Creating new tsnet node")
 	}
 
-	// Reconcile stale/offline device duplicates. Online devices are never
-	// deleted automatically — only offline duplicates matching the hostname
-	// pattern are cleaned up, regardless of whether state was regenerated.
+	// Reconcile stale/offline device duplicates. When local state was lost
+	// or regenerated, force-clean online devices too since we cannot
+	// re-authenticate without local state.
 	if nl.devices != nil {
 		nl.sendEvent(NodeEvent{Status: model.ProxyStatusReconciling})
 		reconcileCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+		opts := []ReconcileOption{WithLocalState(stateExists)}
+		if !stateExists {
+			opts = append(opts, WithForceClean())
+		}
 		nl.devices.Reconcile(reconcileCtx, nl.cfg.Hostname, nl.cfg.Tags,
 			func(hostname, nodeID string) {
 				nl.sendEvent(NodeEvent{
@@ -120,7 +124,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 					ErrorMessage: "online device with hostname " + hostname + " already exists (nodeID: " + nodeID + ")",
 				})
 			},
-			WithLocalState(stateExists))
+			opts...)
 		cancel()
 	}
 

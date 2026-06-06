@@ -295,3 +295,81 @@ func TestReconcile_WithoutLocalState_DeletesExactHostname(t *testing.T) {
 	assert.Contains(t, mock.deletedIDs, "exact-match")
 	assert.Contains(t, mock.deletedIDs, "suffix-match")
 }
+
+func TestReconcile_WithForceClean_OnlineDevice_Deleted(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "node-online", ConnectedToControl: true},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil, WithForceClean())
+
+	require.Len(t, mock.deletedIDs, 1)
+	assert.Equal(t, "node-online", mock.deletedIDs[0])
+}
+
+func TestReconcile_WithForceClean_MixedDevices_AllMatchingDeleted(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "exact-online", ConnectedToControl: true},
+			{Hostname: "myhost", NodeID: "exact-offline", ConnectedToControl: false},
+			{Hostname: "myhost-1", NodeID: "suffix-online", ConnectedToControl: true},
+			{Hostname: "myhost-1", NodeID: "suffix-offline", ConnectedToControl: false},
+			{Hostname: "other", NodeID: "unrelated", ConnectedToControl: false},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil, WithForceClean())
+
+	require.Len(t, mock.deletedIDs, 4)
+	assert.Contains(t, mock.deletedIDs, "exact-online")
+	assert.Contains(t, mock.deletedIDs, "exact-offline")
+	assert.Contains(t, mock.deletedIDs, "suffix-online")
+	assert.Contains(t, mock.deletedIDs, "suffix-offline")
+}
+
+func TestReconcile_WithForceClean_MirrorsNodeLifecycle(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "exact-online", ConnectedToControl: true},
+			{Hostname: "myhost-1", NodeID: "suffix-online", ConnectedToControl: true},
+			{Hostname: "myhost-1", NodeID: "suffix-offline", ConnectedToControl: false},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil, WithForceClean())
+
+	require.Len(t, mock.deletedIDs, 3)
+	assert.Contains(t, mock.deletedIDs, "exact-online")
+	assert.Contains(t, mock.deletedIDs, "suffix-online")
+	assert.Contains(t, mock.deletedIDs, "suffix-offline")
+}
+
+func TestReconcile_WithForceClean_OnConflictNotCalled(t *testing.T) {
+	t.Parallel()
+
+	conflictCalled := false
+	onConflict := func(_, _ string) { conflictCalled = true }
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "node-online", ConnectedToControl: true},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", onConflict, WithForceClean())
+
+	require.Len(t, mock.deletedIDs, 1)
+	assert.False(t, conflictCalled, "onConflict must not fire when force-clean deletes the device")
+}
