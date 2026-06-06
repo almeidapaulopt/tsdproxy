@@ -642,6 +642,12 @@ func (proxy *Proxy) getListenerForPort(portName string, pc model.PortConfig) (ne
 		return proxy.getCustomTLSListener(portName)
 	}
 
+	if pc.ProxyProtocol == model.ProtoTCP {
+		if raw, ok := proxy.providerProxy.(proxyproviders.RawTCPListener); ok {
+			return raw.GetRawTCPListener(portName)
+		}
+	}
+
 	return proxy.providerProxy.GetListener(portName)
 }
 
