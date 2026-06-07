@@ -29,6 +29,7 @@ type (
 		proxies       configProxyList
 		eventsChan    chan targetproviders.TargetEvent
 		errChan       chan error
+		ctx           context.Context
 		name          string
 		config        config.ListTargetProviderConfig
 		mtx           sync.RWMutex
@@ -117,8 +118,6 @@ func New(log zerolog.Logger, name string, provider *config.ListTargetProviderCon
 		name:          name,
 		configProxies: proxiesList,
 		proxies:       make(map[string]proxyConfig),
-		eventsChan:    make(chan targetproviders.TargetEvent),
-		errChan:       make(chan error),
 		config:        *provider,
 	}
 
@@ -136,6 +135,7 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 
 	c.eventsChan = eventsChan
 	c.errChan = errChan
+	c.ctx = ctx
 
 	c.file.OnChange(c.onFileChange)
 
@@ -148,7 +148,14 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	}
 
 	go func() {
+		c.mtx.RLock()
+		names := make([]string, 0, len(c.configProxies))
 		for k := range c.configProxies {
+			names = append(names, k)
+		}
+		c.mtx.RUnlock()
+
+		for _, k := range names {
 			select {
 			case <-ctx.Done():
 				return
@@ -167,16 +174,18 @@ func (c *Client) GetDefaultProxyProviderName() string {
 }
 
 func (c *Client) trySendEvent(id string, action targetproviders.ActionType) bool {
+	if c.eventsChan == nil {
+		return false
+	}
 	select {
+	case <-c.ctx.Done():
+		return false
 	case c.eventsChan <- targetproviders.TargetEvent{
 		ID:             id,
 		TargetProvider: c,
 		Action:         action,
 	}:
 		return true
-	default:
-		c.log.Warn().Str("name", id).Int("action", int(action)).Msg("dropped event: channel full")
-		return false
 	}
 }
 
@@ -199,7 +208,7 @@ func (c *Client) AddTarget(id string) (*model.Config, error) {
 	c.mtx.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("target %s not found", id)
+		return nil, fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 
 	pcfg, err := c.newProxyConfig(id, proxy)
@@ -215,7 +224,7 @@ func (c *Client) DeleteProxy(id string) error {
 	defer c.mtx.Unlock()
 
 	if _, ok := c.proxies[id]; !ok {
-		return fmt.Errorf("target %s not found", id)
+		return fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 
 	delete(c.proxies, id)
@@ -234,7 +243,7 @@ func (c *Client) ReResolve(id string) (*model.Config, error) {
 	c.mtx.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("target %s not found", id)
+		return nil, fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 
 	return c.buildConfig(id, proxy)
@@ -383,6 +392,7 @@ func (c *Client) processSinglePort(ports model.PortConfigList, k string, v port)
 	port, err := model.NewPortShortLabel(k)
 	if err != nil {
 		c.log.Error().Err(err).Str("port", k).Msg("error creating port config")
+		return
 	}
 
 	port.IsRedirect = v.IsRedirect
