@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
 	"sync"
 	"time"
@@ -142,7 +141,6 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 	}
 
 	ctn := newContainer(c.log, dcontainer, dservice, c.tryDockerInternalNetwork,
-		withContext(ctx),
 		withDefaultBridgeAddress(c.defaultBridgeAddress),
 		withDefaultTargetHostname(c.defaultTargetHostname),
 		withTargetProviderName(c.name),
@@ -166,7 +164,7 @@ func (c *Client) DeleteProxy(id string) error {
 	c.mutex.Lock()
 	if _, ok := c.containers[id]; !ok {
 		c.mutex.Unlock()
-		return fmt.Errorf("container %s not found", id)
+		return fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 	delete(c.containers, id)
 	c.mutex.Unlock()
@@ -201,6 +199,8 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	})
 
 	go func() {
+		defer c.signalDisconnect(ctx, errChan)
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -213,12 +213,16 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 					return
 				}
 			case err, ok := <-evRes.Err:
-				if ok && !errors.Is(err, context.Canceled) && !errors.Is(err, io.EOF) {
-					select {
-					case <-ctx.Done():
-						return
-					case errChan <- err:
-					}
+				if !ok {
+					return
+				}
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case errChan <- fmt.Errorf("docker event stream error: %w", err):
 				}
 				return
 			}
@@ -226,6 +230,20 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	}()
 
 	go c.startAllProxies(ctx, eventsChan, errChan)
+}
+
+// signalDisconnect sends a disconnect error to errChan if the context is still
+// active. This allows the proxymanager's reconnect loop to re-establish the
+// event stream after the Docker daemon closes the connection (EOF, daemon
+// restart, network blip, etc.).
+func (c *Client) signalDisconnect(ctx context.Context, errChan chan error) {
+	if ctx.Err() != nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+	case errChan <- errors.New("docker event stream disconnected"):
+	}
 }
 
 func (c *Client) handleDockerEvent(ctx context.Context, devent devents.Message, eventsChan chan targetproviders.TargetEvent) bool {

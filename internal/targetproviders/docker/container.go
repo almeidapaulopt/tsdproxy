@@ -4,7 +4,6 @@
 package docker
 
 import (
-	"context"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -30,7 +29,6 @@ var rfc1123Hostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z
 type (
 	container struct {
 		log                    zerolog.Logger
-		ctx                    context.Context
 		ports                  map[string]string
 		labels                 map[string]string
 		image                  string
@@ -69,7 +67,6 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	defer newlog.Trace().Msg("End New Container")
 
 	c := &container{
-		ctx:         context.Background(),
 		log:         newlog,
 		id:          dcontainer.ID,
 		name:        dcontainer.Name,
@@ -425,11 +422,7 @@ func (c *container) resolveByProbing(scheme, internalPort, publishedPort string,
 		if port, err := c.tryConnectContainer(scheme, internalPort, publishedPort); err == nil {
 			return port, true
 		}
-		select {
-		case <-c.ctx.Done():
-			return nil, false
-		case <-time.After(autoDetectSleep):
-		}
+		time.Sleep(autoDetectSleep)
 	}
 	return nil, false
 }
@@ -516,9 +509,9 @@ func (c *container) getProxyHostname() (string, error) {
 
 	if customName, ok := c.labels[LabelName]; ok {
 		if !rfc1123Hostname.MatchString(customName) {
-			return "", fmt.Errorf("invalid hostname %q: must match RFC 1123 (lowercase alphanumeric, hyphens, 1-63 chars)", customName)
+			return "", fmt.Errorf("invalid hostname %q: must match RFC 1123 (alphanumeric, hyphens, 1-63 chars)", customName)
 		}
-		return customName, nil
+		return strings.ToLower(customName), nil
 	}
 
 	return c.getName(), nil
@@ -527,12 +520,6 @@ func (c *container) getProxyHostname() (string, error) {
 func withTargetProviderName(name string) ContainerOption {
 	return func(c *container) {
 		c.targetProviderName = name
-	}
-}
-
-func withContext(ctx context.Context) ContainerOption {
-	return func(c *container) {
-		c.ctx = ctx
 	}
 }
 
