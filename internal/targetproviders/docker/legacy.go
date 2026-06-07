@@ -5,6 +5,7 @@ package docker
 
 import (
 	"sort"
+	"strconv"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
@@ -47,7 +48,14 @@ func (c *container) getInternalPortLegacy() string {
 	for k := range c.ports {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool {
+		pi, errI := strconv.Atoi(keys[i])
+		pj, errJ := strconv.Atoi(keys[j])
+		if errI != nil || errJ != nil {
+			return keys[i] < keys[j]
+		}
+		return pi < pj
+	})
 	if len(keys) > 0 {
 		return keys[0]
 	}
