@@ -551,7 +551,7 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 }
 
 func (ss *ServicesServer) handleReleaseService(c releaseServiceCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
-	c.reply <- nil
+	defer func() { c.reply <- nil }()
 
 	if state != servicesRunning || rt == nil {
 		return state, rt
