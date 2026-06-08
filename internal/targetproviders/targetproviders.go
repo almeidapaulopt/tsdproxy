@@ -15,6 +15,11 @@ import (
 // errors.Is to distinguish a missing target from other failures.
 var ErrTargetNotFound = errors.New("target not found")
 
+// ErrStreamDisconnected is sent to the error channel when the backing event
+// stream (Docker daemon, etc.) closes unexpectedly. Consumers should use
+// errors.Is to trigger a reconnect loop.
+var ErrStreamDisconnected = errors.New("event stream disconnected")
+
 type (
 	// TargetProvider interface to be implemented by all target providers
 	TargetProvider interface {

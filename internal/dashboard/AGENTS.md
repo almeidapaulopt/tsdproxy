@@ -20,8 +20,8 @@ SSE-powered real-time dashboard: streaming proxy updates, log viewer, user prefe
 | `/dashboard/list` | GET | `listFragmentHandler` | viewer |
 | `/dashboard/proxy/{name}/modal` | GET | `proxyModalHandler` | viewer |
 | `/stream` | GET | SSE stream | viewer |
-| `/stream/{name}/logs` | GET | `logStreamHandler` | viewer |
-| `/api/dashboard/preferences` | POST | `updatePreferencesHandler` | viewer |
+| `/stream/{name}/logs` | GET | `logStreamHandler` | admin |
+| `/api/dashboard/preferences` | PUT | `updatePreferencesHandler` | viewer |
 | `/api/dashboard/pin/{name}` | POST | `togglePinHandler` | viewer |
 | `/api/proxy/{name}/restart` | POST | `restartHandler` | admin |
 | `/api/proxy/{name}/pause` | POST | `pauseHandler` | admin |
@@ -78,5 +78,4 @@ All use `hx-post` with `hx-swap="none"` — SSE drives the UI update:
 - **SSE goroutine starts in constructor**: `go dash.streamProxyUpdates()` fires in `NewDashboard()` before routes are registered. Early events may be missed.
 - **`sseClients` map not thread-safe**: Protected by `d.mtx` mutex. All access must hold the lock.
 - **Proxy action errors return JSON**: `writeJSONError()` used for action failures, not SSE events. Frontend must handle both SSE and JSON error responses.
-- **`_ = templ.Render()`**: Some render errors silently discarded (anti-pattern noted in root AGENTS.md).
 - **HTMX header check**: `hxRequestHeader` constant checks for `HX-Request` header to distinguish HTMX from direct browser requests.

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/url"
@@ -27,11 +28,12 @@ const defaultAPIBaseURL = "https://api.cloudflare.com/client/v4"
 
 // Provider implements dnsproviders.Provider for Cloudflare DNS.
 type Provider struct {
-	client     *http.Client
-	limiter    *rate.Limiter
-	zoneCache  sync.Map
-	apiToken   secretstring.SecretString
-	apiBaseURL string
+	client      *http.Client
+	limiter     *rate.Limiter
+	zoneCache   sync.Map
+	apiToken    secretstring.SecretString
+	apiBaseURL  string
+	domainLocks [256]sync.Mutex
 }
 
 var _ dnsproviders.Provider = (*Provider)(nil)
@@ -83,7 +85,16 @@ func (p *Provider) Name() string {
 	return "cloudflare"
 }
 
+func (p *Provider) lockDomain(domain string) (unlock func()) {
+	h := fnv.New32a()
+	h.Write([]byte(strings.ToLower(domain)))
+	idx := h.Sum32() % uint32(len(p.domainLocks)) //nolint:mnd
+	p.domainLocks[idx].Lock()
+	return p.domainLocks[idx].Unlock
+}
+
 func (p *Provider) CreateRecord(ctx context.Context, domain, recordType, value string) error {
+	defer p.lockDomain(domain)()
 	zoneID, err := p.resolveZoneID(ctx, domain)
 	if err != nil {
 		return fmt.Errorf("cloudflare: resolve zone: %w", err)
@@ -126,6 +137,7 @@ func (p *Provider) CreateRecord(ctx context.Context, domain, recordType, value s
 }
 
 func (p *Provider) DeleteRecord(ctx context.Context, domain, recordType string) error {
+	defer p.lockDomain(domain)()
 	zoneID, err := p.resolveZoneID(ctx, domain)
 	if err != nil {
 		return fmt.Errorf("cloudflare: resolve zone: %w", err)
@@ -299,6 +311,14 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body any)
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodySnippet := string(data)
+		if len(bodySnippet) > 200 { //nolint:mnd
+			bodySnippet = bodySnippet[:200] + "..."
+		}
+		return nil, fmt.Errorf("cloudflare api returned HTTP %d: %s", resp.StatusCode, bodySnippet)
 	}
 
 	var cfResp cfResponse

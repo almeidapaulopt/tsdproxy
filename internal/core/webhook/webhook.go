@@ -91,6 +91,19 @@ func NewSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
 	return s
 }
 
+// NewSyncSender returns a Sender without spawning worker goroutines.
+// It is intended for one-shot use with SendSync (e.g. the test-webhook
+// endpoint) so the request handler does not pay the cost of creating
+// and tearing down 8 idle workers. Close is a no-op for sync senders.
+func NewSyncSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
+	return &Sender{
+		log:     log.With().Str("module", "webhook").Logger(),
+		client:  &http.Client{Timeout: webhookTimeout},
+		configs: configs,
+		ctx:     context.Background(),
+	}
+}
+
 func (s *Sender) Close() {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
@@ -98,10 +111,13 @@ func (s *Sender) Close() {
 		return
 	}
 	s.closed = true
-	close(s.queue)
-
-	s.wg.Wait()
-	s.cancel()
+	if s.queue != nil {
+		close(s.queue)
+		s.wg.Wait()
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
 }
 
 func (s *Sender) worker() {

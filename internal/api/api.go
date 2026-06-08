@@ -5,9 +5,7 @@ package api
 
 import (
 	"fmt"
-	"math"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -234,7 +232,7 @@ func (a *API) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
 		HealthLatency: healthLatency,
 		URL:           url,
 		Category:      p.Config.Dashboard.Category,
-		Uptime:        formatDuration(p.GetUptime()),
+		Uptime:        core.FormatDuration(p.GetUptime()),
 		Ports:         a.toAPIPorts(p),
 		Tailscale: apiTailscale{
 			Tags:         p.Config.Tailscale.Tags,
@@ -274,7 +272,7 @@ func (a *API) testWebhookHandler() http.HandlerFunc {
 		running := model.ProxyStatusRunning
 		stopped := model.ProxyStatusStopped
 
-		sender := webhook.NewSender(a.Log, config.Config.Webhooks)
+		sender := webhook.NewSyncSender(a.Log, config.Config.Webhooks)
 		defer sender.Close()
 
 		if err := sender.SendSync(webhook.Event{
@@ -296,25 +294,4 @@ func (a *API) testWebhookHandler() http.HandlerFunc {
 
 func (a *API) writeJSONError(w http.ResponseWriter, message string, code int) {
 	a.HTTP.JSONResponseCode(w, nil, apiErrorResponse{Message: message, Code: code}, code)
-}
-
-func formatDuration(d time.Duration) string {
-	if d == 0 {
-		return ""
-	}
-	days := int(d.Hours() / 24)               //nolint:mnd
-	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
-	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
-
-	var parts []string
-	if days > 0 {
-		parts = append(parts, fmt.Sprintf("%dd", days))
-	}
-	if hours > 0 {
-		parts = append(parts, fmt.Sprintf("%dh", hours))
-	}
-	if minutes > 0 || len(parts) == 0 {
-		parts = append(parts, fmt.Sprintf("%dm", minutes))
-	}
-	return strings.Join(parts, " ")
 }

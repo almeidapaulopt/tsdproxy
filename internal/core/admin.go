@@ -169,7 +169,9 @@ func writeForbidden(w http.ResponseWriter, r *http.Request, message string) {
 	if strings.Contains(accept, "text/html") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		_ = pages.ForbiddenPage(message).Render(r.Context(), w)
+		if err := pages.ForbiddenPage(message).Render(r.Context(), w); err != nil {
+			log.Error().Err(err).Msg("failed to render forbidden page")
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

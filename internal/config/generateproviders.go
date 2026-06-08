@@ -9,8 +9,6 @@ import (
 	"os"
 
 	"github.com/creasty/defaults"
-
-	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 const (
@@ -63,21 +61,9 @@ func (c *config) generateTailscaleConfig() {
 	}
 
 	authKeyFile := os.Getenv("TSDPROXY_AUTHKEYFILE")
-	authKey := os.Getenv("TSDPROXY_AUTHKEY")
 	controlURL := os.Getenv("TSDPROXY_CONTROLURL")
 	dataDir := os.Getenv("TSDPROXY_DATADIR")
 
-	if authKeyFile != "" {
-		var err error
-		authKey, err = c.getAuthKeyFromFile(authKeyFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: error loading auth key from file: %v\n", err)
-		}
-	}
-
-	if authKey != "" {
-		ts.AuthKey = secretstring.SecretString(authKey)
-	}
 	if authKeyFile != "" {
 		ts.AuthKeyFile = authKeyFile
 	}

@@ -173,12 +173,12 @@ func (c *Client) GetDefaultProxyProviderName() string {
 	return c.config.DefaultProxyProvider
 }
 
-func (c *Client) trySendEvent(id string, action targetproviders.ActionType) bool {
+func (c *Client) trySendEvent(ctx context.Context, id string, action targetproviders.ActionType) bool {
 	if c.eventsChan == nil {
 		return false
 	}
 	select {
-	case <-c.ctx.Done():
+	case <-ctx.Done():
 		return false
 	case c.eventsChan <- targetproviders.TargetEvent{
 		ID:             id,
@@ -198,7 +198,7 @@ func (c *Client) Close() {
 	c.mtx.RUnlock()
 
 	for _, name := range names {
-		c.trySendEvent(name, targetproviders.ActionStopProxy)
+		c.trySendEvent(c.ctx, name, targetproviders.ActionStopProxy)
 	}
 }
 
@@ -331,15 +331,15 @@ func (c *Client) onFileChange(_ fsnotify.Event) {
 	c.mtx.Unlock()
 
 	for _, name := range stops {
-		c.trySendEvent(name, targetproviders.ActionStopProxy)
+		c.trySendEvent(c.ctx, name, targetproviders.ActionStopProxy)
 	}
 
 	for _, name := range starts {
-		c.trySendEvent(name, targetproviders.ActionStartProxy)
+		c.trySendEvent(c.ctx, name, targetproviders.ActionStartProxy)
 	}
 
 	for _, name := range restarts {
-		c.trySendEvent(name, targetproviders.ActionRestartProxy)
+		c.trySendEvent(c.ctx, name, targetproviders.ActionRestartProxy)
 	}
 }
 

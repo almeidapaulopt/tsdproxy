@@ -203,6 +203,9 @@ func InitializeConfig() error {
 		return err
 	}
 
+	// Load auth key from env var (TSDPROXY_AUTHKEY) for all providers.
+	Config.loadTailscaleAuthKeyEnvOverrides()
+
 	// Load env var overrides before validation so that TSDPROXY_TAILSCALE_*_CLIENTID
 	// and TSDPROXY_TAILSCALE_*_CLIENTSECRET are available to the validator (e.g.
 	// services mode requires clientId for the VIP Services API).
@@ -377,6 +380,18 @@ func (c *config) LoadTailscaleEnvOverrides() {
 		}
 		if val, ok := os.LookupEnv(prefix + "_CLIENTSECRET"); ok && d.ClientSecret == "" {
 			d.ClientSecret = secretstring.SecretString(val)
+		}
+	}
+}
+
+func (c *config) loadTailscaleAuthKeyEnvOverrides() {
+	authKey := os.Getenv("TSDPROXY_AUTHKEY")
+	if authKey == "" {
+		return
+	}
+	for _, d := range c.Tailscale.Providers {
+		if d != nil && d.AuthKey == "" {
+			d.AuthKey = secretstring.SecretString(authKey)
 		}
 	}
 }
