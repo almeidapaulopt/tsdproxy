@@ -20,6 +20,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"tailscale.com/client/local"
 	"tailscale.com/client/tailscale/v2"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
@@ -197,22 +198,23 @@ func (servicesUnsubscribeCmd) cmd() {}
 type ServicesServer struct {
 	log                 zerolog.Logger
 	vipAPI              vipServiceAPI
-	localClient         atomic.Pointer[local.Client]
-	apiClient           *tailscale.Client
+	ev                  *EventLoop[servicesCmd]
+	whoisCache          *WhoisCache
 	apiFactory          *APIClientFactory
 	authManager         *AuthManager
 	deviceReconciler    *DeviceReconciler
 	lifecycleCfg        *NodeLifecycleConfig
 	lifecycleProvider   NodeLifecycleProvider
 	certSem             *semaphore.Weighted
-	ev                  *EventLoop[servicesCmd]
-	whoisCache          *WhoisCache
-	hostname            string
+	localClient         atomic.Pointer[local.Client]
+	apiClient           *tailscale.Client
+	getNodeStatusFunc   func(ctx context.Context) (*ipnstate.Status, error)
 	datadir             string
 	controlURL          string
 	tags                string
 	authKey             string
-	authURL             string // fallback for pre-runtime authURL events
+	authURL             string
+	hostname            string
 	ephemeral           bool
 	autoApproveDevices  bool
 	autoRemoveConflicts bool
@@ -540,15 +542,23 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 	// Trigger lazy init so client.BaseURL and client.HTTP are populated.
 	_ = client.VIPServices()
 
-	lc, err := tsServer.LocalClient()
-	if err != nil {
-		return fmt.Errorf("get local client: %w", err)
-	}
-
 	statusCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 
-	status, err := lc.Status(statusCtx)
+	var (
+		status *ipnstate.Status
+		err    error
+	)
+	if ss.getNodeStatusFunc != nil {
+		status, err = ss.getNodeStatusFunc(statusCtx)
+	} else {
+		var lc *local.Client
+		lc, err = tsServer.LocalClient()
+		if err != nil {
+			return fmt.Errorf("get local client: %w", err)
+		}
+		status, err = lc.Status(statusCtx)
+	}
 	if err != nil {
 		return fmt.Errorf("get node status: %w", err)
 	}
