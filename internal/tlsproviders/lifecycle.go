@@ -5,44 +5,33 @@ package tlsproviders
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"sync"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/lifecycle"
 )
 
 type TLSLifecycleManager struct {
-	states  map[string]TLSStatus
-	mu      sync.RWMutex
+	tracker *lifecycle.StateTracker
 	cleanup bool
 }
 
 func NewTLSLifecycleManager(cleanup bool) *TLSLifecycleManager {
 	return &TLSLifecycleManager{
-		states:  make(map[string]TLSStatus),
+		tracker: lifecycle.NewStateTracker(),
 		cleanup: cleanup,
 	}
 }
 
 func (lm *TLSLifecycleManager) Provision(ctx context.Context, provider Provider, domain string) error {
-	lm.mu.Lock()
-	lm.states[domain] = TLSStatusPending
-	lm.mu.Unlock()
+	lm.tracker.Set(domain, TLSStatusPending)
 
 	if err := provider.Provision(ctx, domain); err != nil {
-		lm.mu.Lock()
-		lm.states[domain] = TLSStatusError
-		lm.mu.Unlock()
+		lm.tracker.Set(domain, TLSStatusError)
 		return fmt.Errorf("provision tls for %s: %w", domain, err)
 	}
 
-	lm.mu.Lock()
-	lm.states[domain] = TLSStatusActive
-	lm.mu.Unlock()
+	lm.tracker.Set(domain, TLSStatusActive)
 	return nil
-}
-
-func (lm *TLSLifecycleManager) GetCertificate(ctx context.Context, provider Provider, domain string) (tls.Certificate, error) {
-	return provider.GetCertificate(ctx, domain)
 }
 
 func (lm *TLSLifecycleManager) Cleanup(ctx context.Context, provider Provider, domain string) error {
@@ -54,14 +43,10 @@ func (lm *TLSLifecycleManager) Cleanup(ctx context.Context, provider Provider, d
 		return fmt.Errorf("cleanup tls for %s: %w", domain, err)
 	}
 
-	lm.mu.Lock()
-	lm.states[domain] = TLSStatusNone
-	lm.mu.Unlock()
+	lm.tracker.Delete(domain)
 	return nil
 }
 
 func (lm *TLSLifecycleManager) GetStatus(domain string) TLSStatus {
-	lm.mu.RLock()
-	defer lm.mu.RUnlock()
-	return lm.states[domain]
+	return lm.tracker.Get(domain)
 }

@@ -7,32 +7,28 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/lifecycle"
 )
 
 type LifecycleManager struct {
-	states  map[string]DNSStatus
-	mu      sync.RWMutex
+	tracker *lifecycle.StateTracker
 	cleanup bool
 }
 
 func NewLifecycleManager(cleanup bool) *LifecycleManager {
 	return &LifecycleManager{
-		states:  make(map[string]DNSStatus),
+		tracker: lifecycle.NewStateTracker(),
 		cleanup: cleanup,
 	}
 }
 
 func (lm *LifecycleManager) SetupDNS(ctx context.Context, provider Provider, domain, targetHostname string) error {
-	lm.mu.Lock()
-	lm.states[domain] = DNSStatusPending
-	lm.mu.Unlock()
+	lm.tracker.Set(domain, DNSStatusPending)
 
 	if err := provider.CreateRecord(ctx, domain, "CNAME", targetHostname); err != nil {
-		lm.mu.Lock()
-		lm.states[domain] = DNSStatusError
-		lm.mu.Unlock()
+		lm.tracker.Set(domain, DNSStatusError)
 		return fmt.Errorf("create cname for %s: %w", domain, err)
 	}
 
@@ -46,15 +42,11 @@ func (lm *LifecycleManager) SetupDNS(ctx context.Context, provider Provider, dom
 		}
 		return nil
 	}, 10, 2*time.Second); err != nil { //nolint:mnd
-		lm.mu.Lock()
-		lm.states[domain] = DNSStatusError
-		lm.mu.Unlock()
+		lm.tracker.Set(domain, DNSStatusError)
 		return fmt.Errorf("cname propagation for %s: %w", domain, err)
 	}
 
-	lm.mu.Lock()
-	lm.states[domain] = DNSStatusActive
-	lm.mu.Unlock()
+	lm.tracker.Set(domain, DNSStatusActive)
 	return nil
 }
 
@@ -67,14 +59,10 @@ func (lm *LifecycleManager) CleanupDNS(ctx context.Context, provider Provider, d
 		return fmt.Errorf("delete cname for %s: %w", domain, err)
 	}
 
-	lm.mu.Lock()
-	lm.states[domain] = DNSStatusNone
-	lm.mu.Unlock()
+	lm.tracker.Delete(domain)
 	return nil
 }
 
 func (lm *LifecycleManager) GetStatus(domain string) DNSStatus {
-	lm.mu.RLock()
-	defer lm.mu.RUnlock()
-	return lm.states[domain]
+	return lm.tracker.Get(domain)
 }

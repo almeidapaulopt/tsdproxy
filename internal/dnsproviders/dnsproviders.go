@@ -3,7 +3,11 @@
 
 package dnsproviders
 
-import "context"
+import (
+	"context"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/lifecycle"
+)
 
 type (
 	// Provider interface for DNS providers.
@@ -18,29 +22,12 @@ type (
 		ValidateRecord(ctx context.Context, domain, recordType, expectedValue string) (bool, error)
 	}
 
-	// DNSStatus represents the current state of DNS configuration for a proxy.
-	DNSStatus int
+	DNSStatus = lifecycle.Status
 )
 
 const (
-	DNSStatusNone DNSStatus = iota
-	DNSStatusPending
-	DNSStatusActive
-	DNSStatusError
+	DNSStatusNone    DNSStatus = lifecycle.StatusNone
+	DNSStatusPending DNSStatus = lifecycle.StatusPending
+	DNSStatusActive  DNSStatus = lifecycle.StatusActive
+	DNSStatusError   DNSStatus = lifecycle.StatusError
 )
-
-// String returns a human-readable representation of the DNSStatus.
-func (s DNSStatus) String() string {
-	switch s {
-	case DNSStatusNone:
-		return "none"
-	case DNSStatusPending:
-		return "pending"
-	case DNSStatusActive:
-		return "active"
-	case DNSStatusError:
-		return "error"
-	default:
-		return "unknown"
-	}
-}

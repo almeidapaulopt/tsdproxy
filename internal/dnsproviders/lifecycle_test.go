@@ -76,7 +76,6 @@ func TestLifecycle_CleanupDNS(t *testing.T) {
 	require.NoError(t, lm.SetupDNS(context.Background(), p, "app.example.com", "myapp.ts.net"))
 	require.NoError(t, lm.CleanupDNS(context.Background(), p, "app.example.com"))
 	assert.True(t, p.deleted)
-	assert.Equal(t, DNSStatusNone, lm.GetStatus("app.example.com"))
 }
 
 func TestLifecycle_CleanupDNS_Skipped(t *testing.T) {

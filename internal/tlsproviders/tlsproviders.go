@@ -6,6 +6,8 @@ package tlsproviders
 import (
 	"context"
 	"crypto/tls"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/lifecycle"
 )
 
 type (
@@ -21,29 +23,12 @@ type (
 		Cleanup(ctx context.Context, domain string) error
 	}
 
-	// TLSStatus represents the current state of TLS provisioning for a proxy.
-	TLSStatus int
+	TLSStatus = lifecycle.Status
 )
 
 const (
-	TLSStatusNone TLSStatus = iota
-	TLSStatusPending
-	TLSStatusActive
-	TLSStatusError
+	TLSStatusNone    TLSStatus = lifecycle.StatusNone
+	TLSStatusPending TLSStatus = lifecycle.StatusPending
+	TLSStatusActive  TLSStatus = lifecycle.StatusActive
+	TLSStatusError   TLSStatus = lifecycle.StatusError
 )
-
-// String returns a human-readable representation of the TLSStatus.
-func (s TLSStatus) String() string {
-	switch s {
-	case TLSStatusNone:
-		return "none"
-	case TLSStatusPending:
-		return "pending"
-	case TLSStatusActive:
-		return "active"
-	case TLSStatusError:
-		return "error"
-	default:
-		return "unknown"
-	}
-}

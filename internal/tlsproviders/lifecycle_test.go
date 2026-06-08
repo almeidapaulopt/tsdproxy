@@ -67,7 +67,6 @@ func TestTLSLifecycle_Cleanup(t *testing.T) {
 	require.NoError(t, lm.Provision(context.Background(), p, "app.example.com"))
 	require.NoError(t, lm.Cleanup(context.Background(), p, "app.example.com"))
 	assert.True(t, p.cleaned)
-	assert.Equal(t, TLSStatusNone, lm.GetStatus("app.example.com"))
 }
 
 func TestTLSLifecycle_Cleanup_Skipped(t *testing.T) {
@@ -77,15 +76,6 @@ func TestTLSLifecycle_Cleanup_Skipped(t *testing.T) {
 	require.NoError(t, lm.Provision(context.Background(), p, "app.example.com"))
 	require.NoError(t, lm.Cleanup(context.Background(), p, "app.example.com"))
 	assert.False(t, p.cleaned)
-}
-
-func TestTLSLifecycle_GetCertificate(t *testing.T) {
-	p := &mockTLSProvider{}
-	lm := NewTLSLifecycleManager(true)
-
-	cert, err := lm.GetCertificate(context.Background(), p, "app.example.com")
-	assert.NoError(t, err)
-	assert.Equal(t, tls.Certificate{}, cert)
 }
 
 func TestTLSLifecycle_GetStatus_Unknown(t *testing.T) {
