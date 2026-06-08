@@ -128,27 +128,6 @@ func formatAgo(t time.Time) string {
 	}
 }
 
-func formatDuration(d time.Duration) string {
-	if d == 0 {
-		return ""
-	}
-	days := int(d.Hours() / 24)               //nolint:mnd
-	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
-	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
-
-	var parts []string
-	if days > 0 {
-		parts = append(parts, fmt.Sprintf("%dd", days))
-	}
-	if hours > 0 {
-		parts = append(parts, fmt.Sprintf("%dh", hours))
-	}
-	if minutes > 0 || len(parts) == 0 {
-		parts = append(parts, fmt.Sprintf("%dm", minutes))
-	}
-	return strings.Join(parts, " ")
-}
-
 func (dash *Dashboard) proxyActionHandler(action func(string) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
@@ -171,7 +150,9 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 
 		if r.Header.Get("HX-Request") == hxRequestHeader {
 			pinned := pinnedSet(dash.loadPrefs(dash.dashboardSubject(r)))
-			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned, true)))
+			if err := ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned, true))); err != nil {
+				dash.Log.Error().Err(err).Str("proxy", name).Msg("failed to render actions panel")
+			}
 			return
 		}
 		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"})
@@ -478,7 +459,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		HealthLatency:         healthLatency,
 		Category:              p.Config.Dashboard.Category,
 		StatusHistory:         history,
-		Uptime:                formatDuration(p.GetUptime()),
+		Uptime:                core.FormatDuration(p.GetUptime()),
 		Pinned:                pinned[name],
 		IsAdmin:               isAdmin,
 		Domain:                p.Config.Domain,
