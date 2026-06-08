@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"path/filepath"
 
 	"github.com/caddyserver/certmagic"
 
@@ -26,6 +27,7 @@ type Config struct {
 	CA          string
 	DNSProvider certmagic.DNSProvider
 	CertStorage string
+	DataDir     string // base data directory for default cert storage
 }
 
 func New(acmeCfg Config) (*Provider, error) {
@@ -33,7 +35,25 @@ func New(acmeCfg Config) (*Provider, error) {
 		acmeCfg.CA = certmagic.LetsEncryptProductionCA
 	}
 
-	cfg := certmagic.NewDefault()
+	// Default CertStorage to {DataDir}/certmagic when not explicitly set.
+	if acmeCfg.CertStorage == "" && acmeCfg.DataDir != "" {
+		acmeCfg.CertStorage = filepath.Join(acmeCfg.DataDir, "certmagic")
+	}
+
+	var cfg *certmagic.Config
+
+	// Create a private cache for this provider instance instead of using
+	// certmagic.NewDefault()'s global cache. This prevents config cross-talk
+	// when multiple ACME instances (global + per-proxy) coexist.
+	cache := certmagic.NewCache(certmagic.CacheOptions{
+		GetConfigForCert: func(_ certmagic.Certificate) (*certmagic.Config, error) {
+			return cfg, nil
+		},
+	})
+
+	cfg = certmagic.New(cache, certmagic.Config{
+		Storage: &certmagic.FileStorage{Path: acmeCfg.CertStorage},
+	})
 
 	issuer := certmagic.NewACMEIssuer(cfg, certmagic.ACMEIssuer{
 		CA:    acmeCfg.CA,
@@ -46,10 +66,6 @@ func New(acmeCfg Config) (*Provider, error) {
 	})
 
 	cfg.Issuers = []certmagic.Issuer{issuer}
-
-	if acmeCfg.CertStorage != "" {
-		cfg.Storage = &certmagic.FileStorage{Path: acmeCfg.CertStorage}
-	}
 
 	return &Provider{cfg: cfg}, nil
 }

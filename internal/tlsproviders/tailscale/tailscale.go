@@ -30,10 +30,13 @@ type Provider struct {
 
 var _ tlsproviders.Provider = (*Provider)(nil)
 
-func New(lc *local.Client) *Provider {
+func New(lc *local.Client, maxConcurrency int64) *Provider {
+	if maxConcurrency < 1 {
+		maxConcurrency = model.DefaultMaxCertConcurrency
+	}
 	return &Provider{
 		lc:      lc,
-		certSem: semaphore.NewWeighted(model.DefaultMaxCertConcurrency),
+		certSem: semaphore.NewWeighted(maxConcurrency),
 	}
 }
 
@@ -43,6 +46,17 @@ func (p *Provider) SetLocalClient(lc *local.Client) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.lc = lc
+}
+
+// SetMaxConcurrency updates the certificate concurrency limit.
+// Must be called before any cert operations.
+func (p *Provider) SetMaxConcurrency(maxConcurrency int64) {
+	if maxConcurrency < 1 {
+		maxConcurrency = model.DefaultMaxCertConcurrency
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.certSem = semaphore.NewWeighted(maxConcurrency)
 }
 
 func (p *Provider) getLocalClient() *local.Client {

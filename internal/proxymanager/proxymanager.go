@@ -402,6 +402,7 @@ func (pm *ProxyManager) addTLSProviders() {
 				CA:          cfg.CA,
 				DNSProvider: dnsProv,
 				CertStorage: cfg.CertStorage,
+				DataDir:     config.Config.Tailscale.DataDir,
 			})
 			if err != nil {
 				pm.log.Error().Err(err).Str("provider", name).Msg("Failed to create ACME TLS provider")
@@ -480,11 +481,11 @@ func (pm *ProxyManager) resolveTLSProviderLocked(proxyCfg *model.Config) (tlspro
 	}
 
 	if name == model.TLSProviderTailscale {
-		return tailscaletls.New(nil), nil
+		return tailscaletls.New(nil, 0), nil
 	}
 
 	if cfg, ok := config.Config.TLSProviders[name]; ok && cfg.Provider == model.TLSProviderTailscale {
-		return tailscaletls.New(nil), nil
+		return tailscaletls.New(nil, 0), nil
 	}
 
 	p, ok := pm.TLSProviders[name]
@@ -518,6 +519,7 @@ func (pm *ProxyManager) resolveAndSetProviders(p *Proxy, proxyConfig *model.Conf
 			CA:          tlsCfg.CA,
 			DNSProvider: certmagicDNS,
 			CertStorage: tlsCfg.CertStorage,
+			DataDir:     config.Config.Tailscale.DataDir,
 		})
 		if acmeErr != nil {
 			return fmt.Errorf("failed to create per-proxy ACME TLS provider: %w", acmeErr)
@@ -542,16 +544,8 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 	p.mtx.RUnlock()
 
 	if tlsProvider.Name() == model.TLSProviderTailscale {
-		lcProvider, ok := p.providerProxy.(interface{ GetLocalClient() *local.Client })
-		if !ok {
-			return errors.New("tailscale tls requires a tailscale proxy provider")
-		}
-		lc := lcProvider.GetLocalClient()
-		if lc == nil {
-			return errors.New("tailscale local client not available (proxy not started?)")
-		}
-		if tsTLS, ok := tlsProvider.(*tailscaletls.Provider); ok {
-			tsTLS.SetLocalClient(lc)
+		if err := pm.configureTailscaleTLS(p, tlsProvider, proxyConfig); err != nil {
+			return err
 		}
 	}
 
@@ -578,6 +572,29 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 	}
 	p.setTLSStatus(tlsproviders.TLSStatusActive)
 
+	return nil
+}
+
+func (pm *ProxyManager) configureTailscaleTLS(p *Proxy, tlsProvider tlsproviders.Provider, proxyConfig *model.Config) error {
+	lcProvider, ok := p.providerProxy.(interface{ GetLocalClient() *local.Client })
+	if !ok {
+		return errors.New("tailscale tls requires a tailscale proxy provider")
+	}
+	lc := lcProvider.GetLocalClient()
+	if lc == nil {
+		return errors.New("tailscale local client not available (proxy not started?)")
+	}
+	tsTLS, ok := tlsProvider.(*tailscaletls.Provider)
+	if !ok {
+		return nil
+	}
+	tsTLS.SetLocalClient(lc)
+	if proxyConfig.ProxyProvider == "" {
+		return nil
+	}
+	if tsCfg := config.Config.Tailscale.Providers[proxyConfig.ProxyProvider]; tsCfg != nil {
+		tsTLS.SetMaxConcurrency(tsCfg.MaxCertConcurrency)
+	}
 	return nil
 }
 
