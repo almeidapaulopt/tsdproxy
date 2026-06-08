@@ -4,6 +4,7 @@
 package docker
 
 import (
+	"context"
 	"net/netip"
 	"net/url"
 	"testing"
@@ -33,7 +34,7 @@ func TestGetTargetURL_HTTPWithPublishedPort(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("http://0.0.0.0:3000")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestGetTargetURL_TCPWithPublishedPort(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestGetTargetURL_TCPFallbackUsesContainerIP(t *testing.T) {
 	c := newTestContainer("", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestGetTargetURL_TCPPublishedPortNoHostnameFallsBackToContainerIP(t *testin
 	})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -373,7 +374,7 @@ func TestGetTargetURL_AcrossNetworksUsesPublishedHostname(t *testing.T) {
 		{"http", "http://0.0.0.0:22"},
 	} {
 		inputURL, _ := url.Parse(tc.url)
-		result, err := c.getTargetURL(inputURL, false)
+		result, err := c.getTargetURL(context.Background(), inputURL, false)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", tc.scheme, err)
 		}
@@ -394,7 +395,7 @@ func TestGetTargetURL_FallsBackToGateway(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:80")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -413,7 +414,7 @@ func TestGetTargetURL_FallsBackToContainerIP(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:80")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -435,7 +436,7 @@ func TestGetTargetURL_HostNetworkResolvesViaPublishedPath(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:8080")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -458,7 +459,7 @@ func TestGetTargetURL_HostNetworkWorksWithoutBridgeAddress(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:8080")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -480,7 +481,7 @@ func TestGetTargetURL_HostNetworkNoHostnameFails(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:8080")
-	_, err := c.getTargetURL(inputURL, false)
+	_, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err == nil {
 		t.Error("expected error when host-network container has no hostname")
 	}
@@ -493,12 +494,12 @@ func TestGetTargetURL_ReResolveSamePath(t *testing.T) {
 
 	inputURL, _ := url.Parse("http://0.0.0.0:3000")
 
-	result1, err := c.getTargetURL(inputURL, false)
+	result1, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("first resolution failed: %v", err)
 	}
 
-	result2, err := c.getTargetURL(inputURL, false)
+	result2, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("second resolution failed: %v", err)
 	}
@@ -515,7 +516,7 @@ func TestGetTargetURL_ReResolveDifferentIP(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("http://0.0.0.0:80")
-	result1, err := c1.getTargetURL(inputURL, false)
+	result1, err := c1.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("first resolution failed: %v", err)
 	}
@@ -525,7 +526,7 @@ func TestGetTargetURL_ReResolveDifferentIP(t *testing.T) {
 		"80": "8080",
 	})
 
-	result2, err := c2.getTargetURL(inputURL, false)
+	result2, err := c2.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("re-resolution failed: %v", err)
 	}
@@ -548,12 +549,12 @@ func TestGetTargetURL_TCPReResolveConsistent(t *testing.T) {
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
 
-	result1, err := c.getTargetURL(inputURL, false)
+	result1, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("first TCP resolution failed: %v", err)
 	}
 
-	result2, err := c.getTargetURL(inputURL, false)
+	result2, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("second TCP resolution failed: %v", err)
 	}

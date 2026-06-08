@@ -4,6 +4,7 @@
 package docker
 
 import (
+	"context"
 	"fmt"
 	"net/netip"
 	"net/url"
@@ -177,7 +178,7 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 }
 
 // newProxyConfig method returns a new proxyconfig.Config.
-func (c *container) newProxyConfig() (*model.Config, error) {
+func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	c.log.Trace().Msg("New ProxyConfig")
 	defer c.log.Trace().Msg("End New ProxyConfig")
 
@@ -224,11 +225,11 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 		pcfg.Dashboard.Icon = web.GuessIcon(c.image)
 	}
 
-	pcfg.Ports = c.getPorts()
+	pcfg.Ports = c.getPorts(ctx)
 
 	// add port from legacy labels if no port configured
 	if len(pcfg.Ports) == 0 {
-		if legacyPort, err := c.getLegacyPort(); err == nil {
+		if legacyPort, err := c.getLegacyPort(ctx); err == nil {
 			pcfg.Ports["legacy"] = legacyPort
 		}
 	}
@@ -236,7 +237,7 @@ func (c *container) newProxyConfig() (*model.Config, error) {
 	return pcfg, nil
 }
 
-func (c *container) getPorts() model.PortConfigList {
+func (c *container) getPorts(ctx context.Context) model.PortConfigList {
 	c.log.Trace().Msg("getPorts")
 	defer c.log.Trace().Msg("End getPorts")
 
@@ -261,7 +262,7 @@ func (c *container) getPorts() model.PortConfigList {
 				c.applyPortOptions(k, &port, parts[1:])
 
 				if !port.IsRedirect {
-					port, err = c.generateTargetFromFirstTarget(port)
+					port, err = c.generateTargetFromFirstTarget(ctx, port)
 					if err != nil {
 						c.log.Error().Err(err).Str("port", k).Msg("error generating target for range port")
 						continue
@@ -283,7 +284,7 @@ func (c *container) getPorts() model.PortConfigList {
 		c.applyPortOptions(k, &port, parts[1:])
 
 		if !port.IsRedirect {
-			port, err = c.generateTargetFromFirstTarget(port)
+			port, err = c.generateTargetFromFirstTarget(ctx, port)
 			if err != nil {
 				c.log.Error().Err(err).Str("port", k).Msg("error generating target")
 				continue
@@ -313,14 +314,14 @@ func (c *container) applyPortOptions(labelKey string, port *model.PortConfig, op
 	}
 }
 
-func (c *container) generateTargetFromFirstTarget(port model.PortConfig) (model.PortConfig, error) {
+func (c *container) generateTargetFromFirstTarget(ctx context.Context, port model.PortConfig) (model.PortConfig, error) {
 	c.log.Trace().Msg("generateTargetFromFirstTarget")
 	defer c.log.Trace().Msg("End generateTargetFromFirstTarget")
 
 	// multiple targets not supported in this TargetProvider
 	p := port.GetFirstTarget()
 
-	targetURL, err := c.getTargetURL(p, port.NoAutoDetect)
+	targetURL, err := c.getTargetURL(ctx, p, port.NoAutoDetect)
 	if err != nil {
 		return port, err
 	}
@@ -361,7 +362,7 @@ func (c *container) getName() string {
 
 // getTargetURL method returns the container target URL by trying resolution
 // strategies in priority order.
-func (c *container) getTargetURL(iPort *url.URL, noAutoDetect bool) (*url.URL, error) {
+func (c *container) getTargetURL(ctx context.Context, iPort *url.URL, noAutoDetect bool) (*url.URL, error) {
 	c.log.Trace().Msg("getTargetURL")
 	defer c.log.Trace().Msg("End getTargetURL")
 
@@ -377,7 +378,7 @@ func (c *container) getTargetURL(iPort *url.URL, noAutoDetect bool) (*url.URL, e
 		return u, nil
 	}
 
-	if u, ok := c.resolveByProbing(iPort.Scheme, internalPort, publishedPort, noAutoDetect); ok {
+	if u, ok := c.resolveByProbing(ctx, iPort.Scheme, internalPort, publishedPort, noAutoDetect); ok {
 		return u, nil
 	}
 
@@ -413,7 +414,7 @@ func (c *container) resolveSelfHost(scheme, internalPort string) (*url.URL, bool
 }
 
 // resolveByProbing tries to auto-detect the target URL by probing connectivity.
-func (c *container) resolveByProbing(scheme, internalPort, publishedPort string, noAutoDetect bool) (*url.URL, bool) {
+func (c *container) resolveByProbing(ctx context.Context, scheme, internalPort, publishedPort string, noAutoDetect bool) (*url.URL, bool) {
 	if !c.autodetect || noAutoDetect {
 		return nil, false
 	}
@@ -422,7 +423,11 @@ func (c *container) resolveByProbing(scheme, internalPort, publishedPort string,
 		if port, err := c.tryConnectContainer(scheme, internalPort, publishedPort); err == nil {
 			return port, true
 		}
-		time.Sleep(autoDetectSleep)
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case <-time.After(autoDetectSleep):
+		}
 	}
 	return nil, false
 }

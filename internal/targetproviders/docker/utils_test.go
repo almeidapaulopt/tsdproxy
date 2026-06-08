@@ -4,6 +4,7 @@
 package docker
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -299,7 +300,7 @@ func TestNewProxyConfig_Minimal(t *testing.T) {
 		healthCheckEnabled:    false,
 	}
 
-	pcfg, err := c.newProxyConfig()
+	pcfg, err := c.newProxyConfig(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -332,7 +333,7 @@ func TestNewProxyConfig_InvalidHostname(t *testing.T) {
 		networkMode:           "bridge",
 	}
 
-	_, err := c.newProxyConfig()
+	_, err := c.newProxyConfig(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid hostname")
 	}
@@ -422,7 +423,7 @@ func TestGetPorts_NoPorts(t *testing.T) {
 		labels: map[string]string{},
 	}
 
-	ports := c.getPorts()
+	ports := c.getPorts(context.Background())
 	if len(ports) != 0 {
 		t.Errorf("expected 0 ports, got %d", len(ports))
 	}
@@ -440,7 +441,7 @@ func TestGetPorts_SinglePort(t *testing.T) {
 		autodetect:            false,
 	}
 
-	ports := c.getPorts()
+	ports := c.getPorts(context.Background())
 	if len(ports) != 1 {
 		t.Fatalf("expected 1 port, got %d", len(ports))
 	}
@@ -454,7 +455,7 @@ func TestGetPorts_WithRedirect(t *testing.T) {
 		labels: map[string]string{"tsdproxy.port.1": "81/http->https://example.ts.net"},
 	}
 
-	ports := c.getPorts()
+	ports := c.getPorts(context.Background())
 	if len(ports) != 1 {
 		t.Fatalf("expected 1 port, got %d", len(ports))
 	}
@@ -473,7 +474,7 @@ func TestGetPorts_InvalidLabel(t *testing.T) {
 		labels: map[string]string{"tsdproxy.port.bad": "::garbage"},
 	}
 
-	ports := c.getPorts()
+	ports := c.getPorts(context.Background())
 	if len(ports) != 0 {
 		t.Errorf("expected 0 ports for invalid label, got %d", len(ports))
 	}

@@ -4,13 +4,14 @@
 package docker
 
 import (
+	"context"
 	"sort"
 	"strconv"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-func (c *container) getLegacyPort() (model.PortConfig, error) {
+func (c *container) getLegacyPort(ctx context.Context) (model.PortConfig, error) {
 	c.log.Trace().Msg("getLegacyPort")
 	defer c.log.Trace().Msg("end getLegacyPort")
 
@@ -28,7 +29,7 @@ func (c *container) getLegacyPort() (model.PortConfig, error) {
 	port.TLSValidate = c.getLabelBool(LabelTLSValidate, model.DefaultTLSValidate)
 	port.Tailscale.Funnel = c.getLabelBool(LabelFunnel, model.DefaultTailscaleFunnel)
 
-	port, err = c.generateTargetFromFirstTarget(port)
+	port, err = c.generateTargetFromFirstTarget(ctx, port)
 	if err != nil {
 		return port, err
 	}
@@ -51,10 +52,13 @@ func (c *container) getInternalPortLegacy() string {
 	sort.Slice(keys, func(i, j int) bool {
 		pi, errI := strconv.Atoi(keys[i])
 		pj, errJ := strconv.Atoi(keys[j])
-		if errI != nil || errJ != nil {
+		if errI == nil && errJ == nil {
+			return pi < pj
+		}
+		if errI != nil && errJ != nil {
 			return keys[i] < keys[j]
 		}
-		return pi < pj
+		return errI == nil // numbers sort before non-numeric
 	})
 	if len(keys) > 0 {
 		return keys[0]

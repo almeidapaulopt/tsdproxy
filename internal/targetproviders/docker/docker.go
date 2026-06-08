@@ -148,7 +148,7 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 		withProviderHealthCheck(c.healthCheckEnabled, c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
 	)
 
-	pcfg, err := ctn.newProxyConfig()
+	pcfg, err := ctn.newProxyConfig(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error getting proxy config: %w", err)
 	}
@@ -199,14 +199,13 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	})
 
 	go func() {
-		defer c.signalDisconnect(ctx, errChan)
-
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case devent, ok := <-evRes.Messages:
 				if !ok {
+					c.signalDisconnect(ctx, errChan)
 					return
 				}
 				if !c.handleDockerEvent(ctx, devent, eventsChan) {
@@ -214,6 +213,7 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 				}
 			case err, ok := <-evRes.Err:
 				if !ok {
+					c.signalDisconnect(ctx, errChan)
 					return
 				}
 				if errors.Is(err, context.Canceled) {
@@ -242,7 +242,7 @@ func (c *Client) signalDisconnect(ctx context.Context, errChan chan error) {
 	}
 	select {
 	case <-ctx.Done():
-	case errChan <- errors.New("docker event stream disconnected"):
+	case errChan <- fmt.Errorf("%w: docker event stream disconnected", targetproviders.ErrStreamDisconnected):
 	}
 }
 
