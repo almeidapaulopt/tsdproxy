@@ -537,6 +537,9 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 		return errors.New("tailscale API client not configured")
 	}
 
+	// Trigger lazy init so client.BaseURL and client.HTTP are populated.
+	_ = client.VIPServices()
+
 	lc, err := tsServer.LocalClient()
 	if err != nil {
 		return fmt.Errorf("get local client: %w", err)
