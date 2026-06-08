@@ -21,6 +21,7 @@ tsdproxy/
 │   ├── dashboard/              # SSE dashboard routes + streaming + preferences + API
 │   ├── dnsproviders/           # DNS Provider interface + Cloudflare/MagicDNS implementations
 │   ├── dom/                    # ID generation utility
+│   ├── lifecycle/              # Shared lifecycle status tracking (used by DNS + TLS providers)
 │   ├── model/                  # Shared types: Config, PortConfig, ProxyStatus, events
 │   ├── proxymanager/           # Central orchestrator: wires target→proxy→DNS→TLS providers
 │   ├── proxyproviders/         # ProxyProvider interface + Tailscale (per-proxy & shared)
