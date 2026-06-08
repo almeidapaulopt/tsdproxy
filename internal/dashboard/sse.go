@@ -19,8 +19,9 @@ func WriteSSE(w http.ResponseWriter, event string, data string) error {
 	if _, err := fmt.Fprintf(w, "event: %s\n", event); err != nil {
 		return fmt.Errorf("write sse event: %w", err)
 	}
+	// SSE framing prefixes each line with "data: ", preventing event injection regardless of content.
 	for _, line := range strings.Split(data, "\n") {
-		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil { //nolint:gosec // G705: data is templ-rendered
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil { //nolint:gosec // G705
 			return fmt.Errorf("write sse data: %w", err)
 		}
 	}
@@ -41,8 +42,9 @@ func WriteSSEPartialComponent(w http.ResponseWriter, target string, swap string,
 	if err := ssePartialElement(target, swap, cmp).Render(context.Background(), &buf); err != nil {
 		return fmt.Errorf("render sse partial: %w", err)
 	}
+	// SSE framing prefixes each line with "data: ", preventing event injection regardless of content.
 	for _, line := range strings.Split(buf.String(), "\n") {
-		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil { //nolint:gosec // G705: line is templ-rendered
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil { //nolint:gosec // G705
 			return fmt.Errorf("write sse partial: %w", err)
 		}
 	}

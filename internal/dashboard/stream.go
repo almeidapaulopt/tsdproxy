@@ -17,12 +17,22 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 const (
-	chanSizeSSEQueue      = 64
-	maxSSEClients         = 256
+	// chanSizeSSEQueue is buffered per client. Sized to absorb burst status
+	// events (each event queues up to 4 messages per client: card,
+	// actions-panel, modal-badge, optional notify). 256 gives ~64-event
+	// headroom which is well above observed burst rates.
+	chanSizeSSEQueue = 256
+	maxSSEClients    = 256
+
 	healthRefreshInterval = 10 * time.Second
+	// resyncInterval bounds dashboard staleness. Even when an SSE message
+	// is dropped (slow consumer / GC pause / network blip), every client
+	// is guaranteed a full re-render at most this often.
+	resyncInterval = 30 * time.Second
 
 	EventNotify EventType = iota
 	EventScrollLogs
@@ -35,6 +45,7 @@ const (
 type (
 	EventType int
 	sseClient struct {
+		log     zerolog.Logger
 		channel chan SSEMessage
 		done    chan struct{}
 		userID  string
@@ -60,7 +71,27 @@ func (c *sseClient) send(msg SSEMessage) bool {
 	case c.channel <- msg:
 		return true
 	default:
+		c.log.Warn().Str("conn", c.connID).Stringer("type", msg.Type).Msg("SSE client buffer full, dropping message")
 		return false
+	}
+}
+
+func (t EventType) String() string {
+	switch t {
+	case EventNotify:
+		return "notify"
+	case EventScrollLogs:
+		return "scroll-logs"
+	case EventTrimLogs:
+		return "trim-logs"
+	case EventHTMXListRefresh:
+		return "list-refresh"
+	case EventHTMXCardUpdate:
+		return "card-update"
+	case EventConnID:
+		return "conn-id"
+	default:
+		return "unknown"
 	}
 }
 
@@ -85,6 +116,7 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 			userID:  userID,
 			isAdmin: core.IsAdmin(r),
 			connID:  connID,
+			log:     dash.Log,
 		}
 
 		dash.mtx.Lock()
@@ -206,6 +238,12 @@ type clientInfo struct {
 	isAdmin bool
 }
 
+// clientPrefs pairs a client snapshot with its loaded preferences.
+type clientPrefs struct {
+	info  clientInfo
+	prefs model.Preferences
+}
+
 func (dash *Dashboard) snapshotClients() []clientInfo {
 	dash.mtx.RLock()
 	defer dash.mtx.RUnlock()
@@ -220,12 +258,25 @@ func (dash *Dashboard) snapshotClients() []clientInfo {
 	return snapshot
 }
 
+// snapshotClientsWithPrefs loads prefs once per client so event handlers
+// don't pay for loadPrefs twice.
+func (dash *Dashboard) snapshotClientsWithPrefs() []clientPrefs {
+	clients := dash.snapshotClients()
+	out := make([]clientPrefs, len(clients))
+	for i, ci := range clients {
+		out[i] = clientPrefs{info: ci, prefs: dash.loadPrefs(ci.userID)}
+	}
+	return out
+}
+
 func (dash *Dashboard) streamProxyUpdates() {
 	events, cancelEvents := dash.pm.SubscribeStatusEvents()
 	defer cancelEvents()
 
 	healthTicker := time.NewTicker(healthRefreshInterval)
 	defer healthTicker.Stop()
+	resyncTicker := time.NewTicker(resyncInterval)
+	defer resyncTicker.Stop()
 
 	for {
 		select {
@@ -239,67 +290,82 @@ func (dash *Dashboard) streamProxyUpdates() {
 
 		case <-healthTicker.C:
 			dash.refreshClientCards()
+
+		case <-resyncTicker.C:
+			dash.resyncAllClients()
 		}
 	}
 }
 
-func (dash *Dashboard) handleStatusEvent(event model.ProxyEvent) {
+// resyncAllClients forces a full re-render for every connected client,
+// bounding dashboard staleness regardless of dropped SSE messages.
+func (dash *Dashboard) resyncAllClients() {
 	clients := dash.snapshotClients()
 	if len(clients) == 0 {
 		return
 	}
-
-	needsFull := dash.needsFullRender(clients, event)
-
-	// New proxies broadcast ProxyStatusInitializing before the card
-	// element exists in the DOM, so outerHTML would be a no-op.
-	// Force a full list render to make new cards appear.
-	if !needsFull && event.Status == model.ProxyStatusInitializing {
-		needsFull = true
+	proxies := dash.pm.GetProxies()
+	for _, ci := range clients {
+		dash.renderHTMXList(ci.client, proxies)
 	}
+}
 
-	if needsFull {
-		proxies := dash.pm.GetProxies()
-		for _, ci := range clients {
-			dash.renderHTMXList(ci.client, proxies)
-			dash.sendStatusNotification(ci.client, event)
-		}
+func (dash *Dashboard) handleStatusEvent(event model.ProxyEvent) {
+	allClients := dash.snapshotClientsWithPrefs()
+	if len(allClients) == 0 {
 		return
 	}
 
-	proxy, ok := dash.pm.GetProxy(event.ID)
-	if !ok {
-		proxies := dash.pm.GetProxies()
-		for _, ci := range clients {
-			dash.renderHTMXList(ci.client, proxies)
-			dash.sendStatusNotification(ci.client, event)
-		}
+	proxy, proxyExists := dash.pm.GetProxy(event.ID)
+
+	// If proxy is known but invisible, it doesn't exist on the dashboard.
+	if proxyExists && !proxy.Config.Dashboard.Visible {
 		return
 	}
 
-	if !proxy.Config.Dashboard.Visible {
-		return
-	}
+	var proxies proxymanager.ProxyList // Lazy loaded when a client needs a full list render
 
 	type cardSend struct {
 		client *sseClient
 		msgs   []SSEMessage
 	}
+	var sends []cardSend
 
 	safeName := dom.SafeID(event.ID)
 	actionsTarget := "#actions-panel-" + safeName
 
-	var sends []cardSend
-	for _, ci := range clients {
-		prefs := dash.loadPrefs(ci.userID)
+	for _, cp := range allClients {
+		var needsFull bool
 
-		data := buildProxyDataFromProxy(event.ID, proxy, pinnedSet(prefs), ci.isAdmin)
-		if !matchesFilter(data, prefs, ci.search) {
+		// If proxy was deleted, we must do a full render to remove it from the list
+		if !proxyExists {
+			needsFull = true
+		} else {
+			needsFull = clientNeedsFullRender(cp, event)
+			// New proxies broadcast ProxyStatusInitializing before the card
+			// element exists in the DOM, so outerHTML would be a no-op.
+			// Force a full list render to make new cards appear.
+			if !needsFull && event.Status == model.ProxyStatusInitializing {
+				needsFull = true
+			}
+		}
+
+		if needsFull {
+			if proxies == nil {
+				proxies = dash.pm.GetProxies()
+			}
+			dash.renderHTMXList(cp.info.client, proxies)
+			dash.sendStatusNotification(cp.info.client, event)
+			continue
+		}
+
+		data := buildProxyDataFromProxy(event.ID, proxy, pinnedSet(cp.prefs), cp.info.isAdmin)
+		if !matchesFilter(data, cp.prefs, cp.info.search) {
 			continue
 		}
 
 		sends = append(sends, cardSend{
-			client: ci.client,
+			client: cp.info.client,
 			msgs: []SSEMessage{
 				{
 					Type:   EventHTMXCardUpdate,
@@ -380,26 +446,23 @@ func (dash *Dashboard) refreshClientCards() {
 	}
 }
 
-func (dash *Dashboard) needsFullRender(clients []clientInfo, event model.ProxyEvent) bool {
-	for _, ci := range clients {
-		prefs := dash.loadPrefs(ci.userID)
+func clientNeedsFullRender(cp clientPrefs, event model.ProxyEvent) bool {
+	if cp.prefs.Sort == sortStatus || cp.prefs.Sort == sortHealth {
+		return true
+	}
 
-		if prefs.Sort == sortStatus || prefs.Sort == sortHealth {
-			return true
-		}
-
-		if prefs.FilterStatus != filterAll {
-			oldMatch := prefs.FilterStatus == event.OldStatus.String()
-			newMatch := prefs.FilterStatus == event.Status.String()
-			if oldMatch != newMatch {
-				return true
-			}
-		}
-
-		if prefs.Grouped {
+	if cp.prefs.FilterStatus != filterAll {
+		oldMatch := cp.prefs.FilterStatus == event.OldStatus.String()
+		newMatch := cp.prefs.FilterStatus == event.Status.String()
+		if oldMatch != newMatch {
 			return true
 		}
 	}
+
+	if cp.prefs.Grouped {
+		return true
+	}
+
 	return false
 }
 
