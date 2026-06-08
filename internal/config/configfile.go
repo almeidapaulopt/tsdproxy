@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 
@@ -21,14 +22,14 @@ import (
 )
 
 type File struct {
-	data any
-	log  zerolog.Logger
-
-	onChange func(fsnotify.Event)
-
-	filename string
-
-	mtx sync.Mutex
+	log        zerolog.Logger
+	data       any
+	onChange   func(fsnotify.Event)
+	debounce   *time.Timer
+	filename   string
+	onChangeMu sync.RWMutex
+	mtx        sync.Mutex
+	debounceMu sync.Mutex
 }
 
 func NewConfigFile(log zerolog.Logger, filename string, data any) *File {
@@ -77,8 +78,8 @@ func (f *File) Save() error {
 
 // OnConfigChange sets the event handler that is called when a config file changes.
 func (f *File) OnChange(run func(in fsnotify.Event)) {
-	f.mtx.Lock()
-	defer f.mtx.Unlock()
+	f.onChangeMu.Lock()
+	defer f.onChangeMu.Unlock()
 
 	f.onChange = run
 }
@@ -130,6 +131,11 @@ func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok {
+				f.debounceMu.Lock()
+				if f.debounce != nil {
+					f.debounce.Stop()
+				}
+				f.debounceMu.Unlock()
 				return
 			}
 			f.handleEvent(event, file, &realFile)
@@ -137,6 +143,12 @@ func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
 			if ok {
 				f.log.Error().Err(err).Msg("watching config file error")
 			}
+
+			f.debounceMu.Lock()
+			if f.debounce != nil {
+				f.debounce.Stop()
+			}
+			f.debounceMu.Unlock()
 			return
 		}
 	}
@@ -152,9 +164,19 @@ func (f *File) handleEvent(event fsnotify.Event, file string, realFile *string) 
 		(currentFile != "" && currentFile != *realFile) {
 		*realFile = currentFile
 
-		if f.onChange != nil {
-			f.onChange(event)
+		f.debounceMu.Lock()
+		if f.debounce != nil {
+			f.debounce.Stop()
 		}
+		f.debounce = time.AfterFunc(500*time.Millisecond, func() { //nolint:mnd
+			f.onChangeMu.RLock()
+			fn := f.onChange
+			f.onChangeMu.RUnlock()
+			if fn != nil {
+				fn(event)
+			}
+		})
+		f.debounceMu.Unlock()
 	}
 }
 
