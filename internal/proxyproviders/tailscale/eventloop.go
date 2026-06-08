@@ -5,8 +5,11 @@ package tailscale
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 // EventLoop provides the channel infrastructure for a command-based event loop.
@@ -76,8 +79,9 @@ func (el *EventLoop[Cmd]) SendPublic(cmd Cmd) bool {
 
 // Close marks the loop as closed and signals done.
 func (el *EventLoop[Cmd]) Close() {
-	el.closed.Store(true)
-	close(el.done)
+	if el.closed.CompareAndSwap(false, true) {
+		close(el.done)
+	}
 }
 
 // IsClosed returns whether the loop has been closed.
@@ -115,4 +119,22 @@ func SendAndWait[Cmd any, T any](el *EventLoop[Cmd], cmd Cmd, reply chan T) (T, 
 		var zero T
 		return zero, false
 	}
+}
+
+// EventSub is a subscriber channel wrapper shared by SharedServer and
+// ServicesServer. The once field guarantees the channel is closed at most once
+// during teardown, even when stopRuntime and UnsubscribeEvents race.
+type EventSub struct {
+	Ch   chan model.ProxyEvent
+	once sync.Once
+}
+
+// NewEventSub creates a new subscriber with a buffered channel.
+func NewEventSub(bufferSize int) *EventSub {
+	return &EventSub{Ch: make(chan model.ProxyEvent, bufferSize)}
+}
+
+// Close closes the subscriber channel exactly once.
+func (s *EventSub) Close() {
+	s.once.Do(func() { close(s.Ch) })
 }

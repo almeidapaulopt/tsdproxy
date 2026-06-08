@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -27,6 +26,15 @@ type portEntry struct {
 	owner    string
 }
 
+// sharedState represents the state of the SharedServer state machine.
+type sharedState int
+
+const (
+	sharedIdle sharedState = iota
+	sharedRunning
+	sharedClosed
+)
+
 // SharedServerConfig holds the configuration for creating a SharedServer.
 type SharedServerConfig struct {
 	Log               zerolog.Logger
@@ -40,21 +48,6 @@ type SharedServerConfig struct {
 	Ephemeral         bool
 }
 
-// sharedEventSub wraps a subscriber channel with a done flag.
-type sharedEventSub struct {
-	ch   chan model.ProxyEvent
-	once sync.Once
-}
-
-// sharedState represents the state of the SharedServer state machine.
-type sharedState int
-
-const (
-	sharedIdle sharedState = iota
-	sharedRunning
-	sharedClosed
-)
-
 // sharedRuntime holds all mutable state owned exclusively by the loop goroutine.
 type sharedRuntime struct {
 	ctx          context.Context
@@ -63,7 +56,7 @@ type sharedRuntime struct {
 	lc           *local.Client
 	listeners    map[int]*portEntry
 	packetRoutes map[int]net.PacketConn
-	subs         map[*sharedEventSub]struct{}
+	subs         map[*EventSub]struct{}
 	lifecycle    *NodeLifecycle
 	bridgeDone   chan struct{}
 	url          string
@@ -188,7 +181,7 @@ func (ss *SharedServer) ensureRunning(state sharedState, rt *sharedRuntime, next
 	}
 	if state == sharedIdle {
 		if rt == nil || rt.tsServer == nil {
-			newRT := ss.startRuntime(rt, *nextGen)
+			newRT := ss.startRuntimeWithLifecycle(rt, *nextGen)
 			if newRT == nil {
 				return state, rt, errors.New("shared server start failed")
 			}
@@ -308,11 +301,13 @@ func (ss *SharedServer) dispatchCommand(
 	switch c := cmd.(type) {
 	case acquireCmd:
 		state, rt = ss.handleAcquire(c, state, rt, nextGen)
+		idleTimer = ss.scheduleIdleTimeout(state, rt)
 	case releaseCmd:
 		state, rt = ss.handleRelease(c, state, rt)
 		idleTimer = ss.scheduleIdleTimeout(state, rt)
 	case acquirePacketCmd:
 		state, rt = ss.handleAcquirePacket(c, state, rt, nextGen)
+		idleTimer = ss.scheduleIdleTimeout(state, rt)
 	case releasePacketCmd:
 		state, rt = ss.handleReleasePacket(c, state, rt)
 		idleTimer = ss.scheduleIdleTimeout(state, rt)
@@ -348,9 +343,11 @@ func (ss *SharedServer) handleAcquire(c acquireCmd, state sharedState, rt *share
 
 	vl, direct, err := ss.registerRoute(rt, c.domain, c.port, c.protocol)
 	if err != nil {
+		// Don't tear down on route failure — let the idle timer handle it.
+		// A persistently misconfigured proxy retrying in a tight loop would
+		// otherwise start/stop tsnet on every attempt, hammering the control
+		// plane. Falling through to idle matches handleRelease's contract.
 		if rt.routeCount <= 0 {
-			ss.stopRuntime(rt)
-			rt = nil
 			state = sharedIdle
 		}
 		c.reply <- acquireResult{nil, nil, err}
@@ -389,8 +386,6 @@ func (ss *SharedServer) handleAcquirePacket(c acquirePacketCmd, state sharedStat
 	pc, err := ss.registerPacketRoute(rt, c.domain, c.port)
 	if err != nil {
 		if rt.routeCount <= 0 {
-			ss.stopRuntime(rt)
-			rt = nil
 			state = sharedIdle
 		}
 		c.reply <- acquirePacketResult{nil, err}
@@ -424,14 +419,16 @@ func (ss *SharedServer) handleWatchUpdate(c watchUpdateCmd, rt *sharedRuntime) {
 	}
 	for sub := range rt.subs {
 		select {
-		case sub.ch <- c.evt:
+		case sub.Ch <- c.evt:
 		default:
 			ss.log.Warn().Msg("dropping shared server event: subscriber channel full")
 		}
 	}
 	if c.evt.Status == model.ProxyStatusRunning && !rt.certInFlight {
-		rt.certInFlight = true
-		go ss.getCertificates(rt.ctx, rt.gen, rt.lc, rt.tsServer)
+		if rt.tsServer != nil && rt.lc != nil {
+			rt.certInFlight = true
+			go ss.getCertificates(rt.ctx, rt.gen, rt.lc, rt.tsServer)
+		}
 	}
 }
 
@@ -468,22 +465,20 @@ func (ss *SharedServer) handleGetLocalClient(c getLocalClientCmd, rt *sharedRunt
 func (ss *SharedServer) handleSubscribe(c subscribeCmd, rt *sharedRuntime) *sharedRuntime {
 	if rt == nil {
 		rt = &sharedRuntime{
-			subs: make(map[*sharedEventSub]struct{}),
+			subs: make(map[*EventSub]struct{}),
 		}
 	}
-	sub := &sharedEventSub{
-		ch: make(chan model.ProxyEvent, 16), //nolint:mnd
-	}
+	sub := NewEventSub(16) //nolint:mnd
 	rt.subs[sub] = struct{}{}
-	c.reply <- sub.ch
+	c.reply <- sub.Ch
 	return rt
 }
 
 func (ss *SharedServer) handleUnsubscribe(c unsubscribeCmd, rt *sharedRuntime) {
 	if rt != nil {
 		for sub := range rt.subs {
-			if sub.ch == c.ch {
-				sub.once.Do(func() { close(sub.ch) })
+			if sub.Ch == c.ch {
+				sub.Close()
 				delete(rt.subs, sub)
 				break
 			}
@@ -492,15 +487,10 @@ func (ss *SharedServer) handleUnsubscribe(c unsubscribeCmd, rt *sharedRuntime) {
 	c.reply <- struct{}{}
 }
 
-// startRuntime creates a new tsnet.Server, starts it, and begins watching status.
-// If an existing subscriber-only runtime is passed, its subscribers are transferred.
-func (ss *SharedServer) startRuntime(prevRT *sharedRuntime, gen int) *sharedRuntime {
-	return ss.startRuntimeWithLifecycle(prevRT, gen)
-}
-
 // startRuntimeWithLifecycle uses NodeLifecycle for tsnet startup, state management,
 // auth resolution, and device reconciliation. A bridge goroutine forwards lifecycle
-// events to the SharedServer event loop.
+// events to the SharedServer event loop. If prevRT is non-nil, its subscribers
+// are transferred to the new runtime.
 func (ss *SharedServer) startRuntimeWithLifecycle(prevRT *sharedRuntime, gen int) *sharedRuntime {
 	if ss.lifecycleCfg == nil {
 		ss.log.Error().Msg("startRuntimeWithLifecycle called with nil lifecycleCfg")
@@ -520,7 +510,7 @@ func (ss *SharedServer) startRuntimeWithLifecycle(prevRT *sharedRuntime, gen int
 		return nil
 	}
 
-	subs := make(map[*sharedEventSub]struct{})
+	subs := make(map[*EventSub]struct{})
 	if prevRT != nil {
 		for sub := range prevRT.subs {
 			subs[sub] = struct{}{}
@@ -723,7 +713,7 @@ func (ss *SharedServer) stopRuntime(rt *sharedRuntime) {
 	}
 
 	for sub := range rt.subs {
-		sub.once.Do(func() { close(sub.ch) })
+		sub.Close()
 	}
 }
 

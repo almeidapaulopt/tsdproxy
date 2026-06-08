@@ -16,10 +16,12 @@ import (
 // --- mock deviceLister ---
 
 type mockDeviceLister struct {
-	listErr    error
-	deleteErr  error
-	devices    []deviceEntry
-	deletedIDs []string
+	listErr      error
+	deleteErr    error
+	getErr       error
+	getOverrides map[string]deviceEntry
+	devices      []deviceEntry
+	deletedIDs   []string
 }
 
 func (m *mockDeviceLister) listDevices(_ context.Context, _ string) ([]deviceEntry, error) {
@@ -29,6 +31,21 @@ func (m *mockDeviceLister) listDevices(_ context.Context, _ string) ([]deviceEnt
 func (m *mockDeviceLister) deleteDevice(_ context.Context, nodeID string) error {
 	m.deletedIDs = append(m.deletedIDs, nodeID)
 	return m.deleteErr
+}
+
+func (m *mockDeviceLister) getDevice(_ context.Context, nodeID string) (deviceEntry, error) {
+	if m.getErr != nil {
+		return deviceEntry{}, m.getErr
+	}
+	if override, ok := m.getOverrides[nodeID]; ok {
+		return override, nil
+	}
+	for _, d := range m.devices {
+		if d.NodeID == nodeID {
+			return d, nil
+		}
+	}
+	return deviceEntry{}, ErrDeviceNotFound
 }
 
 // --- helpers ---
@@ -372,4 +389,42 @@ func TestReconcile_WithForceClean_OnConflictNotCalled(t *testing.T) {
 
 	require.Len(t, mock.deletedIDs, 1)
 	assert.False(t, conflictCalled, "onConflict must not fire when force-clean deletes the device")
+}
+
+func TestReconcile_DeviceReconnectsBetweenListAndGet_NotDeleted(t *testing.T) {
+	t.Parallel()
+
+	conflictCalled := false
+	onConflict := func(_, _ string) { conflictCalled = true }
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "node-1", ConnectedToControl: false},
+		},
+		getOverrides: map[string]deviceEntry{
+			"node-1": {Hostname: "myhost", NodeID: "node-1", ConnectedToControl: true},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", onConflict)
+
+	assert.Empty(t, mock.deletedIDs, "device that reconnected between List and Get must not be deleted")
+	assert.True(t, conflictCalled, "onConflict must fire so the caller learns the hostname is contested")
+}
+
+func TestReconcile_DeviceDisappearsBetweenListAndGet_NotDeleted(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "node-1", ConnectedToControl: false},
+		},
+		getErr: ErrDeviceNotFound,
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil)
+
+	assert.Empty(t, mock.deletedIDs, "device that vanished between List and Get must not be deleted")
 }

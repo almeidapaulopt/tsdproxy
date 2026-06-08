@@ -21,16 +21,18 @@ var _ proxyproviders.ProxyInterface = (*ServiceProxy)(nil)
 // ServiceProxy implements proxyproviders.ProxyInterface for proxies that use
 // Tailscale VIP Services via a shared tsnet.Server.
 type ServiceProxy struct {
-	log         zerolog.Logger
-	config      *model.Config
-	services    *ServicesServer
-	exposure    *ServicesVIPExposure
-	events      chan model.ProxyEvent
-	serviceName string
-	fqdn        string
-	mtx         sync.RWMutex
-	closeOnce   sync.Once
-	started     bool
+	log           zerolog.Logger
+	config        *model.Config
+	services      *ServicesServer
+	exposure      *ServicesVIPExposure
+	events        chan model.ProxyEvent
+	forwarderDone chan struct{}
+	stopCh        chan struct{}
+	serviceName   string
+	fqdn          string
+	mtx           sync.RWMutex
+	closeOnce     sync.Once
+	started       bool
 }
 
 func (p *ServiceProxy) Start(ctx context.Context) error {
@@ -47,15 +49,13 @@ func (p *ServiceProxy) Start(ctx context.Context) error {
 
 	p.fqdn = p.exposure.firstFQDN()
 	p.started = true
+	p.stopCh = make(chan struct{})
+	p.forwarderDone = make(chan struct{})
+	go p.forwardEvents()
 
 	p.log.Info().
 		Str("fqdn", p.fqdn).
 		Msg("service proxy started")
-
-	select {
-	case p.events <- model.ProxyEvent{Status: model.ProxyStatusRunning}:
-	default:
-	}
 
 	return nil
 }
@@ -63,7 +63,16 @@ func (p *ServiceProxy) Start(ctx context.Context) error {
 func (p *ServiceProxy) Close() error {
 	p.mtx.Lock()
 	_ = p.exposure.Close(context.Background())
+	if p.stopCh != nil {
+		close(p.stopCh)
+		p.stopCh = nil
+	}
+	fd := p.forwarderDone
 	p.mtx.Unlock()
+
+	if fd != nil {
+		<-fd
+	}
 
 	p.log.Info().Msg("service proxy closed")
 
@@ -113,4 +122,30 @@ func (p *ServiceProxy) WatchEvents() chan model.ProxyEvent {
 
 func (p *ServiceProxy) Whois(r *http.Request) model.Whois {
 	return p.services.Whois(r)
+}
+
+func (p *ServiceProxy) forwardEvents() {
+	defer close(p.forwarderDone)
+
+	serverEvents := p.services.SubscribeEvents()
+	if serverEvents == nil {
+		return
+	}
+	defer p.services.UnsubscribeEvents(serverEvents)
+
+	for {
+		select {
+		case evt, ok := <-serverEvents:
+			if !ok {
+				return
+			}
+			select {
+			case p.events <- evt:
+			default:
+				p.log.Warn().Msg("dropping proxy event: no listener")
+			}
+		case <-p.stopCh:
+			return
+		}
+	}
 }

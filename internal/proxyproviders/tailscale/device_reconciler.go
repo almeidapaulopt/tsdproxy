@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"unicode"
 
@@ -24,7 +25,11 @@ type deviceEntry struct {
 type deviceLister interface {
 	listDevices(ctx context.Context, tag string) ([]deviceEntry, error)
 	deleteDevice(ctx context.Context, nodeID string) error
+	getDevice(ctx context.Context, nodeID string) (deviceEntry, error)
 }
+
+// ErrDeviceNotFound is returned by getDevice when the device no longer exists.
+var ErrDeviceNotFound = errors.New("device not found")
 
 // realDeviceAPI adapts the Tailscale API client to the deviceLister interface.
 type realDeviceAPI struct {
@@ -49,6 +54,18 @@ func (a *realDeviceAPI) listDevices(ctx context.Context, tag string) ([]deviceEn
 
 func (a *realDeviceAPI) deleteDevice(ctx context.Context, nodeID string) error {
 	return a.client.Devices().Delete(ctx, nodeID)
+}
+
+func (a *realDeviceAPI) getDevice(ctx context.Context, nodeID string) (deviceEntry, error) {
+	d, err := a.client.Devices().Get(ctx, nodeID)
+	if err != nil {
+		return deviceEntry{}, err
+	}
+	return deviceEntry{
+		Hostname:           d.Hostname,
+		NodeID:             d.NodeID,
+		ConnectedToControl: d.ConnectedToControl,
+	}, nil
 }
 
 // DeviceReconciler handles detection and cleanup of duplicate/stale Tailscale
@@ -154,15 +171,35 @@ func (r *DeviceReconciler) processDevice(
 		return
 	}
 
+	// Re-fetch the device immediately before deletion to shrink the TOCTOU
+	// window. A device that reconnected between the List snapshot and now
+	// must not be deleted.
+	current, err := lister.getDevice(ctx, d.NodeID)
+	if err != nil {
+		r.log.Warn().Err(err).Str("node_id", d.NodeID).
+			Msg("device disappeared before delete, skipping")
+		return
+	}
+	if current.ConnectedToControl && !cfg.force {
+		r.log.Warn().
+			Str("hostname", current.Hostname).
+			Str("node_id", current.NodeID).
+			Msg("device reconnected between list and delete, skipping cleanup")
+		if onConflict != nil {
+			onConflict(current.Hostname, current.NodeID)
+		}
+		return
+	}
+
 	r.log.Info().
-		Str("hostname", d.Hostname).
-		Str("node_id", d.NodeID).
-		Bool("was_online", d.ConnectedToControl).
+		Str("hostname", current.Hostname).
+		Str("node_id", current.NodeID).
+		Bool("was_online", current.ConnectedToControl).
 		Msg("removing device from tailnet to prevent duplicate")
 
-	if err := lister.deleteDevice(ctx, d.NodeID); err != nil {
+	if err := lister.deleteDevice(ctx, current.NodeID); err != nil {
 		r.log.Error().Err(err).
-			Str("hostname", d.Hostname).
+			Str("hostname", current.Hostname).
 			Msg("failed to delete stale device")
 	}
 }

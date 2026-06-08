@@ -89,29 +89,25 @@ type servicesState int
 const (
 	servicesIdle servicesState = iota
 	servicesRunning
-	servicesClosed // reserved: will be used when event forwarding is added
+	servicesClosed // sentinel passed to handlers during handleClose's pendingCount drain
 )
 
 // servicesRuntime holds all mutable state owned exclusively by the loop goroutine.
 type servicesRuntime struct {
 	ctx          context.Context
 	factory      serviceListenerFactory
-	cancel       context.CancelFunc
+	bridgeDone   chan struct{}
 	tsServer     *tsnet.Server
 	listeners    map[string]*serviceEntry
 	lifecycle    *NodeLifecycle
-	bridgeDone   chan struct{}
+	cancel       context.CancelFunc
+	subs         map[*EventSub]struct{}
 	authURL      string
 	refCount     int
 	pendingCount int
 	gen          int
+	listenMu     sync.Mutex
 	running      bool
-
-	// listenMu serializes ListenService and ServiceListener.Close calls on the
-	// shared tsnet.Server. Both operations perform a read-modify-write on the
-	// serve config using an etag for optimistic concurrency; concurrent calls
-	// cause etag mismatch errors (tailscale/tailscale#18742).
-	listenMu sync.Mutex
 }
 
 // Command types for the state machine.
@@ -140,6 +136,14 @@ type releaseServiceCmd struct {
 }
 
 func (releaseServiceCmd) cmd() {}
+
+type releaseServiceWorkResultCmd struct {
+	err      error
+	original releaseServiceCmd
+	gen      int
+}
+
+func (releaseServiceWorkResultCmd) cmd() {}
 
 type servicesCloseCmd struct {
 	reply chan error
@@ -174,6 +178,19 @@ type acquireServiceWorkResultCmd struct {
 }
 
 func (acquireServiceWorkResultCmd) cmd() {}
+
+type servicesSubscribeCmd struct {
+	reply chan chan model.ProxyEvent
+}
+
+func (servicesSubscribeCmd) cmd() {}
+
+type servicesUnsubscribeCmd struct {
+	ch    chan model.ProxyEvent
+	reply chan struct{}
+}
+
+func (servicesUnsubscribeCmd) cmd() {}
 
 // ServicesServer manages a shared, ref-counted tsnet.Server for services mode.
 // All mutable state is managed by a single event-loop goroutine.
@@ -246,7 +263,7 @@ func (ss *ServicesServer) loop() {
 
 	for cmd := range ss.ev.Cmds() {
 		switch cmd.(type) {
-		case acquireServiceCmd, releaseServiceCmd, servicesCloseCmd, servicesIdleTimeoutCmd:
+		case acquireServiceCmd, releaseServiceCmd, acquireServiceWorkResultCmd, releaseServiceWorkResultCmd, servicesCloseCmd, servicesIdleTimeoutCmd:
 			if idleTimer != nil {
 				idleTimer.Stop()
 				idleTimer = nil
@@ -263,12 +280,21 @@ func (ss *ServicesServer) loop() {
 			if state == servicesIdle && rt != nil {
 				idleTimer = ss.scheduleIdleTimer(rt)
 			}
+		case releaseServiceWorkResultCmd:
+			state, rt = ss.handleReleaseWorkResult(c, state, rt)
+			if state == servicesIdle && rt != nil {
+				idleTimer = ss.scheduleIdleTimer(rt)
+			}
 		case servicesIdleTimeoutCmd:
 			rt = ss.handleIdleTimeout(c, state, rt)
 		case servicesWatchUpdateCmd:
 			ss.handleWatchUpdate(c, rt)
 		case servicesGetAuthURLCmd:
 			ss.handleGetAuthURL(c, rt)
+		case servicesSubscribeCmd:
+			rt = ss.handleSubscribe(c, rt)
+		case servicesUnsubscribeCmd:
+			ss.handleUnsubscribe(c, rt)
 		case servicesCloseCmd:
 			ss.handleClose(c, rt)
 			return
@@ -294,21 +320,34 @@ func (ss *ServicesServer) handleIdleTimeout(c servicesIdleTimeoutCmd, state serv
 
 func (ss *ServicesServer) handleClose(c servicesCloseCmd, rt *servicesRuntime) {
 	if rt != nil {
+		timeout := time.After(5 * time.Second) //nolint:mnd
+	drainLoop:
 		for rt.pendingCount > 0 {
-			cmd := <-ss.ev.Cmds()
-			switch v := cmd.(type) {
-			case acquireServiceWorkResultCmd:
-				_, rt = ss.handleAcquireWorkResult(v, servicesClosed, rt)
-			case acquireServiceCmd:
-				v.reply <- acquireServiceResult{nil, errors.New("services server closed")}
-			case releaseServiceCmd:
-				v.reply <- nil
-			case servicesGetAuthURLCmd:
-				v.reply <- ""
-			case servicesCloseCmd:
-				v.reply <- nil
-			default:
-				// servicesIdleTimeoutCmd, servicesWatchUpdateCmd have no reply channel — safe to drop.
+			select {
+			case cmd := <-ss.ev.Cmds():
+				switch v := cmd.(type) {
+				case acquireServiceWorkResultCmd:
+					_, rt = ss.handleAcquireWorkResult(v, servicesClosed, rt)
+				case releaseServiceWorkResultCmd:
+					_, rt = ss.handleReleaseWorkResult(v, servicesClosed, rt)
+				case acquireServiceCmd:
+					v.reply <- acquireServiceResult{nil, errors.New("services server closed")}
+				case releaseServiceCmd:
+					v.reply <- nil
+				case servicesGetAuthURLCmd:
+					v.reply <- ""
+				case servicesSubscribeCmd:
+					v.reply <- make(chan model.ProxyEvent)
+				case servicesUnsubscribeCmd:
+					v.reply <- struct{}{}
+				case servicesCloseCmd:
+					v.reply <- nil
+				default:
+					// servicesIdleTimeoutCmd, servicesWatchUpdateCmd have no reply channel — safe to drop.
+				}
+			case <-timeout:
+				ss.log.Warn().Int("pending", rt.pendingCount).Msg("handleClose drain loop timed out")
+				break drainLoop
 			}
 		}
 		ss.stopRuntime(rt)
@@ -317,14 +356,9 @@ func (ss *ServicesServer) handleClose(c servicesCloseCmd, rt *servicesRuntime) {
 }
 
 func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servicesState, rt *servicesRuntime, nextGen *int) (servicesState, *servicesRuntime) {
-	if state == servicesClosed {
-		c.reply <- acquireServiceResult{nil, errors.New("services server closed")}
-		return state, rt
-	}
-
 	if state == servicesIdle {
 		if rt == nil {
-			newRT := ss.startRuntime()
+			newRT := ss.startRuntimeWithLifecycle()
 			if newRT == nil {
 				c.reply <- acquireServiceResult{nil, errors.New("services server start failed")}
 				return state, rt
@@ -464,7 +498,10 @@ func (ss *ServicesServer) handleAcquireWorkResult(c acquireServiceWorkResultCmd,
 	ss.prefetchCertForService(c, rt)
 
 	c.original.reply <- acquireServiceResult{c.listener, nil}
-	return state, rt
+	// A successful acquire means the runtime is in use. Restore servicesRunning
+	// in case a prior release transitioned state to servicesIdle while this
+	// acquire was still in flight (refCount was 0 but pendingCount was > 0).
+	return servicesRunning, rt
 }
 
 func (ss *ServicesServer) maybeTransitionToIdle(state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
@@ -521,8 +558,6 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 		return errors.New("empty node ID in status")
 	}
 
-	client.Services()
-
 	u := client.BaseURL.JoinPath("api", "v2", "tailnet", "-", "services", serviceName, "device", nodeID, "approved")
 
 	body := `{"approved":true}`
@@ -539,7 +574,7 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, readErr := io.ReadAll(resp.Body)
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) //nolint:mnd
 		if readErr != nil {
 			return fmt.Errorf("approval failed (HTTP %d): unable to read response body: %w", resp.StatusCode, readErr)
 		}
@@ -551,15 +586,15 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 }
 
 func (ss *ServicesServer) handleReleaseService(c releaseServiceCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
-	defer func() { c.reply <- nil }()
-
 	if state != servicesRunning || rt == nil {
+		c.reply <- nil
 		return state, rt
 	}
 
 	key := serviceKey(c.serviceName, c.port)
 	entry, ok := rt.listeners[key]
 	if !ok {
+		c.reply <- nil
 		if rt.refCount <= 0 {
 			return servicesIdle, rt
 		}
@@ -571,15 +606,28 @@ func (ss *ServicesServer) handleReleaseService(c releaseServiceCmd, state servic
 	rt.listenMu.Unlock()
 	delete(rt.listeners, key)
 	rt.refCount--
+	rt.pendingCount++
 
 	remainingPorts := ss.collectExistingServicePorts(rt, c.serviceName)
+	gen := rt.gen
+	ctx := rt.ctx
+
+	go ss.releaseServiceAsync(ctx, gen, c, remainingPorts)
+
+	return state, rt
+}
+
+func (ss *ServicesServer) releaseServiceAsync(ctx context.Context, gen int, c releaseServiceCmd, remainingPorts []string) {
+	var vipErr error
 	if len(remainingPorts) == 0 {
 		if err := ss.deleteVIPService(c.serviceName); err != nil {
 			ss.log.Warn().Err(err).Str("service", c.serviceName).Msg("failed to delete VIP service")
+			vipErr = err
 		}
 	} else {
 		if err := ss.createOrUpdateVIPService(c.serviceName, remainingPorts); err != nil {
 			ss.log.Warn().Err(err).Str("service", c.serviceName).Msg("failed to update VIP service after port release")
+			vipErr = err
 		}
 	}
 
@@ -588,10 +636,34 @@ func (ss *ServicesServer) handleReleaseService(c releaseServiceCmd, state servic
 		Uint16("port", c.port).
 		Msg("service released")
 
-	if rt.refCount <= 0 {
-		return servicesIdle, rt
+	if !ss.sendProducer(ctx, releaseServiceWorkResultCmd{
+		err:      vipErr,
+		original: c,
+		gen:      gen,
+	}) {
+		c.reply <- nil
 	}
-	return state, rt
+}
+
+func (ss *ServicesServer) handleReleaseWorkResult(c releaseServiceWorkResultCmd, state servicesState, rt *servicesRuntime) (servicesState, *servicesRuntime) {
+	if rt != nil {
+		rt.pendingCount--
+	}
+
+	if state == servicesClosed || rt == nil || c.gen != rt.gen {
+		c.original.reply <- nil
+		return state, rt
+	}
+
+	if c.err != nil {
+		ss.log.Warn().Err(c.err).
+			Str("service", c.original.serviceName).
+			Msg("VIP service cleanup error during release")
+	}
+
+	c.original.reply <- nil
+
+	return ss.maybeTransitionToIdle(state, rt)
 }
 
 // Acquire creates a VIP Service and returns a ServiceListener for it.
@@ -713,12 +785,9 @@ func isLocalhost(remoteAddr string) bool {
 	return model.IsLocalhost(remoteAddr)
 }
 
-// startRuntime creates a new tsnet.Server and starts it.
-// When lifecycleCfg is set, uses NodeLifecycle for full lifecycle management.
-func (ss *ServicesServer) startRuntime() *servicesRuntime {
-	return ss.startRuntimeWithLifecycle()
-}
-
+// startRuntimeWithLifecycle uses NodeLifecycle for tsnet startup, state management,
+// auth resolution, and device reconciliation. A bridge goroutine forwards lifecycle
+// events to the ServicesServer event loop.
 func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 	if ss.lifecycleCfg == nil {
 		ss.log.Error().Msg("startRuntimeWithLifecycle called with nil lifecycleCfg")
@@ -802,6 +871,10 @@ func (ss *ServicesServer) stopRuntime(rt *servicesRuntime) {
 		<-rt.bridgeDone
 	}
 
+	for sub := range rt.subs {
+		sub.Close()
+	}
+
 	// Clear stale localClient so Whois() doesn't use a closed client.
 	ss.localClient.Store(nil)
 	// Clear stale authURL from previous runtime.
@@ -835,6 +908,16 @@ func (ss *ServicesServer) handleWatchUpdate(c servicesWatchUpdateCmd, rt *servic
 		rt.running = true
 		ss.prefetchCerts(rt)
 	}
+	if c.status != model.ProxyStatusInitializing {
+		evt := model.ProxyEvent{Status: c.status}
+		for sub := range rt.subs {
+			select {
+			case sub.Ch <- evt:
+			default:
+				ss.log.Warn().Msg("dropping services server event: subscriber channel full")
+			}
+		}
+	}
 }
 
 func (ss *ServicesServer) prefetchCerts(rt *servicesRuntime) {
@@ -860,6 +943,9 @@ func (ss *ServicesServer) prefetchCerts(rt *servicesRuntime) {
 }
 
 func (ss *ServicesServer) validCertDomains(rt *servicesRuntime) map[string]bool {
+	if rt.tsServer == nil {
+		return make(map[string]bool)
+	}
 	certDomains := rt.tsServer.CertDomains()
 	set := make(map[string]bool, len(certDomains))
 	for _, d := range certDomains {
@@ -876,6 +962,34 @@ func (ss *ServicesServer) handleGetAuthURL(c servicesGetAuthURLCmd, rt *services
 	c.reply <- ss.authURL
 }
 
+func (ss *ServicesServer) handleSubscribe(c servicesSubscribeCmd, rt *servicesRuntime) *servicesRuntime {
+	if rt == nil {
+		rt = &servicesRuntime{
+			subs: make(map[*EventSub]struct{}),
+		}
+	}
+	if rt.subs == nil {
+		rt.subs = make(map[*EventSub]struct{})
+	}
+	sub := NewEventSub(16) //nolint:mnd
+	rt.subs[sub] = struct{}{}
+	c.reply <- sub.Ch
+	return rt
+}
+
+func (ss *ServicesServer) handleUnsubscribe(c servicesUnsubscribeCmd, rt *servicesRuntime) {
+	if rt != nil {
+		for sub := range rt.subs {
+			if sub.Ch == c.ch {
+				sub.Close()
+				delete(rt.subs, sub)
+				break
+			}
+		}
+	}
+	c.reply <- struct{}{}
+}
+
 // GetAuthURL returns the current auth URL, or empty string if not needed.
 func (ss *ServicesServer) GetAuthURL() string {
 	cmd := servicesGetAuthURLCmd{reply: make(chan string, 1)}
@@ -884,6 +998,23 @@ func (ss *ServicesServer) GetAuthURL() string {
 		return ""
 	}
 	return v
+}
+
+// SubscribeEvents returns a channel that receives status events from the
+// services server. Call UnsubscribeEvents to clean up.
+func (ss *ServicesServer) SubscribeEvents() chan model.ProxyEvent {
+	cmd := servicesSubscribeCmd{reply: make(chan chan model.ProxyEvent, 1)}
+	ch, ok := SendAndWait[servicesCmd, chan model.ProxyEvent](ss.ev, cmd, cmd.reply)
+	if !ok {
+		return nil
+	}
+	return ch
+}
+
+// UnsubscribeEvents removes an event subscription.
+func (ss *ServicesServer) UnsubscribeEvents(ch chan model.ProxyEvent) {
+	cmd := servicesUnsubscribeCmd{ch: ch, reply: make(chan struct{}, 1)}
+	SendAndWait[servicesCmd, struct{}](ss.ev, cmd, cmd.reply)
 }
 
 func (ss *ServicesServer) getAPIClient() *tailscale.Client {
@@ -1126,14 +1257,31 @@ func (ss *ServicesServer) removeConflictingDevice(ctx context.Context, client *t
 			return fmt.Errorf("%w: hostname %q node %s", ErrConflictingDeviceOnline, d.Hostname, d.NodeID)
 		}
 
+		// Re-fetch immediately before delete to shrink the TOCTOU window.
+		// A device that reconnected between List and Delete must not be
+		// removed — that would kick a live user node off the tailnet.
+		current, getErr := client.Devices().Get(ctx, d.NodeID)
+		if getErr != nil {
+			ss.log.Warn().Err(getErr).Str("node_id", d.NodeID).
+				Msg("conflicting device disappeared before delete, skipping")
+			continue
+		}
+		if current.ConnectedToControl {
+			ss.log.Warn().
+				Str("hostname", current.Hostname).
+				Str("node_id", current.NodeID).
+				Msg("conflicting device reconnected between list and delete, refusing to delete")
+			return fmt.Errorf("%w: hostname %q node %s", ErrConflictingDeviceOnline, current.Hostname, current.NodeID)
+		}
+
 		ss.log.Info().
-			Str("hostname", d.Hostname).
-			Str("node_id", d.NodeID).
-			Bool("was_online", d.ConnectedToControl).
+			Str("hostname", current.Hostname).
+			Str("node_id", current.NodeID).
+			Bool("was_online", current.ConnectedToControl).
 			Msg("auto-removing conflicting offline device for VIP service")
 
-		if deleteErr := client.Devices().Delete(ctx, d.NodeID); deleteErr != nil {
-			return fmt.Errorf("delete conflicting device %q (node %s): %w", d.Hostname, d.NodeID, deleteErr)
+		if deleteErr := client.Devices().Delete(ctx, current.NodeID); deleteErr != nil {
+			return fmt.Errorf("delete conflicting device %q (node %s): %w", current.Hostname, current.NodeID, deleteErr)
 		}
 	}
 
