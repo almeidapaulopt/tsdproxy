@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker/sshtunnel"
 )
 
 type (
@@ -27,6 +29,7 @@ type (
 		log                      zerolog.Logger
 		defaultBridgeAddress     netip.Addr
 		docker                   *client.Client
+		tunnel                   *sshtunnel.Tunnel
 		containers               map[string]*container
 		host                     string
 		defaultTargetHostname    string
@@ -50,14 +53,38 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 	newlog.Trace().Msg("New Docker TargetProvider")
 	defer newlog.Trace().Msg("End New Docker TargetProvider")
 
-	docker, err := client.New(client.WithHost(provider.Host))
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating Docker client")
-		return nil, err
+	var docker *client.Client
+	var tunnel *sshtunnel.Tunnel
+
+	if strings.HasPrefix(provider.Host, "ssh://") {
+		var err error
+		tunnel, err = sshtunnel.New(sshtunnel.Config{
+			Host:                  provider.Host,
+			PrivateKeyFile:        provider.SSHPrivateKeyFile,
+			PrivateKeyPassphrase:  provider.SSHPrivateKeyPassphrase,
+			KnownHostsFile:        provider.SSHKnownHostsFile,
+			InsecureSkipHostCheck: provider.SSHInsecureSkipHostCheck,
+			AgentSocket:           provider.SSHAgentSocket,
+		}, newlog)
+		if err != nil {
+			return nil, fmt.Errorf("error creating SSH tunnel: %w", err)
+		}
+		docker, err = client.New(client.WithDialContext(tunnel.DialContext))
+		if err != nil {
+			tunnel.Close()
+			return nil, fmt.Errorf("error creating Docker client: %w", err)
+		}
+	} else {
+		var err error
+		docker, err = client.New(client.WithHost(provider.Host))
+		if err != nil {
+			return nil, fmt.Errorf("error creating Docker client: %w", err)
+		}
 	}
 
 	c := &Client{
 		docker:                   docker,
+		tunnel:                   tunnel,
 		log:                      newlog,
 		name:                     name,
 		host:                     provider.Host,
@@ -85,6 +112,9 @@ func (c *Client) Close() {
 
 	if c.docker != nil {
 		c.docker.Close()
+	}
+	if c.tunnel != nil {
+		c.tunnel.Close()
 	}
 }
 

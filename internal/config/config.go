@@ -96,15 +96,20 @@ type (
 
 	// DockerTargetProviderConfig struct stores Docker target provider configuration.
 	DockerTargetProviderConfig struct {
-		Host                     string `validate:"required,uri" default:"unix:///var/run/docker.sock" yaml:"host"`
+		SSHPrivateKeyFile        string `validate:"omitempty,file" yaml:"sshPrivateKeyFile,omitempty"`
 		TargetHostname           string `validate:"ip|hostname" default:"172.31.0.1" yaml:"targetHostname"`
 		DefaultProxyProvider     string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
-		TryDockerInternalNetwork bool   `validate:"boolean" default:"false" yaml:"tryDockerInternalNetwork"`
-		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
-		HealthCheckEnabled       bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		SSHAgentSocket           string `validate:"omitempty" yaml:"sshAgentSocket,omitempty"`
+		SSHKnownHostsFile        string `validate:"omitempty,file" yaml:"sshKnownHostsFile,omitempty"`
+		SSHPrivateKeyPassphrase  string `yaml:"sshPrivateKeyPassphrase,omitempty"`
+		Host                     string `validate:"required,uri" default:"unix:///var/run/docker.sock" yaml:"host"`
 		HealthCheckInterval      int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
-		HealthCheckFailures      int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
 		HealthCheckCooldown      int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckFailures      int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
+		HealthCheckEnabled       bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		SSHInsecureSkipHostCheck bool   `validate:"boolean" default:"false" yaml:"sshInsecureSkipHostCheck"`
+		TryDockerInternalNetwork bool   `validate:"boolean" default:"false" yaml:"tryDockerInternalNetwork"`
 	}
 
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration
