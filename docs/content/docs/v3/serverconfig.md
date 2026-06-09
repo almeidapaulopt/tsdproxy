@@ -264,9 +264,112 @@ docker:
 
 This example configures a `local` Docker server and a remote `srv1` server.
 
+Example with a remote Docker server over SSH:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  local:
+    host: unix:///var/run/docker.sock
+    defaultProxyProvider: default
+  remote:
+    host: ssh://deploy@remote-node.example.com:22
+    sshPrivateKeyFile: /config/ssh/id_ed25519
+    sshKnownHostsFile: /config/ssh/known_hosts
+    targetHostname: 172.31.0.1
+    defaultProxyProvider: default
+```
+
 ##### host
 
 Specifies the Docker socket or daemon address. Defaults to `unix:///var/run/docker.sock`.
+
+Supported schemes:
+
+| Scheme | Description |
+|--------|-------------|
+| `unix://` | Local Docker socket (default) |
+| `tcp://` | Remote Docker daemon over TCP (plain or TLS) |
+| `ssh://` | Remote Docker daemon over SSH tunnel (see below) |
+
+##### SSH Tunnel
+
+When using `ssh://` as the host scheme, TSDProxy establishes a pure Go SSH
+connection to the remote host and runs `docker system dial-stdio` to communicate
+with the Docker daemon. No external SSH binary is needed — this works in the
+standard scratch-based Docker image.
+
+The SSH URL format is:
+
+```
+ssh://[user@]hostname[:port]
+```
+
+- **user** defaults to `root` if not specified
+- **port** defaults to `22` if not specified
+
+SSH authentication requires one of:
+
+| Field | Description |
+|-------|-------------|
+| `sshPrivateKeyFile` | Path to a PEM-encoded private key file (Ed25519, RSA, or ECDSA) |
+| `sshPrivateKeyPassphrase` | Passphrase for an encrypted private key (optional) |
+| `sshAgentSocket` | Path to an SSH agent UNIX socket (e.g. `/run/ssh-agent.sock`). Falls back to the `SSH_AUTH_SOCK` environment variable if not set |
+
+Host key verification requires one of:
+
+| Field | Description |
+|-------|-------------|
+| `sshKnownHostsFile` | Path to a `known_hosts` file for host key verification |
+| `sshInsecureSkipHostCheck` | Set to `true` to skip host key verification (insecure, use only for testing) |
+
+> [!IMPORTANT]
+> Either `sshPrivateKeyFile` or `sshAgentSocket` (or `SSH_AUTH_SOCK` env var) must
+> be configured. At least one auth method is required.
+>
+> Either `sshKnownHostsFile` or `sshInsecureSkipHostCheck: true` must be configured.
+> When using `sshKnownHostsFile`, the file must exist at startup.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  remote:
+    host: ssh://deploy@remote-node.example.com:22
+    sshPrivateKeyFile: /config/ssh/id_ed25519
+    sshKnownHostsFile: /config/ssh/known_hosts
+    targetHostname: host.docker.internal
+    defaultProxyProvider: default
+```
+
+Example with SSH agent forwarding:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  remote:
+    host: ssh://deploy@remote-node.example.com
+    sshAgentSocket: /run/ssh-agent.sock
+    sshKnownHostsFile: /config/ssh/known_hosts
+    defaultProxyProvider: default
+```
+
+Example with insecure host key check (testing only):
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  remote:
+    host: ssh://root@remote-node.example.com
+    sshPrivateKeyFile: /config/ssh/id_ed25519
+    sshInsecureSkipHostCheck: true
+    defaultProxyProvider: default
+```
+
+To generate a known_hosts entry for your remote host:
+
+```bash
+ssh-keyscan -t ed25519 remote-node.example.com >> /config/ssh/known_hosts
+```
+
+> [!NOTE]
+> The remote host must have Docker 18.09+ installed (required for `docker system dial-stdio`).
+> The SSH user must have permission to access the Docker socket on the remote host.
 
 ##### targetHostname
 
