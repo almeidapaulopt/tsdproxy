@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
@@ -28,10 +29,14 @@ type File struct {
 	data       any
 	onChange   func(fsnotify.Event)
 	debounce   *time.Timer
+	stopCh     chan struct{}
+	done       chan struct{}
 	filename   string
 	onChangeMu sync.RWMutex
-	mtx        sync.Mutex
+	closeOnce  sync.Once
 	debounceMu sync.Mutex
+	mtx        sync.Mutex
+	watching   atomic.Bool
 }
 
 func NewConfigFile(log zerolog.Logger, filename string, data any) *File {
@@ -39,6 +44,8 @@ func NewConfigFile(log zerolog.Logger, filename string, data any) *File {
 		filename: filename,
 		data:     data,
 		log:      log.With().Str("module", "file").Str("files", filename).Logger(),
+		stopCh:   make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -90,9 +97,13 @@ func (f *File) OnChange(run func(in fsnotify.Event)) {
 func (f *File) Watch() error {
 	f.log.Debug().Str("file", f.filename).Msg("Start watching file")
 
+	f.watching.Store(true)
+
 	errChan := make(chan error, 1)
 
 	go func() {
+		defer close(f.done)
+
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
 			errChan <- fmt.Errorf("failed to create a new watcher: %w", err)
@@ -117,10 +128,30 @@ func (f *File) Watch() error {
 		}
 
 		errChan <- nil
+
 		eventsWG.Wait()
 	}()
 
 	return <-errChan
+}
+
+// Close signals the Watch goroutine to stop and waits for it to exit.
+// It is safe to call Close multiple times.
+// If Watch was never called, Close is a no-op.
+func (f *File) Close() {
+	if !f.watching.Load() {
+		return
+	}
+	f.closeOnce.Do(func() {
+		close(f.stopCh)
+
+		f.debounceMu.Lock()
+		if f.debounce != nil {
+			f.debounce.Stop()
+		}
+		f.debounceMu.Unlock()
+	})
+	<-f.done // wait outside closeOnce so all callers observe completion
 }
 
 func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
@@ -131,6 +162,13 @@ func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
 	}
 	for {
 		select {
+		case <-f.stopCh:
+			f.debounceMu.Lock()
+			if f.debounce != nil {
+				f.debounce.Stop()
+			}
+			f.debounceMu.Unlock()
+			return
 		case event, ok := <-watcher.Events:
 			if !ok {
 				f.debounceMu.Lock()

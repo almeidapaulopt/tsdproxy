@@ -105,9 +105,9 @@ type (
 		SSHKnownHostsFile        string `validate:"omitempty,file" yaml:"sshKnownHostsFile,omitempty"`
 		SSHPrivateKeyPassphrase  string `yaml:"sshPrivateKeyPassphrase,omitempty"`
 		Host                     string `validate:"required,uri" default:"unix:///var/run/docker.sock" yaml:"host"`
-		HealthCheckInterval      int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
-		HealthCheckCooldown      int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
-		HealthCheckFailures      int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
+		HealthCheckInterval      int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckCooldown      int    `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckFailures      int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
 		HealthCheckEnabled       bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
 		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
 		SSHInsecureSkipHostCheck bool   `validate:"boolean" default:"false" yaml:"sshInsecureSkipHostCheck"`
@@ -140,7 +140,7 @@ type (
 		ControlURL          string                    `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
 		AuthKey             secretstring.SecretString `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
 		AuthRetry           AuthRetryConfig           `yaml:"authRetry"`
-		MaxCertConcurrency  int64                     `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
+		MaxCertConcurrency  int64                     `default:"2" validate:"min=1,max=100" yaml:"maxCertConcurrency"`
 		PreventDuplicates   bool                      `default:"false" yaml:"preventDuplicates"`
 		Shared              bool                      `default:"false" yaml:"shared"`
 		Services            bool                      `default:"false" yaml:"services"`
@@ -155,9 +155,9 @@ type (
 		DefaultProxyAccessLog bool   `default:"true" validate:"boolean" yaml:"defaultProxyAccessLog"`
 		AutoRestart           bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
 		HealthCheckEnabled    bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
-		HealthCheckInterval   int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
-		HealthCheckFailures   int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
-		HealthCheckCooldown   int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckInterval   int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures   int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
+		HealthCheckCooldown   int    `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
 	}
 
 	DNSProviderConfig struct {
