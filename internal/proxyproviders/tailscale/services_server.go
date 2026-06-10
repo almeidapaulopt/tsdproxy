@@ -548,7 +548,11 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 	}
 
 	// Trigger lazy init so client.BaseURL and client.HTTP are populated.
-	_ = client.VIPServices()
+	svc := client.VIPServices()
+
+	if svc == nil || client.BaseURL == nil || client.HTTP == nil {
+		return errors.New("tailscale API client failed to initialize")
+	}
 
 	statusCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
