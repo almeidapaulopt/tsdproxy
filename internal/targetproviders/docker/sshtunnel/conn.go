@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -18,12 +19,13 @@ type (
 		stdin   io.WriteCloser
 		stdout  io.Reader
 		closed  atomic.Bool
+		log     zerolog.Logger
 	}
 
 	addr struct{}
 )
 
-func newSessionConn(session *ssh.Session) (*sshSessionConn, error) {
+func newSessionConn(session *ssh.Session, log zerolog.Logger) (*sshSessionConn, error) {
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -39,6 +41,7 @@ func newSessionConn(session *ssh.Session) (*sshSessionConn, error) {
 		session: session,
 		stdin:   stdin,
 		stdout:  stdout,
+		log:     log,
 	}, nil
 }
 
@@ -47,8 +50,12 @@ func (c *sshSessionConn) Write(b []byte) (int, error) { return c.stdin.Write(b) 
 
 func (c *sshSessionConn) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
-		_ = c.stdin.Close()
-		_ = c.session.Close()
+		if err := c.stdin.Close(); err != nil {
+			c.log.Error().Err(err).Msg("failed to close stdin")
+		}
+		if err := c.session.Close(); err != nil {
+			c.log.Error().Err(err).Msg("failed to close SSH session")
+		}
 	}
 	return nil
 }

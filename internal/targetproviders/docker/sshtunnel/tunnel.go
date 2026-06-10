@@ -105,7 +105,7 @@ func (t *Tunnel) DialContext(ctx context.Context, _, _ string) (net.Conn, error)
 		return nil, fmt.Errorf("ssh session: %w", err)
 	}
 
-	sconn, err := newSessionConn(session)
+	sconn, err := newSessionConn(session, t.log)
 	if err != nil {
 		session.Close()
 		t.invalidateConnection(conn)
@@ -128,7 +128,9 @@ func (t *Tunnel) Close() error {
 
 	t.closed = true
 	if t.agentConn != nil {
-		_ = t.agentConn.Close()
+		if err := t.agentConn.Close(); err != nil {
+			t.log.Error().Err(err).Msg("failed to close agent connection")
+		}
 		t.agentConn = nil
 	}
 	if t.conn != nil {
@@ -198,7 +200,9 @@ func (t *Tunnel) ensureConnected(ctx context.Context) error {
 func (t *Tunnel) invalidateConnection(stale *ssh.Client) {
 	t.mu.Lock()
 	if t.conn != nil && t.conn == stale {
-		_ = t.conn.Close()
+		if err := t.conn.Close(); err != nil {
+			t.log.Error().Err(err).Msg("failed to close stale SSH connection")
+		}
 		t.conn = nil
 	}
 	t.mu.Unlock()

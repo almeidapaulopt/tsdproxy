@@ -90,7 +90,9 @@ type (
 var _ targetproviders.TargetProvider = (*Client)(nil)
 
 func (s *proxyConfig) UnmarshalYAML(unmarshal func(any) error) error {
-	_ = defaults.Set(s)
+	if err := defaults.Set(s); err != nil {
+		return fmt.Errorf("error setting defaults: %w", err)
+	}
 
 	type plain proxyConfig
 	if err := unmarshal((*plain)(s)); err != nil {

@@ -123,7 +123,9 @@ func (s *Sender) Close() {
 func (s *Sender) worker() {
 	defer s.wg.Done()
 	for job := range s.queue {
-		_ = s.sendWithRetry(job.cfg, job.event)
+		if err := s.sendWithRetry(job.cfg, job.event); err != nil {
+			s.log.Error().Err(err).Str("url", job.cfg.URL).Msg("webhook delivery failed")
+		}
 	}
 }
 

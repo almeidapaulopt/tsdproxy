@@ -34,8 +34,12 @@ import (
 var errRateLimited = errors.New("UDP packet rate limited")
 
 const (
-	dialTimeout     = 10 * time.Second
-	shutdownTimeout = 10 * time.Second
+	maxIdleConnsPerHost = 10
+	idleConnTimeout     = 30 * time.Second
+	tcpDialTimeout      = 10 * time.Second
+	tcpErrChanBuf       = 2
+	dialTimeout         = 10 * time.Second
+	shutdownTimeout     = 10 * time.Second
 )
 
 // portHandler is the interface implemented by all port types (HTTP proxy, HTTP redirect, TCP forward).
@@ -73,10 +77,13 @@ func newPortProxy(
 
 	// Create the reverse proxy
 	//
+	if !pconfig.TLSValidate {
+		log.Warn().Str("port", pconfig.String()).Msg("TLS validation disabled for this port")
+	}
 	tr := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: !pconfig.TLSValidate}, //nolint:gosec // G402: config-driven TLS validation toggle
-		MaxIdleConnsPerHost: 10,                                                    //nolint:mnd
-		IdleConnTimeout:     30 * time.Second,                                      //nolint:mnd
+		MaxIdleConnsPerHost: maxIdleConnsPerHost,
+		IdleConnTimeout:     idleConnTimeout,
 	}
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,
@@ -306,7 +313,7 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 		return
 	}
 
-	dialer := net.Dialer{Timeout: 10 * time.Second} //nolint:mnd
+	dialer := net.Dialer{Timeout: tcpDialTimeout}
 	backendConn, err := dialer.DialContext(p.ctx, "tcp", target.Host)
 	if err != nil {
 		p.log.Error().Err(err).Str("target", target.Host).Msg("error dialing backend")
@@ -314,7 +321,7 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}
 	defer backendConn.Close()
 
-	errChan := make(chan error, 2) //nolint:mnd
+	errChan := make(chan error, tcpErrChanBuf)
 	go func() {
 		_, err := io.Copy(backendConn, clientConn)
 		errChan <- err
