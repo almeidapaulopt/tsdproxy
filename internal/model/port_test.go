@@ -613,6 +613,62 @@ func TestExpandPortRangeShortLabel_NotRange(t *testing.T) {
 	}
 }
 
+func TestNewPortLongLabel_TLSValidateDefault(t *testing.T) {
+	cfg, err := NewPortLongLabel("443/https:80/http")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.TLSValidate {
+		t.Errorf("TLSValidate: got %v, want true (DefaultTLSValidate)", cfg.TLSValidate)
+	}
+}
+
+func TestNewPortShortLabel_TLSValidateDefault(t *testing.T) {
+	cfg, err := NewPortShortLabel("443/https")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !cfg.TLSValidate {
+		t.Errorf("TLSValidate: got %v, want true (DefaultTLSValidate)", cfg.TLSValidate)
+	}
+}
+
+func TestDefaultPortConfig_TLSValidateDefault(t *testing.T) {
+	cfg := defaultPortConfig("test")
+
+	if !cfg.TLSValidate {
+		t.Errorf("defaultPortConfig TLSValidate: got %v, want true (DefaultTLSValidate)", cfg.TLSValidate)
+	}
+}
+
+func TestExpandPortConfigs_TLSValidateDefault(t *testing.T) {
+	result, err := ExpandPortRangeLabel("5000-5002/tcp:4000-4002/tcp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for key, cfg := range result {
+		if !cfg.TLSValidate {
+			t.Errorf("expandPortConfigs %q TLSValidate: got %v, want true (DefaultTLSValidate)", key, cfg.TLSValidate)
+		}
+	}
+}
+
+func TestExpandPortRangeShortLabel_TLSValidateDefault(t *testing.T) {
+	result, err := ExpandPortRangeShortLabel("56000-56002/udp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for key, cfg := range result {
+		if !cfg.TLSValidate {
+			t.Errorf("ExpandPortRangeShortLabel %q TLSValidate: got %v, want true (DefaultTLSValidate)", key, cfg.TLSValidate)
+		}
+	}
+}
+
 func TestPortConfig_ConcurrentGetAndReplace(t *testing.T) {
 	cfg, _ := NewPortLongLabel("443/https:80/http")
 

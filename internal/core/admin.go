@@ -183,24 +183,17 @@ func writeForbidden(w http.ResponseWriter, r *http.Request, message string) {
 }
 
 // ResolveWhois resolves the Tailscale identity for a request.
-// Priority: request context (set by ProviderUserMiddleware on direct
-// tsnet connections), then x-tsdproxy-* headers from localhost (set by
-// the internal reverse proxy, validated via per-process auth token in
-// StripProxyIdentityHeaders).
+// Identity is sourced exclusively from the request context, which is set by:
+//   - ProviderUserMiddleware for direct tsnet connections
+//   - StripProxyIdentityHeaders for localhost requests forwarded by the
+//     internal reverse proxy (self-proxy case, validated via per-process
+//     auth token)
+//
+// Raw x-tsdproxy-* headers are never trusted directly.
 func ResolveWhois(r *http.Request) model.Whois {
-	if who, ok := model.WhoisFromContext(r.Context()); ok && who.ID != "" {
+	if who, ok := model.WhoisFromContext(r.Context()); ok {
 		return who
 	}
-
-	if model.IsLocalhost(r.RemoteAddr) {
-		return model.Whois{
-			ID:            r.Header.Get(consts.HeaderID),
-			Username:      r.Header.Get(consts.HeaderUsername),
-			DisplayName:   r.Header.Get(consts.HeaderDisplayName),
-			ProfilePicURL: r.Header.Get(consts.HeaderProfilePicURL),
-		}
-	}
-
 	return model.Whois{}
 }
 
@@ -255,26 +248,41 @@ func validProxyAuthToken(r *http.Request) bool {
 }
 
 // StripProxyIdentityHeaders removes x-tsdproxy-* identity and auth-token
-// headers from incoming requests. Identity headers are preserved only when
-// the request carries the correct per-process auth token and originates from
-// localhost (i.e. from the internal reverse proxy forwarding an authenticated
-// Tailscale session to the management listener). The auth token itself is
-// always stripped to prevent leakage.
+// headers from incoming requests. When the request carries the correct
+// per-process auth token and originates from localhost (i.e. from the
+// internal reverse proxy forwarding an authenticated Tailscale session),
+// the validated identity is promoted into the request context so that
+// ResolveWhois can read it. All raw identity headers and the auth token
+// are always stripped, regardless of validity.
 func StripProxyIdentityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		valid := validProxyAuthToken(r)
+
 		// Always strip the auth token immediately so downstream handlers
 		// never see the secret, even if they log or reflect headers.
 		r.Header.Del(consts.HeaderAuthToken)
 
 		if valid {
-			next.ServeHTTP(w, r)
-			return
+			// Auth token is valid — the headers were set by the internal
+			// reverse proxy (self-proxy case). Promote to context so
+			// ResolveWhois reads a validated identity, not raw headers.
+			who := model.Whois{
+				ID:            r.Header.Get(consts.HeaderID),
+				Username:      r.Header.Get(consts.HeaderUsername),
+				DisplayName:   r.Header.Get(consts.HeaderDisplayName),
+				ProfilePicURL: r.Header.Get(consts.HeaderProfilePicURL),
+			}
+			if who.ID != "" {
+				r = r.WithContext(model.WhoisNewContext(r.Context(), who))
+			}
 		}
 
+		// Always strip identity headers so downstream code cannot read
+		// them directly — context is the only trusted source.
 		for _, h := range consts.IdentityHeaders {
 			r.Header.Del(h)
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }

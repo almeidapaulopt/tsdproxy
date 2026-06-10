@@ -179,6 +179,12 @@ func (proxy *Proxy) Close() {
 	proxy.setStatus(model.ProxyStatusStopped)
 }
 
+// cancelCtx cancels the proxy's context without closing listeners.
+// Use to unblock setup goroutines before waiting for them with setupWg.Wait().
+func (proxy *Proxy) cancelCtx() {
+	proxy.cancel()
+}
+
 // Pause stops all port listeners and health checks while keeping the
 // provider proxy (tsnet.Server) alive. The proxy status is set to Paused.
 func (proxy *Proxy) Pause() error {

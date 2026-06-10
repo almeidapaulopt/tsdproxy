@@ -45,6 +45,8 @@ type (
 	// ProxyManager struct stores data that is required to manage all proxies
 	ProxyManager struct {
 		log               zerolog.Logger
+		ctx               context.Context
+		cancel            context.CancelFunc
 		Proxies           ProxyList
 		TargetProviders   TargetProviderList
 		ProxyProviders    ProxyProviderList
@@ -70,7 +72,10 @@ var (
 
 // NewProxyManager function creates a new ProxyManager.
 func NewProxyManager(logger zerolog.Logger) *ProxyManager {
+	ctx, cancel := context.WithCancel(context.Background())
 	pm := &ProxyManager{
+		ctx:               ctx,
+		cancel:            cancel,
 		Proxies:           make(ProxyList),
 		TargetProviders:   make(TargetProviderList),
 		ProxyProviders:    make(ProxyProviderList),
@@ -112,6 +117,8 @@ func (pm *ProxyManager) Start() {
 func (pm *ProxyManager) StopAllProxies() {
 	pm.log.Info().Msg("Shutdown all proxies")
 
+	pm.cancel()
+
 	pm.mtx.RLock()
 	ids := make([]string, 0, len(pm.Proxies))
 	for id := range pm.Proxies {
@@ -141,7 +148,13 @@ func (pm *ProxyManager) WatchEvents() {
 			backoff := time.Second
 
 			for {
-				ctx, cancel := context.WithCancel(context.Background())
+				select {
+				case <-pm.ctx.Done():
+					return
+				default:
+				}
+
+				ctx, cancel := context.WithCancel(pm.ctx)
 
 				eventsChan := make(chan targetproviders.TargetEvent)
 				errChan := make(chan error, 1)
@@ -151,6 +164,9 @@ func (pm *ProxyManager) WatchEvents() {
 			streamLoop:
 				for {
 					select {
+					case <-pm.ctx.Done():
+						cancel()
+						return
 					case event, ok := <-eventsChan:
 						if !ok {
 							cancel()
@@ -688,6 +704,7 @@ func (pm *ProxyManager) closeAndRemoveProxy(hostname string, newProxyProvider ..
 				Msg("Proxy provider changed — the old Tailscale machine may need manual cleanup in the admin console")
 		}
 
+		old.cancelCtx()
 		old.setupWg.Wait()
 		pm.cleanupDomainForProxy(old)
 		old.Close()
@@ -714,6 +731,7 @@ func (pm *ProxyManager) removeProxy(hostname string) {
 	delete(pm.Proxies, hostname)
 	pm.mtx.Unlock()
 
+	proxy.cancelCtx()
 	proxy.setupWg.Wait()
 	pm.cleanupDomainForProxy(proxy)
 	proxy.Close()
@@ -760,6 +778,7 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 	}
 
 	if proxy != nil {
+		proxy.cancelCtx()
 		proxy.setupWg.Wait()
 		pm.cleanupDomainForProxy(proxy)
 		proxy.Close()
@@ -931,20 +950,6 @@ func (pm *ProxyManager) cleanupProxyMetrics(hostname string) {
 		pm.metrics.DeleteProxyMetrics(hostname)
 	}
 	pm.updateProxyCount()
-}
-
-// ReloadProviders rebuilds DNS and TLS provider registries from current config.
-func (pm *ProxyManager) ReloadProviders() {
-	pm.mtx.Lock()
-	defer pm.mtx.Unlock()
-
-	pm.addDNSProviders()
-	pm.addTLSProviders()
-
-	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(config.Config.CleanupDNS)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
-
-	pm.log.Info().Msg("Reloaded DNS and TLS providers from config")
 }
 
 func extractHost(rawURL string) string {

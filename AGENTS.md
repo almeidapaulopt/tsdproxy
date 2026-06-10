@@ -184,7 +184,7 @@ Steps 4–5 skipped for host-network containers.
 - **InsecureSkipVerify**: `proxymanager/port.go:74`, `proxymanager/health.go:105` — config-driven TLS validation toggle, uses `//nolint:gosec`
 - **println/fmt.Print in prod**: `cmd/server/main.go`, `internal/config/generateproviders.go` — 6 instances using `fmt.Fprintf(os.Stderr, ...)` instead of zerolog
 - **Swallowed errors**: `config/generateproviders.go` prints errors but continues; `dashboard/dash.go` discards render errors with `_ =`; `targetproviders/list/list.go` ignores `defaults.Set` error; ~10 cleanup `_ = Close()` patterns in tailscale provider
-- **Duplicate error definitions**: `core/log.go` and `core/metrics/metrics.go` both define `ErrHijackNotSupported` / `errHijackNotSupported` with same message
+- ~~**Duplicate error definitions**: `core/log.go` and `core/metrics/metrics.go` both define `ErrHijackNotSupported`~~ — Verified: single definition in `core/log.go:22`, `core/metrics/metrics.go` imports and reuses `core.ErrHijackNotSupported`
 - **Config case sensitivity**: YAML keys are case-sensitive (documented WARNING, no runtime validation)
 - **Makefile ldflags mismatch**: Makefile targets `AppVersion`/`BuildDate`/`GitCommit` vars that don't exist in `version.go` (only GoReleaser's `version` var works)
 - **`prod` build tag**: Set in GoReleaser but no `//go:build prod` constraints in source — inert

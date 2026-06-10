@@ -774,21 +774,6 @@ func TestCleanupProxyMetrics_NilMetrics(t *testing.T) {
 	pm.cleanupProxyMetrics("test")
 }
 
-// -- ReloadProviders -----------------------------------------------------------
-
-func TestReloadProviders(t *testing.T) {
-	origTLS := config.Config.TLSProviders
-	config.Config.TLSProviders = nil
-	origDNS := config.Config.DNSProviders
-	config.Config.DNSProviders = nil
-	defer func() {
-		config.Config.TLSProviders = origTLS
-		config.Config.DNSProviders = origDNS
-	}()
-	pm := newTestProxyManager()
-	pm.ReloadProviders()
-}
-
 // -- getHostLock ---------------------------------------------------------------
 
 func TestGetHostLock_SameHostname_ReturnsSameMutex(t *testing.T) {

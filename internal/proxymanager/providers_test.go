@@ -69,7 +69,10 @@ func (m *mockTLSProvider) GetCertificate(_ context.Context, _ string) (tls.Certi
 func (m *mockTLSProvider) Cleanup(_ context.Context, _ string) error { return nil }
 
 func newTestProxyManager() *ProxyManager {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &ProxyManager{
+		ctx:               ctx,
+		cancel:            cancel,
 		Proxies:           make(ProxyList),
 		TargetProviders:   make(TargetProviderList),
 		ProxyProviders:    make(ProxyProviderList),

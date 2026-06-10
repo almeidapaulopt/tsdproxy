@@ -411,70 +411,38 @@ func TestResolveWhois(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		headers           map[string]string
 		name              string
-		remoteAddr        string
-		whoisCtxID        string
+		whoisCtx          model.Whois
+		setWhoisCtx       bool
 		wantID            string
 		wantUsername      string
 		wantDisplayName   string
 		wantProfilePicURL string
-		setEmptyWhois     bool
 	}{
 		{
-			name:       "Whois in context takes priority over localhost headers",
-			remoteAddr: "127.0.0.1:12345",
-			whoisCtxID: "ctx-user@ts.com",
-			headers:    map[string]string{consts.HeaderID: "header-user@ts.com"},
-			wantID:     "ctx-user@ts.com",
-		},
-		{
-			name:       "localhost with headers returns Whois",
-			remoteAddr: "127.0.0.1:12345",
-			headers: map[string]string{
-				consts.HeaderID:            "user@ts.com",
-				consts.HeaderUsername:      "user",
-				consts.HeaderDisplayName:   "User",
-				consts.HeaderProfilePicURL: "https://example.com/pic",
-			},
-			wantID:            "user@ts.com",
-			wantUsername:      "user",
-			wantDisplayName:   "User",
-			wantProfilePicURL: "https://example.com/pic",
-		},
-		{
-			name:       "no identity",
-			remoteAddr: "8.8.8.8:8080",
+			name:       "no identity returns empty",
 			wantID:     "",
+			setWhoisCtx: false,
 		},
 		{
-			name:       "localhost without headers returns empty",
-			remoteAddr: "127.0.0.1:12345",
-			wantID:     "",
-		},
-		{
-			name:       "not localhost with headers returns empty",
-			remoteAddr: "8.8.8.8:8080",
-			headers:    map[string]string{consts.HeaderID: "user@ts.com"},
-			wantID:     "",
-		},
-		{
-			name:          "context Whois with empty ID falls through",
-			remoteAddr:    "127.0.0.1:12345",
-			whoisCtxID:    "",
-			setEmptyWhois: true,
-			headers: map[string]string{
-				consts.HeaderID: "header-user@ts.com",
+			name:        "Whois in context returned",
+			setWhoisCtx: true,
+			whoisCtx: model.Whois{
+				ID:            "ctx-user@ts.com",
+				Username:      "ctxuser",
+				DisplayName:   "Ctx User",
+				ProfilePicURL: "https://example.com/ctx.png",
 			},
-			wantID: "header-user@ts.com",
+			wantID:            "ctx-user@ts.com",
+			wantUsername:      "ctxuser",
+			wantDisplayName:   "Ctx User",
+			wantProfilePicURL: "https://example.com/ctx.png",
 		},
 		{
-			name:       "localhost with only ID header propagates ID only",
-			remoteAddr: "127.0.0.1:12345",
-			headers: map[string]string{
-				consts.HeaderID: "lonely@ts.com",
-			},
-			wantID: "lonely@ts.com",
+			name:        "context Whois with empty ID returns empty Whois",
+			setWhoisCtx: true,
+			whoisCtx:    model.Whois{ID: ""},
+			wantID:      "",
 		},
 	}
 
@@ -482,13 +450,8 @@ func TestResolveWhois(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.RemoteAddr = tt.remoteAddr
-			for k, v := range tt.headers {
-				req.Header.Set(k, v)
-			}
-			if tt.whoisCtxID != "" || tt.setEmptyWhois {
-				who := model.Whois{ID: tt.whoisCtxID}
-				ctx := model.WhoisNewContext(req.Context(), who)
+			if tt.setWhoisCtx {
+				ctx := model.WhoisNewContext(req.Context(), tt.whoisCtx)
 				req = req.WithContext(ctx)
 			}
 
@@ -613,10 +576,10 @@ func TestStripProxyIdentityHeaders(t *testing.T) {
 		name            string
 		remoteAddr      string
 		authToken       string
-		wantPreserved   bool
+		wantInContext   bool
 	}{
 		{
-			name:       "valid token from localhost preserves identity headers",
+			name:       "valid token from localhost promotes identity to context",
 			remoteAddr: "127.0.0.1:12345",
 			authToken:  "valid-secret",
 			identityHeaders: map[string]string{
@@ -625,34 +588,34 @@ func TestStripProxyIdentityHeaders(t *testing.T) {
 				consts.HeaderDisplayName:   "User",
 				consts.HeaderProfilePicURL: "https://example.com/pic",
 			},
-			wantPreserved: true,
+			wantInContext: true,
 		},
 		{
-			name:       "wrong token from localhost strips identity headers",
+			name:       "wrong token from localhost strips identity headers without context",
 			remoteAddr: "127.0.0.1:12345",
 			authToken:  "wrong-secret",
 			identityHeaders: map[string]string{
 				consts.HeaderID: "user@ts.com",
 			},
-			wantPreserved: false,
+			wantInContext: false,
 		},
 		{
-			name:       "valid token from non-localhost strips identity headers",
+			name:       "valid token from non-localhost strips identity headers without context",
 			remoteAddr: "8.8.8.8:8080",
 			authToken:  "valid-secret",
 			identityHeaders: map[string]string{
 				consts.HeaderID: "user@ts.com",
 			},
-			wantPreserved: false,
+			wantInContext: false,
 		},
 		{
-			name:       "no auth token from localhost strips identity headers",
+			name:       "no auth token from localhost strips identity headers without context",
 			remoteAddr: "127.0.0.1:12345",
 			authToken:  "",
 			identityHeaders: map[string]string{
 				consts.HeaderID: "user@ts.com",
 			},
-			wantPreserved: false,
+			wantInContext: false,
 		},
 	}
 
@@ -667,9 +630,10 @@ func TestStripProxyIdentityHeaders(t *testing.T) {
 			}
 
 			var headersAfter http.Header
-			handler := StripProxyIdentityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var gotWhois model.Whois
+			handler := StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				headersAfter = r.Header.Clone()
-				w.WriteHeader(http.StatusOK)
+				gotWhois = ResolveWhois(r)
 			}))
 			handler.ServeHTTP(rec, req)
 
@@ -679,11 +643,27 @@ func TestStripProxyIdentityHeaders(t *testing.T) {
 
 			for k := range tt.identityHeaders {
 				got := headersAfter.Get(k)
-				if tt.wantPreserved && got == "" {
-					t.Errorf("StripProxyIdentityHeaders stripped identity header %q, want preserved", k)
-				}
-				if !tt.wantPreserved && got != "" {
+				if got != "" {
 					t.Errorf("StripProxyIdentityHeaders preserved identity header %q, want stripped", k)
+				}
+			}
+
+			if tt.wantInContext {
+				if gotWhois.ID != tt.identityHeaders[consts.HeaderID] {
+					t.Errorf("ResolveWhois().ID = %q, want %q", gotWhois.ID, tt.identityHeaders[consts.HeaderID])
+				}
+				if gotWhois.Username != tt.identityHeaders[consts.HeaderUsername] {
+					t.Errorf("ResolveWhois().Username = %q, want %q", gotWhois.Username, tt.identityHeaders[consts.HeaderUsername])
+				}
+				if gotWhois.DisplayName != tt.identityHeaders[consts.HeaderDisplayName] {
+					t.Errorf("ResolveWhois().DisplayName = %q, want %q", gotWhois.DisplayName, tt.identityHeaders[consts.HeaderDisplayName])
+				}
+				if gotWhois.ProfilePicURL != tt.identityHeaders[consts.HeaderProfilePicURL] {
+					t.Errorf("ResolveWhois().ProfilePicURL = %q, want %q", gotWhois.ProfilePicURL, tt.identityHeaders[consts.HeaderProfilePicURL])
+				}
+			} else {
+				if gotWhois.ID != "" {
+					t.Errorf("ResolveWhois().ID = %q, want empty (no context)", gotWhois.ID)
 				}
 			}
 
@@ -790,6 +770,73 @@ func TestIsLocalhost(t *testing.T) {
 				t.Errorf("IsLocalhost(%q) = %v, want %v", tt.remoteAddr, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStripProxyIdentityHeaders_PromotesToContext(t *testing.T) {
+	saveProxyAuthToken(t)
+	proxyAuthToken = "test-secret"
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set(consts.HeaderAuthToken, "test-secret")
+	req.Header.Set(consts.HeaderID, "user@ts.com")
+	req.Header.Set(consts.HeaderUsername, "testuser")
+	req.Header.Set(consts.HeaderDisplayName, "Test User")
+	req.Header.Set(consts.HeaderProfilePicURL, "https://example.com/avatar.png")
+
+	var gotWhois model.Whois
+	var headersAfter http.Header
+	handler := StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotWhois = ResolveWhois(r)
+		headersAfter = r.Header.Clone()
+	}))
+	handler.ServeHTTP(rec, req)
+
+	if gotWhois.ID != "user@ts.com" {
+		t.Errorf("ResolveWhois().ID = %q, want %q", gotWhois.ID, "user@ts.com")
+	}
+	if gotWhois.Username != "testuser" {
+		t.Errorf("ResolveWhois().Username = %q, want %q", gotWhois.Username, "testuser")
+	}
+	if gotWhois.DisplayName != "Test User" {
+		t.Errorf("ResolveWhois().DisplayName = %q, want %q", gotWhois.DisplayName, "Test User")
+	}
+	if gotWhois.ProfilePicURL != "https://example.com/avatar.png" {
+		t.Errorf("ResolveWhois().ProfilePicURL = %q, want %q", gotWhois.ProfilePicURL, "https://example.com/avatar.png")
+	}
+
+	if headersAfter.Get(consts.HeaderAuthToken) != "" {
+		t.Error("auth token header not stripped")
+	}
+	for _, h := range consts.IdentityHeaders {
+		if headersAfter.Get(h) != "" {
+			t.Errorf("identity header %q not stripped", h)
+		}
+	}
+}
+
+func TestResolveWhois_IgnoresSpoofedHeaders(t *testing.T) {
+	saveProxyAuthToken(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Header.Set(consts.HeaderID, "spoofed@ts.com")
+	req.Header.Set(consts.HeaderUsername, "spoofed")
+
+	var gotWhois model.Whois
+	handler := StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotWhois = ResolveWhois(r)
+	}))
+	handler.ServeHTTP(rec, req)
+
+	if gotWhois.ID != "" {
+		t.Errorf("ResolveWhois().ID = %q, want empty (spoofed headers without auth token)", gotWhois.ID)
+	}
+	if gotWhois.Username != "" {
+		t.Errorf("ResolveWhois().Username = %q, want empty", gotWhois.Username)
 	}
 }
 

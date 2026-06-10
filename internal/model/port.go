@@ -149,6 +149,7 @@ func defaultPortConfig(name string) PortConfig {
 		name:          name,
 		ProxyProtocol: ProtoHTTPS,
 		ProxyPort:     443, //nolint:mnd
+		TLSValidate:   DefaultTLSValidate,
 		IsRedirect:    false,
 		targets:       &targetState{},
 	}
@@ -484,7 +485,7 @@ func expandPortConfigs(proxyPorts, targetPorts []int, proxyProtocol, targetProto
 			ProxyProtocol: proxyProtocol,
 			ProxyPort:     proxyPort,
 			IsRedirect:    false,
-			TLSValidate:   true,
+			TLSValidate:   DefaultTLSValidate,
 			targets:       &targetState{targets: []*url.URL{targetURL}},
 		}
 
@@ -526,7 +527,7 @@ func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
 			ProxyProtocol: proxyProtocol,
 			ProxyPort:     p,
 			IsRedirect:    false,
-			TLSValidate:   true,
+			TLSValidate:   DefaultTLSValidate,
 			targets:       &targetState{},
 		}
 		key := fmt.Sprintf("range_%d", idx)

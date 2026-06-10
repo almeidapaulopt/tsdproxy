@@ -257,6 +257,7 @@ type tcpPort struct {
 	cancel   context.CancelFunc
 	pconfig  model.PortConfig
 	mtx      sync.Mutex
+	wg       sync.WaitGroup // track active connections
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *tcpPort {
@@ -295,6 +296,8 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 }
 
 func (p *tcpPort) handleConn(clientConn net.Conn) {
+	p.wg.Add(1)
+	defer p.wg.Done()
 	defer clientConn.Close()
 
 	target := p.pconfig.GetFirstTarget()
@@ -322,6 +325,8 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}()
 
 	<-errChan
+	clientConn.Close()
+	backendConn.Close()
 	<-errChan
 }
 
@@ -334,6 +339,8 @@ func (p *tcpPort) close() error {
 	p.mtx.Unlock()
 
 	p.cancel()
+
+	p.wg.Wait()
 
 	return errs
 }
@@ -607,6 +614,14 @@ func resolvePeerIP(r *http.Request) string {
 	return ip
 }
 
+// isManagementTarget reports whether a proxy target points to tsdproxy's own
+// management HTTP server (the self-proxy case where tsdproxy proxies to itself).
+//
+// Heuristic: loopback IP + management port. This accepts any loopback address,
+// not just the address the server actually binds to. In practice this is safe
+// because tsdproxy binds to that port exclusively, but if http.hostname is set
+// to a specific non-loopback IP and a co-located service happens to listen on
+// 127.0.0.1:<same-port>, that service would receive the per-process auth token.
 func isManagementTarget(target *url.URL) bool {
 	if target == nil {
 		return false

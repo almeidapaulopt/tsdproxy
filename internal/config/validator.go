@@ -179,7 +179,7 @@ func (c *config) validateServicesProvider(name string, p *TailscaleServerConfig)
 	if p.ClientID == "" {
 		return fmt.Errorf("tailscale provider %q: services mode requires clientId for VIP Services API", name)
 	}
-	if p.ClientSecret == "" && p.ClientSecretFile == "" {
+	if p.ClientSecret.Value() == "" && p.ClientSecretFile == "" {
 		return fmt.Errorf("tailscale provider %q: services mode requires clientSecret or clientSecretFile for VIP Services API", name)
 	}
 	if p.Tags == "" {
