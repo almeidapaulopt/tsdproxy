@@ -379,7 +379,7 @@ func buildPortEntries(ports model.PortConfigList, hostname string) []pages.PortE
 		entries = append(entries, pages.PortEntry{
 			PortConfig: target,
 			URL:        portURL,
-			TargetURL:  target.GetFirstTarget().String(),
+			TargetURL:  target.GetFirstTargetString(),
 		})
 	}
 	return entries

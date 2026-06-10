@@ -253,7 +253,7 @@ func (a *API) toAPIPorts(p *proxymanager.Proxy) []apiPort {
 			Name:          k,
 			ProxyProtocol: v.ProxyProtocol,
 			ProxyPort:     v.ProxyPort,
-			TargetURL:     v.GetFirstTarget().String(),
+			TargetURL:     v.GetFirstTargetString(),
 			TLSValidate:   v.TLSValidate,
 			IsRedirect:    v.IsRedirect,
 			Funnel:        v.Tailscale.Funnel,
