@@ -27,8 +27,8 @@ var (
 func defaultPreferences() model.Preferences {
 	return model.Preferences{
 		Dark:         true,
-		View:         "card",
-		Sort:         "name",
+		View:         viewCard,
+		Sort:         sortName,
 		Grouped:      false,
 		FilterStatus: filterAll,
 		FilterHealth: filterAll,
@@ -37,16 +37,16 @@ func defaultPreferences() model.Preferences {
 }
 
 var validSortKeys = map[string]bool{
-	"name": true, sortStatus: true, "provider": true, sortHealth: true,
+	sortName: true, sortStatus: true, "provider": true, sortHealth: true,
 }
 
 var validViewValues = map[string]bool{
-	"card": true, "list": true,
+	viewCard: true, viewList: true,
 }
 
 var validFilterStatusValues = map[string]bool{
 	filterAll:          true,
-	"Running":          true,
+	filterRunning:      true,
 	"Stopped":          true,
 	"Error":            true,
 	"Paused":           true,
@@ -58,14 +58,14 @@ var validFilterStatusValues = map[string]bool{
 }
 
 var validFilterHealthValues = map[string]bool{
-	filterAll: true, "healthy": true, "down": true, healthUnknown: true,
+	filterAll: true, healthHealthy: true, filterDown: true, healthUnknown: true,
 }
 
 func validatePrefs(p *model.Preferences) {
 	def := defaultPreferences()
 	// Migration: "compact" was renamed to "list"
-	if p.View == "compact" {
-		p.View = "list"
+	if p.View == viewCompact {
+		p.View = viewList
 	}
 	if !validViewValues[p.View] {
 		p.View = def.View
@@ -115,7 +115,7 @@ func (s *PreferencesStore) path(userID string) string {
 
 func normalizeUserID(userID string) string {
 	if !safeUserID.MatchString(userID) {
-		return "_invalid"
+		return invalidUserID
 	}
 	return userID
 }

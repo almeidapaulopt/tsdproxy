@@ -33,10 +33,11 @@ type PortRouter struct {
 }
 
 const (
-	tlsRecordBufSize = 16389 // 5-byte TLS record header + 16384 max body
-	httpReadBufSize  = 256
-	crlfCRLFDelimLen = 4 // \r\n\r\n
-	lfLFDelimLen     = 2 // \n\n
+	tlsRecordBufSize  = 16389 // 5-byte TLS record header + 16384 max body
+	tlsRecordLenShift = 8     // big-endian uint16: high byte << 8 | low byte
+	httpReadBufSize   = 256
+	crlfCRLFDelimLen  = 4 // \r\n\r\n
+	lfLFDelimLen      = 2 // \n\n
 )
 
 func NewPortRouter(mode RoutingMode, log zerolog.Logger) *PortRouter {
@@ -198,7 +199,7 @@ func clientHelloServerName(br *bufio.Reader) (sni string) {
 	if hdr[0] != recordTypeHandshake {
 		return ""
 	}
-	recLen := int(hdr[3])<<8 | int(hdr[4])
+	recLen := int(hdr[3])<<tlsRecordLenShift | int(hdr[4])
 	helloBytes, err := br.Peek(recordHeaderLen + recLen)
 	if err != nil {
 		return ""

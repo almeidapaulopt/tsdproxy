@@ -15,7 +15,7 @@ func SetTestConfig(dataDir, authKey string) {
 	}
 	Config.Tailscale.Providers[TailscaleDefaultProviderName] = &TailscaleServerConfig{
 		AuthKey:    secretstring.SecretString(authKey),
-		ControlURL: "https://controlplane.tailscale.com",
+		ControlURL: defaultControlURL,
 	}
 	Config.Docker = make(map[string]*DockerTargetProviderConfig)
 	Config.Lists = make(map[string]*ListTargetProviderConfig)

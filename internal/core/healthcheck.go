@@ -13,6 +13,9 @@ import (
 const (
 	Ready    = 1
 	NotReady = 0
+
+	statusOK  = "OK"
+	statusNOK = "NOK"
 )
 
 type Health struct {
@@ -41,11 +44,11 @@ func (h *Health) AddRoutes() {
 func (h *Health) Ready() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if atomic.LoadInt32(&h.ready) == Ready {
-			h.HTTP.JSONResponseCode(w, r, map[string]string{"status": "OK"}, http.StatusOK)
+			h.HTTP.JSONResponseCode(w, r, map[string]string{"status": statusOK}, http.StatusOK)
 			return
 		}
 
-		h.HTTP.JSONResponseCode(w, r, map[string]string{"status": "NOK"}, http.StatusServiceUnavailable)
+		h.HTTP.JSONResponseCode(w, r, map[string]string{"status": statusNOK}, http.StatusServiceUnavailable)
 	}
 }
 

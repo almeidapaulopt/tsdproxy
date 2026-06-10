@@ -13,14 +13,23 @@ import (
 )
 
 const (
-	filterAll     = "all"
-	sortStatus    = "status"
-	sortHealth    = "health"
-	healthUnknown = "unknown"
-	swapOuterHTML = "outerHTML"
+	filterAll      = "all"
+	sortStatus     = "status"
+	sortHealth     = "health"
+	sortName       = "name"
+	healthUnknown  = "unknown"
+	healthHealthy  = "healthy"
+	filterDown     = "down"
+	filterRunning  = "Running"
+	viewCard       = "card"
+	viewList       = "list"
+	viewCompact    = "compact"
+	groupUngrouped = "Ungrouped"
+	invalidUserID  = "_invalid"
+	swapOuterHTML  = "outerHTML"
 )
 
-var healthOrder = map[string]int{"healthy": 0, healthUnknown: 1, "down": 2} //nolint:mnd
+var healthOrder = map[string]int{healthHealthy: 0, healthUnknown: 1, filterDown: 2} //nolint:mnd
 
 func healthRank(h string) int {
 	if r, ok := healthOrder[h]; ok {
@@ -140,7 +149,7 @@ func groupItems(items []pages.ProxyViewItem) []pages.DashboardGroup {
 	for _, item := range items {
 		cat := strings.TrimSpace(item.Category)
 		if cat == "" {
-			cat = "Ungrouped"
+			cat = groupUngrouped
 		}
 		if _, exists := groups[cat]; !exists {
 			order = append(order, cat)
