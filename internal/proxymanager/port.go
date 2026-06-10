@@ -110,7 +110,10 @@ func newPortProxy(
 			w.WriteHeader(http.StatusBadGateway)
 		},
 		Rewrite: func(r *httputil.ProxyRequest) {
-			r.SetURL(pconfig.GetFirstTarget())
+			target := pconfig.GetFirstTarget()
+			if target != nil {
+				r.SetURL(target)
+			}
 			r.Out.Host = r.In.Host
 
 			// Always remove trusted identity headers to prevent spoofing.
@@ -208,7 +211,12 @@ func newPortRedirect(ctx context.Context, pconfig model.PortConfig, log zerolog.
 	redirectHTTPServer := &http.Server{
 		ReadHeaderTimeout: core.ReadHeaderTimeout,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, pconfig.GetFirstTarget().String(), http.StatusMovedPermanently)
+			target := pconfig.GetFirstTarget()
+			if target == nil {
+				http.Error(w, "no target configured", http.StatusBadGateway)
+				return
+			}
+			http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
 		}),
 	}
 
@@ -308,7 +316,7 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	defer clientConn.Close()
 
 	target := p.pconfig.GetFirstTarget()
-	if target.Host == "" {
+	if target == nil || target.Host == "" {
 		p.log.Error().Msg("no target configured for TCP port")
 		return
 	}
@@ -388,7 +396,7 @@ func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
 	}()
 
 	target := p.pconfig.GetFirstTarget()
-	if target.Host == "" {
+	if target == nil || target.Host == "" {
 		return errors.New("no target configured for UDP port")
 	}
 
@@ -500,7 +508,7 @@ func (p *udpPort) getOrCreateBackendConn(
 
 	// Resolve target for each new client connection so re-resolution takes effect.
 	target := p.pconfig.GetFirstTarget()
-	if target.Host == "" {
+	if target == nil || target.Host == "" {
 		delete(clientMap, key)
 		return nil, errors.New("no target configured for UDP port")
 	}

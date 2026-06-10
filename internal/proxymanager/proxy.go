@@ -498,6 +498,10 @@ func (proxy *Proxy) reResolveHealthTarget() error {
 		oldTarget := oldPC.GetFirstTarget()
 		newTarget := newPC.GetFirstTarget()
 
+		if oldTarget == nil || newTarget == nil {
+			continue
+		}
+
 		if oldTarget.String() == newTarget.String() {
 			continue
 		}

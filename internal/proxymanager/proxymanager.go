@@ -202,7 +202,14 @@ func (pm *ProxyManager) reconnectBackoff(provider targetproviders.TargetProvider
 	pm.log.Warn().Str("provider", provider.GetDefaultProxyProviderName()).
 		Dur("retry_after", current).
 		Msg(reason + ", reconnecting")
-	time.Sleep(current)
+	timer := time.NewTimer(current)
+	select {
+	case <-pm.ctx.Done():
+		if !timer.Stop() {
+			<-timer.C
+		}
+	case <-timer.C:
+	}
 	next := current * backoffMultiplier
 	if next > maxWatchBackoff {
 		return maxWatchBackoff
@@ -784,12 +791,21 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 	}
 
 	if proxy != nil {
+		// Acquire hostname lock to serialize with newAndStartProxy for the
+		// same hostname arriving from a different container. Without this,
+		// a concurrent newAndStartProxy could create a new tsnet.Server on
+		// the same state directory while this Close() is still in progress.
+		hmu := pm.getHostLock(proxy.Config.Hostname)
+		hmu.Lock()
+
 		proxy.cancelCtx()
 		proxy.setupWg.Wait()
 		pm.cleanupDomainForProxy(proxy)
 		proxy.Close()
 		pm.cleanupProxyMetrics(proxy.Config.Hostname)
 		pm.log.Debug().Str("proxy", proxy.Config.Hostname).Msg("Removed proxy")
+
+		hmu.Unlock()
 	}
 }
 
