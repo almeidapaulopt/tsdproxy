@@ -135,9 +135,11 @@ func New(log zerolog.Logger, name string, provider *config.ListTargetProviderCon
 func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.log.Debug().Msg("Start WatchEvents")
 
+	c.mtx.Lock()
 	c.eventsChan = eventsChan
 	c.errChan = errChan
 	c.ctx = ctx
+	c.mtx.Unlock()
 
 	c.file.OnChange(c.onFileChange)
 
@@ -176,13 +178,17 @@ func (c *Client) GetDefaultProxyProviderName() string {
 }
 
 func (c *Client) trySendEvent(ctx context.Context, id string, action targetproviders.ActionType) bool {
-	if c.eventsChan == nil {
+	c.mtx.RLock()
+	eventsChan := c.eventsChan
+	c.mtx.RUnlock()
+
+	if eventsChan == nil {
 		return false
 	}
 	select {
 	case <-ctx.Done():
 		return false
-	case c.eventsChan <- targetproviders.TargetEvent{
+	case eventsChan <- targetproviders.TargetEvent{
 		ID:             id,
 		TargetProvider: c,
 		Action:         action,
@@ -197,10 +203,15 @@ func (c *Client) Close() {
 	for name := range c.proxies {
 		names = append(names, name)
 	}
+	ctx := c.ctx
 	c.mtx.RUnlock()
 
+	if c.file != nil {
+		c.file.Close()
+	}
+
 	for _, name := range names {
-		c.trySendEvent(c.ctx, name, targetproviders.ActionStopProxy)
+		c.trySendEvent(ctx, name, targetproviders.ActionStopProxy)
 	}
 }
 
