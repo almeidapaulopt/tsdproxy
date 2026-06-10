@@ -270,8 +270,15 @@ func TestNewPortShortLabel_ProxyPortOutOfRange(t *testing.T) {
 func TestPortConfig_GetFirstTarget_Empty(t *testing.T) {
 	cfg := PortConfig{}
 	target := cfg.GetFirstTarget()
-	if target.Scheme != "" || target.Host != "" {
-		t.Errorf("empty config: got scheme=%q host=%q, want empty", target.Scheme, target.Host)
+	if target != nil {
+		t.Errorf("empty config: got %v, want nil", target)
+	}
+}
+
+func TestPortConfig_GetFirstTargetString_Empty(t *testing.T) {
+	cfg := PortConfig{}
+	if got := cfg.GetFirstTargetString(); got != "" {
+		t.Errorf("empty config: got %q, want empty string", got)
 	}
 }
 

@@ -57,7 +57,6 @@ const (
 )
 
 var (
-	ErrInvalidPortFormat   = errors.New("invalid format, missing '" + protocolSeparator + "' or '" + redirectSeparator + "'")
 	ErrInvalidProxyConfig  = errors.New("invalid proxy configuration")
 	ErrInvalidTargetConfig = errors.New("invalid target configuration")
 )
@@ -183,6 +182,12 @@ func parseProxySegment(segment string, config *PortConfig) error {
 
 	if len(proxyParts) == splitPairCount {
 		config.ProxyProtocol = proxyParts[1]
+
+		switch config.ProxyProtocol {
+		case ProtoHTTPS, ProtoHTTP, ProtoTCP, ProtoUDP:
+		default:
+			return fmt.Errorf("invalid proxy protocol %q: must be one of https, http, tcp, udp", config.ProxyProtocol)
+		}
 	}
 
 	return nil
@@ -235,6 +240,10 @@ func parseRedirectTarget(segment string, config *PortConfig) error {
 		return fmt.Errorf("invalid target URL: %v", segment)
 	}
 
+	if targetURL.Scheme != ProtoHTTP && targetURL.Scheme != ProtoHTTPS {
+		return fmt.Errorf("invalid redirect scheme %q: must be http or https", targetURL.Scheme)
+	}
+
 	config.AddTarget(targetURL)
 
 	return nil
@@ -249,9 +258,17 @@ func (p *PortConfig) GetTargets() []*url.URL {
 
 func (p *PortConfig) GetFirstTarget() *url.URL {
 	if p.targets == nil {
-		return &url.URL{}
+		return nil
 	}
 	return p.targets.getFirst()
+}
+
+func (p *PortConfig) GetFirstTargetString() string {
+	t := p.GetFirstTarget()
+	if t == nil {
+		return ""
+	}
+	return t.String()
 }
 
 func (p *PortConfig) AddTarget(target *url.URL) {
@@ -282,13 +299,13 @@ func (ts *targetState) getFirst() *url.URL {
 	ts.mtx.RLock()
 	defer ts.mtx.RUnlock()
 	if len(ts.targets) == 0 {
-		return &url.URL{}
+		return nil
 	}
 	// Deep copy via round-trip through Parse to avoid sharing pointer fields
 	// (e.g. url.User) with the stored target.
 	cp, _ := url.Parse(ts.targets[0].String())
 	if cp == nil {
-		return &url.URL{}
+		return nil
 	}
 	return cp
 }

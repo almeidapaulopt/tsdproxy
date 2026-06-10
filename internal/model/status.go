@@ -45,8 +45,8 @@ var proxyStatusStrings = []string{
 	"Reconciling",
 }
 
-func (s *ProxyStatus) String() string {
-	i := int(*s)
+func (s ProxyStatus) String() string {
+	i := int(s)
 	if i < 0 || i >= len(proxyStatusStrings) {
 		return "Unknown"
 	}
