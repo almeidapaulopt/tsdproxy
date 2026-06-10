@@ -255,7 +255,11 @@ func (s *Sender) sendOne(cfg config.WebhookConfig, event Event) error {
 }
 
 func (s *Sender) formatGeneric(event Event) ([]byte, string) {
-	b, _ := json.Marshal(event)
+	b, err := json.Marshal(event)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to marshal webhook payload")
+		return []byte(`{"error":"marshal failed"}`), contentTypeJSON
+	}
 	return b, contentTypeJSON
 }
 
@@ -280,7 +284,11 @@ func (s *Sender) formatDiscord(event Event) ([]byte, string) {
 			},
 		},
 	}
-	b, _ := json.Marshal(payload)
+	b, err := json.Marshal(payload)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to marshal webhook payload")
+		return []byte(`{"error":"marshal failed"}`), contentTypeJSON
+	}
 	return b, contentTypeJSON
 }
 
@@ -316,7 +324,11 @@ func (s *Sender) formatSlack(event Event) ([]byte, string) {
 			},
 		},
 	}
-	b, _ := json.Marshal(payload)
+	b, err := json.Marshal(payload)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to marshal webhook payload")
+		return []byte(`{"error":"marshal failed"}`), contentTypeJSON
+	}
 	return b, contentTypeJSON
 }
 
