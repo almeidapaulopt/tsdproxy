@@ -349,7 +349,7 @@ func (ss *ServicesServer) handleClose(c servicesCloseCmd, rt *servicesRuntime) {
 				case servicesGetAuthURLCmd:
 					v.reply <- ""
 				case servicesSubscribeCmd:
-					v.reply <- make(chan model.ProxyEvent)
+					v.reply <- make(chan model.ProxyEvent, servicesEventSubSize)
 				case servicesUnsubscribeCmd:
 					v.reply <- struct{}{}
 				case servicesCloseCmd:

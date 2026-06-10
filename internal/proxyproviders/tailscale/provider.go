@@ -285,7 +285,7 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		config:     config,
 		certSem:    c.certSem,
 		lifecycle:  lifecycle,
-		exposure:   NewPerProxyExposure(),
+		exposure:   NewPerProxyExposure(log),
 		events:     make(chan model.ProxyEvent, proxyEventBufferSize),
 		whoisCache: NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}, nil

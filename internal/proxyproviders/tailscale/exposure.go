@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"golang.org/x/sync/singleflight"
 	"tailscale.com/client/local"
 	"tailscale.com/tsnet"
@@ -64,6 +65,7 @@ func exposureLookup[T any](started bool, m map[string]T, portName string) (T, er
 
 // PerProxyExposure creates direct port listeners on a per-proxy tsnet.Server.
 type PerProxyExposure struct {
+	log          zerolog.Logger
 	listeners    map[string]net.Listener
 	rawListeners map[string]net.Listener
 	packetConns  map[string]net.PacketConn
@@ -73,8 +75,8 @@ type PerProxyExposure struct {
 }
 
 // NewPerProxyExposure creates a new PerProxyExposure instance.
-func NewPerProxyExposure() *PerProxyExposure {
-	return &PerProxyExposure{}
+func NewPerProxyExposure(log zerolog.Logger) *PerProxyExposure {
+	return &PerProxyExposure{log: log}
 }
 
 // Start creates port listeners on the tsnet.Server for each port in the config.
@@ -200,13 +202,19 @@ func (e *PerProxyExposure) Close(_ context.Context) error {
 
 func (e *PerProxyExposure) closeAll() {
 	for _, l := range e.listeners {
-		l.Close()
+		if err := l.Close(); err != nil {
+			e.log.Warn().Err(err).Msg("failed to close listener")
+		}
 	}
 	for _, l := range e.rawListeners {
-		l.Close()
+		if err := l.Close(); err != nil {
+			e.log.Warn().Err(err).Msg("failed to close raw listener")
+		}
 	}
 	for _, pc := range e.packetConns {
-		pc.Close()
+		if err := pc.Close(); err != nil {
+			e.log.Warn().Err(err).Msg("failed to close packet conn")
+		}
 	}
 	e.listeners = nil
 	e.rawListeners = nil

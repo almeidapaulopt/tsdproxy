@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/rs/zerolog"
 )
 
 func TestExposureLookup_NotStarted(t *testing.T) {
@@ -57,7 +59,7 @@ func TestExposureLookup_EmptyMap(t *testing.T) {
 func TestNewPerProxyExposure(t *testing.T) {
 	t.Parallel()
 
-	e := NewPerProxyExposure()
+	e := NewPerProxyExposure(zerolog.Nop())
 	if e == nil {
 		t.Fatal("NewPerProxyExposure returned nil")
 	}
@@ -69,7 +71,7 @@ func TestNewPerProxyExposure(t *testing.T) {
 func TestPerProxyExposure_GetListener_NotStarted(t *testing.T) {
 	t.Parallel()
 
-	e := NewPerProxyExposure()
+	e := NewPerProxyExposure(zerolog.Nop())
 	_, err := e.GetListener("https")
 	if !errors.Is(err, errExposureNotStarted) {
 		t.Errorf("expected errExposureNotStarted, got %v", err)
@@ -79,7 +81,7 @@ func TestPerProxyExposure_GetListener_NotStarted(t *testing.T) {
 func TestPerProxyExposure_GetRawTCPListener_NotStarted(t *testing.T) {
 	t.Parallel()
 
-	e := NewPerProxyExposure()
+	e := NewPerProxyExposure(zerolog.Nop())
 	_, err := e.GetRawTCPListener("tcp")
 	if !errors.Is(err, errExposureNotStarted) {
 		t.Errorf("expected errExposureNotStarted, got %v", err)
@@ -89,7 +91,7 @@ func TestPerProxyExposure_GetRawTCPListener_NotStarted(t *testing.T) {
 func TestPerProxyExposure_GetPacketConn_NotStarted(t *testing.T) {
 	t.Parallel()
 
-	e := NewPerProxyExposure()
+	e := NewPerProxyExposure(zerolog.Nop())
 	_, err := e.GetPacketConn("udp")
 	if !errors.Is(err, errExposureNotStarted) {
 		t.Errorf("expected errExposureNotStarted, got %v", err)
@@ -99,7 +101,7 @@ func TestPerProxyExposure_GetPacketConn_NotStarted(t *testing.T) {
 func TestPerProxyExposure_Close_Idempotent(t *testing.T) {
 	t.Parallel()
 
-	e := NewPerProxyExposure()
+	e := NewPerProxyExposure(zerolog.Nop())
 	if err := e.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error on first close: %v", err)
 	}
