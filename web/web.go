@@ -57,8 +57,8 @@ func buildIconIndex() {
 func GuessIcon(name string) string {
 	nameParts := strings.Split(name, "/")
 	lastPart := nameParts[len(nameParts)-1]
-	baseName := strings.SplitN(lastPart, ":", 2)[0] //nolint:gosec // slice always has 2 elements from SplitN
-	baseName = strings.SplitN(baseName, "@", 2)[0]  //nolint:gosec // slice always has 2 elements from SplitN
+	baseName := strings.SplitN(lastPart, ":", 2)[0] //nolint:gosec,mnd // slice always has 2 elements from SplitN
+	baseName = strings.SplitN(baseName, "@", 2)[0]  //nolint:gosec,mnd // slice always has 2 elements from SplitN
 
 	if icon, ok := iconIndex[baseName]; ok {
 		return icon

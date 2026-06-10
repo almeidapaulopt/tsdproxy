@@ -49,7 +49,7 @@ func resolveDirty() bool {
 		return false
 	}
 	for _, v := range bi.Settings {
-		if v.Key == "vcs.modified" && v.Value == "true" {
+		if v.Key == "vcs.modified" && v.Value == "true" { //nolint:goconst // build info value, not a domain constant
 			return true
 		}
 	}
