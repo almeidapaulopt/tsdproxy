@@ -265,7 +265,9 @@ func (c *config) loadConfigFile(fileConfig *File, path string) error {
 
 		applyDockerDefaults()
 
-		c.generateDefaultProviders()
+		if err := c.generateDefaultProviders(); err != nil {
+			return err
+		}
 		if err := fileConfig.Save(); err != nil {
 			return err
 		}

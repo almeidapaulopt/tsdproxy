@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -18,22 +19,23 @@ const (
 
 // generateDefaultProviders method Generate the config from environment variables
 // used in 0.x.x versions
-func (c *config) generateDefaultProviders() {
+func (c *config) generateDefaultProviders() error {
 	// Legacy Hostname from DOCKER_HOST from environment
 	//
-	c.generateDockerConfig()
+	errDocker := c.generateDockerConfig()
+	errTailscale := c.generateTailscaleConfig()
 
-	c.generateTailscaleConfig()
+	return errors.Join(errDocker, errTailscale)
 }
 
 // generateDockerConfig method generate the Docker Config provider from environment variables
-func (c *config) generateDockerConfig() {
+func (c *config) generateDockerConfig() error {
 	// Legacy Hostname from DOCKER_HOST from environment
 	//
 	docker := new(DockerTargetProviderConfig)
 	// set DockerConfig defaults
 	if err := defaults.Set(docker); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: defaults: %v\n", err)
+		return fmt.Errorf("set docker defaults: %w", err)
 	}
 	if os.Getenv("DOCKER_HOST") != "" {
 		docker.Host = os.Getenv("DOCKER_HOST")
@@ -50,14 +52,16 @@ func (c *config) generateDockerConfig() {
 	}
 
 	c.Docker[DockerDefaultName] = docker
+
+	return nil
 }
 
 // generateTailscaleConfig method  generate the Tailscale Config provider from environment variables
-func (c *config) generateTailscaleConfig() {
+func (c *config) generateTailscaleConfig() error {
 	ts := new(TailscaleServerConfig)
 	// set TailscaleConfig defaults
 	if err := defaults.Set(ts); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: defaults: %v\n", err)
+		return fmt.Errorf("set tailscale defaults: %w", err)
 	}
 
 	authKeyFile := os.Getenv("TSDPROXY_AUTHKEYFILE")
@@ -80,4 +84,6 @@ func (c *config) generateTailscaleConfig() {
 	if c.DefaultProxyProvider == "" {
 		c.DefaultProxyProvider = TailscaleDefaultProviderName
 	}
+
+	return nil
 }

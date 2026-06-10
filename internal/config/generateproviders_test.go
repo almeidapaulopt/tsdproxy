@@ -24,7 +24,9 @@ func newTestConfigForGenerate(t *testing.T) *config {
 func TestGenerateDockerConfig_Defaults(t *testing.T) {
 	c := newTestConfigForGenerate(t)
 
-	c.generateDockerConfig()
+	if err := c.generateDockerConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	docker, ok := c.Docker[DockerDefaultName]
 	if !ok {
@@ -41,7 +43,9 @@ func TestGenerateDockerConfig_DockerHost(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "tcp://custom-host:2375")
 
 	c := newTestConfigForGenerate(t)
-	c.generateDockerConfig()
+	if err := c.generateDockerConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	docker, ok := c.Docker[DockerDefaultName]
 	if !ok {
@@ -57,7 +61,9 @@ func TestGenerateDockerConfig_TSDProxyHostname(t *testing.T) {
 	t.Setenv("TSDPROXY_HOSTNAME", "myhost.example.com")
 
 	c := newTestConfigForGenerate(t)
-	c.generateDockerConfig()
+	if err := c.generateDockerConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	docker, ok := c.Docker[DockerDefaultName]
 	if !ok {
@@ -72,7 +78,9 @@ func TestGenerateDockerConfig_TSDProxyHostname(t *testing.T) {
 func TestGenerateTailscaleConfig_Defaults(t *testing.T) {
 	c := newTestConfigForGenerate(t)
 
-	c.generateTailscaleConfig()
+	if err := c.generateTailscaleConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	ts, ok := c.Tailscale.Providers[TailscaleDefaultProviderName]
 	if !ok {
@@ -88,7 +96,9 @@ func TestGenerateTailscaleConfig_AuthKeyFile(t *testing.T) {
 	t.Setenv("TSDPROXY_AUTHKEYFILE", "/run/secrets/authkey")
 
 	c := newTestConfigForGenerate(t)
-	c.generateTailscaleConfig()
+	if err := c.generateTailscaleConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	ts, ok := c.Tailscale.Providers[TailscaleDefaultProviderName]
 	if !ok {
@@ -104,7 +114,9 @@ func TestGenerateTailscaleConfig_ControlURL(t *testing.T) {
 	t.Setenv("TSDPROXY_CONTROLURL", "https://headscale.example.com")
 
 	c := newTestConfigForGenerate(t)
-	c.generateTailscaleConfig()
+	if err := c.generateTailscaleConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	ts, ok := c.Tailscale.Providers[TailscaleDefaultProviderName]
 	if !ok {
@@ -120,7 +132,9 @@ func TestGenerateTailscaleConfig_DataDir(t *testing.T) {
 	t.Setenv("TSDPROXY_DATADIR", "/custom/data")
 
 	c := newTestConfigForGenerate(t)
-	c.generateTailscaleConfig()
+	if err := c.generateTailscaleConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if c.Tailscale.DataDir != "/custom/data" {
 		t.Errorf("expected DataDir %q, got %q", "/custom/data", c.Tailscale.DataDir)
@@ -130,7 +144,9 @@ func TestGenerateTailscaleConfig_DataDir(t *testing.T) {
 func TestGenerateTailscaleConfig_SetsDefaultProxyProvider(t *testing.T) {
 	c := newTestConfigForGenerate(t)
 
-	c.generateTailscaleConfig()
+	if err := c.generateTailscaleConfig(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if c.DefaultProxyProvider != TailscaleDefaultProviderName {
 		t.Errorf("expected DefaultProxyProvider %q, got %q", TailscaleDefaultProviderName, c.DefaultProxyProvider)
@@ -140,7 +156,9 @@ func TestGenerateTailscaleConfig_SetsDefaultProxyProvider(t *testing.T) {
 func TestGenerateDefaultProviders(t *testing.T) {
 	c := newTestConfigForGenerate(t)
 
-	c.generateDefaultProviders()
+	if err := c.generateDefaultProviders(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if _, ok := c.Docker[DockerDefaultName]; !ok {
 		t.Errorf("expected Docker config with key %q", DockerDefaultName)
