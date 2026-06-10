@@ -7,32 +7,10 @@ PACKAGE := github.com/almeidapaulopt/tsdproxy
 
 
 
-BUILD_DATE=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
-GIT_COMMIT=$(shell git rev-parse HEAD)
 GIT_TAG=$(shell if [ -z "`git status --porcelain`" ]; then git describe --exact-match --tags HEAD 2>/dev/null; fi)
-GIT_TREE_STATE=$(shell if [ -z "`git status --porcelain`" ]; then echo "clean" ; else echo "dirty"; fi)
-GIT_REMOTE_REPO=upstream
-VERSION=$(shell if [ ! -z "${GIT_TAG}" ] ; then echo "${GIT_TAG}" | sed -e "s/^v//"  ; else cat internal/core/version.txt ; fi)
-GO_VERSION=$(shell go version | cut -d " " -f3)
+VERSION=$(shell if [ ! -z "${GIT_TAG}" ] ; then echo "${GIT_TAG}" | sed -e "s/^v//" ; else echo "dev" ; fi)
 
-
-
-# docker image publishing options
-DOCKER_PUSH=false
-IMAGE_TAG=latest
-
-override LDFLAGS +=  \
-  -X ${PACKAGE}/internal/core.AppVersion=${VERSION} \
-  -X ${PACKAGE}/internal/core.BuildDate=${BUILD_DATE} \
-  -X ${PACKAGE}/internal/core.GitCommit=${GIT_COMMIT} \
-  -X ${PACKAGE}/internal/core.GitTreeState=${GIT_TREE_STATE} \
-	-X ${PACKAGE}/internal/core.GoVersion=${GO_VERSION}
-
-
-ifneq (${GIT_TAG},)
-IMAGE_TAG=${GIT_TAG}
-override LDFLAGS += -X ${PACKAGE}/internal/core.GitTag=${GIT_TAG}
-endif
+override LDFLAGS += -X ${PACKAGE}/internal/core.version=${VERSION}
 
 
 
