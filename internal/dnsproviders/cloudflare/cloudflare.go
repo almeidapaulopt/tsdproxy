@@ -26,6 +26,14 @@ import (
 
 const defaultAPIBaseURL = "https://api.cloudflare.com/client/v4"
 
+const (
+	httpClientTimeout   = 30 * time.Second
+	rateLimitPerSecond  = 5
+	rateLimitBurst      = 10
+	minDomainParts      = 2
+	errorBodySnippetLen = 200
+)
+
 // Provider implements dnsproviders.Provider for Cloudflare DNS.
 type Provider struct {
 	client      *http.Client
@@ -75,9 +83,9 @@ type cfDNSRecord struct {
 func New(apiToken string) *Provider {
 	return &Provider{
 		apiToken:   secretstring.SecretString(apiToken),
-		client:     &http.Client{Timeout: 30 * time.Second}, //nolint:mnd
+		client:     &http.Client{Timeout: httpClientTimeout},
 		apiBaseURL: defaultAPIBaseURL,
-		limiter:    rate.NewLimiter(5, 10), //nolint:mnd // 5 req/s, burst of 10
+		limiter:    rate.NewLimiter(rateLimitPerSecond, rateLimitBurst),
 	}
 }
 
@@ -88,7 +96,7 @@ func (p *Provider) Name() string {
 func (p *Provider) lockDomain(domain string) (unlock func()) {
 	h := fnv.New32a()
 	h.Write([]byte(strings.ToLower(domain)))
-	idx := h.Sum32() % uint32(len(p.domainLocks)) //nolint:mnd
+	idx := h.Sum32() % uint32(len(p.domainLocks))
 	p.domainLocks[idx].Lock()
 	return p.domainLocks[idx].Unlock
 }
@@ -177,7 +185,7 @@ func (p *Provider) ValidateRecord(ctx context.Context, domain, recordType, expec
 
 func (p *Provider) resolveZoneID(ctx context.Context, domain string) (string, error) {
 	parts := strings.Split(strings.TrimSuffix(domain, "."), ".")
-	if len(parts) < 2 { //nolint:mnd
+	if len(parts) < minDomainParts {
 		return "", fmt.Errorf("invalid domain %q", domain)
 	}
 
@@ -315,8 +323,8 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body any)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		bodySnippet := string(data)
-		if len(bodySnippet) > 200 { //nolint:mnd
-			bodySnippet = bodySnippet[:200] + "..."
+		if len(bodySnippet) > errorBodySnippetLen {
+			bodySnippet = bodySnippet[:errorBodySnippetLen] + "..."
 		}
 		return nil, fmt.Errorf("cloudflare api returned HTTP %d: %s", resp.StatusCode, bodySnippet)
 	}

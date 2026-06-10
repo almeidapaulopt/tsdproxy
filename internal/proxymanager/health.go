@@ -69,12 +69,12 @@ type healthChecker struct {
 }
 
 const (
-	healthCheckTimeout = 5 * time.Second //nolint:mnd
-	maxBackoff         = 24 * time.Hour  //nolint:mnd
+	healthCheckTimeout = 5 * time.Second
+	maxBackoff         = 24 * time.Hour
 )
 
 // maxBackoffShift is the maximum bit shift that stays within int64 positive range.
-const maxBackoffShift = 62 //nolint:mnd
+const maxBackoffShift = 62
 
 func nextBackoff(interval time.Duration, attempt int) time.Duration {
 	if attempt > maxBackoffShift {

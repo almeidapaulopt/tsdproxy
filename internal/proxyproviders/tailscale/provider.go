@@ -51,7 +51,13 @@ type Client struct {
 	autoRemoveConflicts bool
 }
 
-const userAgent = "tsdproxy"
+const (
+	userAgent = "tsdproxy"
+
+	defaultAuthRetryInitDelay = 2 * time.Second
+	defaultAuthRetryMaxDelay  = 30 * time.Second
+	proxyEventBufferSize      = 10
+)
 
 // validateDatadir joins baseDir and hostname into a path, then verifies the result
 // does not escape baseDir via path traversal (e.g. "../../etc").
@@ -124,13 +130,13 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 	if err != nil {
 		clientLog.Warn().Err(err).Str("value", provider.AuthRetry.InitialBackoff).
 			Msg("invalid authRetry.initialBackoff, using default 2s")
-		authRetryInit = 2 * time.Second //nolint:mnd
+		authRetryInit = defaultAuthRetryInitDelay
 	}
 	authRetryMax, err := time.ParseDuration(provider.AuthRetry.MaxBackoff)
 	if err != nil {
 		clientLog.Warn().Err(err).Str("value", provider.AuthRetry.MaxBackoff).
 			Msg("invalid authRetry.maxBackoff, using default 30s")
-		authRetryMax = 30 * time.Second //nolint:mnd
+		authRetryMax = defaultAuthRetryMaxDelay
 	}
 
 	preventDuplicates := provider.PreventDuplicates
@@ -280,7 +286,7 @@ func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, 
 		certSem:    c.certSem,
 		lifecycle:  lifecycle,
 		exposure:   NewPerProxyExposure(),
-		events:     make(chan model.ProxyEvent, 10), //nolint:mnd
+		events:     make(chan model.ProxyEvent, proxyEventBufferSize),
 		whoisCache: NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}, nil
 }
@@ -380,7 +386,7 @@ func (c *Client) newSharedProxy(config *model.Config) (proxyproviders.ProxyInter
 		shared:   c.sharedServer,
 		exposure: NewSharedSNIExposure(c.sharedServer, domain),
 		domain:   domain,
-		events:   make(chan model.ProxyEvent, 10), //nolint:mnd
+		events:   make(chan model.ProxyEvent, proxyEventBufferSize),
 	}, nil
 }
 
@@ -441,6 +447,6 @@ func (c *Client) newServiceProxy(config *model.Config) (proxyproviders.ProxyInte
 		services:    c.servicesServer,
 		exposure:    NewServicesVIPExposure(c.servicesServer, serviceName),
 		serviceName: serviceName,
-		events:      make(chan model.ProxyEvent, 10), //nolint:mnd
+		events:      make(chan model.ProxyEvent, proxyEventBufferSize),
 	}, nil
 }

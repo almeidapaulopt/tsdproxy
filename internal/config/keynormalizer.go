@@ -178,6 +178,12 @@ func (k *keyLookup) validFields(typ reflect.Type) []string {
 	return out
 }
 
+const (
+	maxSuggestionDistance = 3
+	minSuggestionPrefix   = 3
+	maxSuggestions        = 3
+)
+
 // suggest returns up to three values from valid that are closest to
 // input by Levenshtein distance (case-insensitive). A candidate is
 // included when its distance is at most 3 or it shares a
@@ -197,7 +203,7 @@ func suggest(input string, valid []string) []string {
 		lv := strings.ToLower(v)
 		d := levenshtein(lower, lv)
 		prefix := commonPrefixLen(lower, lv)
-		if d <= 3 || prefix >= 3 { //nolint:mnd // suggestion thresholds per spec
+		if d <= maxSuggestionDistance || prefix >= minSuggestionPrefix {
 			cands = append(cands, cand{name: v, dist: d})
 		}
 	}
@@ -207,8 +213,8 @@ func suggest(input string, valid []string) []string {
 		}
 		return cands[i].name < cands[j].name
 	})
-	if len(cands) > 3 { //nolint:mnd // max suggestions per spec
-		cands = cands[:3] //nolint:mnd // max suggestions per spec
+	if len(cands) > maxSuggestions {
+		cands = cands[:maxSuggestions]
 	}
 	out := make([]string, 0, len(cands))
 	for _, c := range cands {

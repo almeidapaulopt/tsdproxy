@@ -17,6 +17,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
+const nodeEventBufferSize = 64
+
 // NodeLifecycleConfig holds the configuration for creating a NodeLifecycle.
 type NodeLifecycleConfig struct {
 	CertSem          *semaphore.Weighted
@@ -78,7 +80,7 @@ func NewNodeLifecycle(log zerolog.Logger, cfg NodeLifecycleConfig) *NodeLifecycl
 		state:   cfg.StateManager,
 		devices: cfg.DeviceReconciler,
 		retry:   cfg.Retry,
-		events:  make(chan NodeEvent, 64), //nolint:mnd
+		events:  make(chan NodeEvent, nodeEventBufferSize),
 	}
 }
 

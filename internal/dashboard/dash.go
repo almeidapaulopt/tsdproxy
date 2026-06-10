@@ -27,6 +27,10 @@ import (
 const (
 	hxRequestHeader = "true"
 	subjectRemote   = "__remote__"
+
+	hoursPerDay    = 24
+	defaultHTTPSPort = 443
+	defaultHTTPPort  = 80
 )
 
 type Dashboard struct {
@@ -113,14 +117,14 @@ func formatAgo(t time.Time) string {
 			return "1m ago"
 		}
 		return fmt.Sprintf("%dm ago", m)
-	case d < 24*time.Hour:
+	case d < time.Duration(hoursPerDay) * time.Hour:
 		h := int(math.Round(d.Hours()))
 		if h == 1 {
 			return "1h ago"
 		}
 		return fmt.Sprintf("%dh ago", h)
 	default:
-		days := int(math.Round(d.Hours() / 24)) //nolint:mnd
+		days := int(math.Round(d.Hours() / hoursPerDay))
 		if days == 1 {
 			return "1d ago"
 		}
@@ -361,11 +365,11 @@ func buildPortEntries(ports model.PortConfigList, hostname string) []pages.PortE
 
 		switch scheme {
 		case model.ProtoHTTPS:
-			if target.ProxyPort != 443 { //nolint:mnd
+			if target.ProxyPort != defaultHTTPSPort {
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}
 		case model.ProtoHTTP:
-			if target.ProxyPort != 80 { //nolint:mnd
+			if target.ProxyPort != defaultHTTPPort {
 				portURL += ":" + strconv.Itoa(target.ProxyPort)
 			}
 		default:

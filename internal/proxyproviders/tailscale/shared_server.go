@@ -198,6 +198,12 @@ func (ss *SharedServer) ensureRunning(state sharedState, rt *sharedRuntime, next
 // restarts or when containers cycle quickly.
 const sharedIdleTimeout = 30 * time.Second
 
+const (
+	loopCmdBufferSize    = 64
+	eventSubBufferSize   = 16
+	startupTimeoutFactor = 3
+)
+
 // All mutable state is managed by a single event-loop goroutine.
 // Public methods are thin wrappers that send commands and wait for replies.
 type SharedServer struct {
@@ -224,7 +230,7 @@ func NewSharedServer(cfg SharedServerConfig) *SharedServer {
 		ephemeral:         cfg.Ephemeral,
 		certSem:           cfg.CertSem,
 		log:               cfg.Log.With().Str("shared_server", cfg.Hostname).Logger(),
-		ev:                NewEventLoop[sharedCmd](64), //nolint:mnd
+		ev:                NewEventLoop[sharedCmd](loopCmdBufferSize),
 		lifecycleCfg:      cfg.LifecycleConfig,
 		lifecycleProvider: cfg.LifecycleProvider,
 		whoisCache:        NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
@@ -468,7 +474,7 @@ func (ss *SharedServer) handleSubscribe(c subscribeCmd, rt *sharedRuntime) *shar
 			subs: make(map[*EventSub]struct{}),
 		}
 	}
-	sub := NewEventSub(16) //nolint:mnd
+	sub := NewEventSub(eventSubBufferSize)
 	rt.subs[sub] = struct{}{}
 	c.reply <- sub.Ch
 	return rt
@@ -502,7 +508,7 @@ func (ss *SharedServer) startRuntimeWithLifecycle(prevRT *sharedRuntime, gen int
 		provider = DefaultNodeLifecycleProvider
 	}
 
-	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*3) //nolint:mnd
+	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*startupTimeoutFactor)
 	defer startCancel()
 	lifecycle, nrt, _, err := provider(startCtx, ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
@@ -763,7 +769,9 @@ func (ss *SharedServer) Close() {
 		return
 	}
 	cmd := closeCmd{reply: make(chan error, 1)}
-	_, _ = SendAndWait[sharedCmd, error](ss.ev, cmd, cmd.reply)
+	if err, ok := SendAndWait[sharedCmd, error](ss.ev, cmd, cmd.reply); ok && err != nil {
+		ss.log.Error().Err(err).Msg("failed to close shared server")
+	}
 }
 
 // GetURL returns the current Tailscale DNS name, or empty string if not running.

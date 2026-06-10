@@ -6,6 +6,7 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +17,12 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-var safeUserID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+var (
+	safeUserID = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+	dirPermission  fs.FileMode = 0o700
+	filePermission fs.FileMode = 0o600
+)
 
 func defaultPreferences() model.Preferences {
 	return model.Preferences{
@@ -93,7 +99,7 @@ type PreferencesStore struct {
 
 func NewPreferencesStore(dir string, log zerolog.Logger) (*PreferencesStore, error) {
 	prefDir := filepath.Join(dir, "dashboard", "preferences")
-	if err := os.MkdirAll(prefDir, 0o700); err != nil { //nolint:mnd
+	if err := os.MkdirAll(prefDir, dirPermission); err != nil {
 		return nil, fmt.Errorf("create preferences dir: %w", err)
 	}
 	return &PreferencesStore{
@@ -188,7 +194,7 @@ func (s *PreferencesStore) prepareSave(prefs model.Preferences) (string, error) 
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("close temp preferences: %w", err)
 	}
-	if err := os.Chmod(tmp, 0o600); err != nil { //nolint:mnd
+	if err := os.Chmod(tmp, filePermission); err != nil {
 		_ = os.Remove(tmp)
 		return "", fmt.Errorf("chmod temp preferences: %w", err)
 	}

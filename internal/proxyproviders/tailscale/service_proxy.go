@@ -62,7 +62,9 @@ func (p *ServiceProxy) Start(ctx context.Context) error {
 
 func (p *ServiceProxy) Close() error {
 	p.mtx.Lock()
-	_ = p.exposure.Close(context.Background())
+	if err := p.exposure.Close(context.Background()); err != nil {
+		p.log.Error().Err(err).Msg("failed to close exposure")
+	}
 	if p.stopCh != nil {
 		close(p.stopCh)
 		p.stopCh = nil

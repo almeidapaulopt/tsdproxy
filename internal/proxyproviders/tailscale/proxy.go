@@ -60,7 +60,9 @@ func (p *Proxy) Start(ctx context.Context) error {
 	}
 
 	if err := p.exposure.Start(ctx, rt, p.config); err != nil {
-		_ = p.lifecycle.Close()
+		if closeErr := p.lifecycle.Close(); closeErr != nil {
+			p.log.Error().Err(closeErr).Msg("failed to close lifecycle")
+		}
 		return fmt.Errorf("start traffic exposure: %w", err)
 	}
 
@@ -106,7 +108,9 @@ func (p *Proxy) Close() error {
 	}
 	p.mtx.Unlock()
 
-	_ = p.exposure.Close(context.Background())
+	if err := p.exposure.Close(context.Background()); err != nil {
+		p.log.Error().Err(err).Msg("failed to close exposure")
+	}
 	err := p.lifecycle.Close()
 
 	// Wait for bridgeEvents to finish (it returns when lifecycle closes its events channel).

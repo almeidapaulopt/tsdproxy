@@ -23,6 +23,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker/sshtunnel"
 )
 
+const containerInspectTimeout = 30 * time.Second
+
 type (
 	// Client struct implements TargetProvider
 	Client struct {
@@ -146,7 +148,7 @@ func (c *Client) ReResolve(id string) (*model.Config, error) {
 }
 
 func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) //nolint:mnd
+	ctx, cancel := context.WithTimeout(context.Background(), containerInspectTimeout)
 	defer cancel()
 
 	dcontainerResult, err := c.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})

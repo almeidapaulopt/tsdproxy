@@ -21,6 +21,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const configReloadDebounce = 500 * time.Millisecond
+
 type File struct {
 	log        zerolog.Logger
 	data       any
@@ -168,7 +170,7 @@ func (f *File) handleEvent(event fsnotify.Event, file string, realFile *string) 
 		if f.debounce != nil {
 			f.debounce.Stop()
 		}
-		f.debounce = time.AfterFunc(500*time.Millisecond, func() { //nolint:mnd
+		f.debounce = time.AfterFunc(configReloadDebounce, func() {
 			f.onChangeMu.RLock()
 			fn := f.onChange
 			f.onChangeMu.RUnlock()

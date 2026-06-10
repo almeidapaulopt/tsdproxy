@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const healthCheckTimeout = 5 * time.Second
+
 func main() {
 	port := readPort()
 	if port == "" {
@@ -18,7 +20,7 @@ func main() {
 	}
 
 	client := &http.Client{
-		Timeout: 5 * time.Second, //nolint:mnd
+		Timeout: healthCheckTimeout,
 	}
 	resp, err := client.Get("http://127.0.0.1:" + port + "/health/ready/") //nolint:gosec // G704: port is from file/env, not user input
 	if err != nil {

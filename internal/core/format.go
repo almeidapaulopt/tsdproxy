@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	hoursPerDay   = 24
+	minutesPerHour = 60
+)
+
 // FormatDuration renders d as a compact human-readable string
 // (e.g. "1d 2h 3m") used for proxy uptime display across the dashboard
 // and REST API.
@@ -17,9 +22,9 @@ func FormatDuration(d time.Duration) string {
 	if d == 0 {
 		return ""
 	}
-	days := int(d.Hours() / 24)               //nolint:mnd
-	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
-	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
+	days := int(d.Hours() / hoursPerDay)
+	hours := int(math.Mod(d.Hours(), hoursPerDay))
+	minutes := int(math.Mod(d.Minutes(), minutesPerHour))
 
 	var parts []string
 	if days > 0 {

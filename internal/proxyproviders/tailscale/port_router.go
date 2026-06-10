@@ -32,6 +32,13 @@ type PortRouter struct {
 	mu        sync.RWMutex
 }
 
+const (
+	tlsRecordBufSize = 16389 // 5-byte TLS record header + 16384 max body
+	httpReadBufSize  = 256
+	crlfCRLFDelimLen = 4 // \r\n\r\n
+	lfLFDelimLen     = 2 // \n\n
+)
+
 func NewPortRouter(mode RoutingMode, log zerolog.Logger) *PortRouter {
 	return &PortRouter{
 		mode:      mode,
@@ -107,7 +114,7 @@ func (r *PortRouter) handleConn(conn net.Conn) {
 		return
 	}
 
-	br := bufio.NewReaderSize(conn, 16389) //nolint:mnd // 5-byte header + 16384 body = max TLS record
+	br := bufio.NewReaderSize(conn, tlsRecordBufSize)
 
 	var consumed []byte // bytes consumed from br during sniffing, must be replayed
 	var hostname string
@@ -191,7 +198,7 @@ func clientHelloServerName(br *bufio.Reader) (sni string) {
 	if hdr[0] != recordTypeHandshake {
 		return ""
 	}
-	recLen := int(hdr[3])<<8 | int(hdr[4]) //nolint:mnd
+	recLen := int(hdr[3])<<8 | int(hdr[4])
 	helloBytes, err := br.Peek(recordHeaderLen + recLen)
 	if err != nil {
 		return ""
@@ -209,7 +216,7 @@ func httpHostHeader(br *bufio.Reader) (hostname string, consumed []byte) {
 	const maxTotal = 4 << 10 // 4KB upper bound
 
 	var buf bytes.Buffer
-	tmp := make([]byte, 256) //nolint:mnd
+	tmp := make([]byte, httpReadBufSize)
 
 	for buf.Len() < maxTotal {
 		n, err := br.Read(tmp)
@@ -222,11 +229,11 @@ func httpHostHeader(br *bufio.Reader) (hostname string, consumed []byte) {
 			return "", nil
 		}
 
-		delimLen := 4 //nolint:mnd
+		delimLen := crlfCRLFDelimLen
 		eofHeaders := bytes.Index(b, crlfcrlf)
 		if eofHeaders == -1 {
 			eofHeaders = bytes.Index(b, lflf)
-			delimLen = 2 //nolint:mnd
+			delimLen = lfLFDelimLen
 		}
 
 		if eofHeaders != -1 {

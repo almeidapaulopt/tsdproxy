@@ -31,6 +31,14 @@ import (
 // last service is released.
 const servicesIdleTimeout = 30 * time.Second
 
+const (
+	servicesLoopCmdBufferSize = 64
+	servicesEventSubSize      = 16
+	servicesStartupFactor     = 3
+	closeDrainTimeout         = 5 * time.Second
+	maxHTTPBodySize           = 1024 * 1024 // 1 MB
+)
+
 // vipServiceAPI abstracts VIP service API calls for testability.
 type vipServiceAPI interface {
 	createOrUpdateVIPService(serviceName string, ports []string) error
@@ -231,7 +239,7 @@ func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 		autoApproveDevices:  cfg.AutoApproveDevices,
 		autoRemoveConflicts: cfg.AutoRemoveConflicts,
 		log:                 cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
-		ev:                  NewEventLoop[servicesCmd](64), //nolint:mnd
+		ev:                  NewEventLoop[servicesCmd](servicesLoopCmdBufferSize),
 		certSem:             cfg.CertSem,
 		tags:                cfg.Tags,
 		vipAPI:              cfg.VIPServiceAPI,
@@ -322,7 +330,7 @@ func (ss *ServicesServer) handleIdleTimeout(c servicesIdleTimeoutCmd, state serv
 
 func (ss *ServicesServer) handleClose(c servicesCloseCmd, rt *servicesRuntime) {
 	if rt != nil {
-		timeout := time.After(5 * time.Second) //nolint:mnd
+		timeout := time.After(closeDrainTimeout)
 	drainLoop:
 		for rt.pendingCount > 0 {
 			select {
@@ -587,7 +595,7 @@ func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsS
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) //nolint:mnd
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxHTTPBodySize))
 		if readErr != nil {
 			return fmt.Errorf("approval failed (HTTP %d): unable to read response body: %w", resp.StatusCode, readErr)
 		}
@@ -716,7 +724,9 @@ func (ss *ServicesServer) Close() {
 		return
 	}
 	cmd := servicesCloseCmd{reply: make(chan error, 1)}
-	_, _ = SendAndWait[servicesCmd, error](ss.ev, cmd, cmd.reply)
+	if err, ok := SendAndWait[servicesCmd, error](ss.ev, cmd, cmd.reply); ok && err != nil {
+		ss.log.Error().Err(err).Msg("failed to close services server")
+	}
 }
 
 // Whois resolves identity from the request. For VIP-proxied requests the
@@ -812,7 +822,7 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 		provider = DefaultNodeLifecycleProvider
 	}
 
-	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*3) //nolint:mnd
+	startCtx, startCancel := context.WithTimeout(context.Background(), apiTimeout*servicesStartupFactor)
 	defer startCancel()
 	lifecycle, nodeRt, svcFactory, err := provider(startCtx, ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
@@ -984,7 +994,7 @@ func (ss *ServicesServer) handleSubscribe(c servicesSubscribeCmd, rt *servicesRu
 	if rt.subs == nil {
 		rt.subs = make(map[*EventSub]struct{})
 	}
-	sub := NewEventSub(16) //nolint:mnd
+	sub := NewEventSub(servicesEventSubSize)
 	rt.subs[sub] = struct{}{}
 	c.reply <- sub.Ch
 	return rt

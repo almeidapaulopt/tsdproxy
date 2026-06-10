@@ -10,6 +10,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const connBufferSize = 64
+
 // VirtualListener implements net.Listener backed by a channel.
 // The port router dispatches connections to it via Dispatch().
 type VirtualListener struct {
@@ -24,7 +26,7 @@ type VirtualListener struct {
 
 func NewVirtualListener(addr net.Addr, log zerolog.Logger) *VirtualListener {
 	return &VirtualListener{
-		ch:   make(chan net.Conn, 64), //nolint:mnd
+		ch:   make(chan net.Conn, connBufferSize),
 		done: make(chan struct{}),
 		addr: addr,
 		log:  log,

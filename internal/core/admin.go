@@ -24,13 +24,15 @@ import (
 
 const localhostUserID = "__localhost__"
 
+const authTokenBytes = 32
+
 var proxyAuthToken string
 
 // InitProxyAuth generates the per-process secret used to authenticate
 // identity headers forwarded by the internal reverse proxy. Must be
 // called once during startup, before any HTTP handlers are registered.
 func InitProxyAuth(log zerolog.Logger) {
-	b := make([]byte, 32) //nolint:mnd
+	b := make([]byte, authTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		log.Fatal().Err(err).Msg("failed to generate proxy auth token")
 	}

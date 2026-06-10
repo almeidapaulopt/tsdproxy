@@ -192,12 +192,18 @@ func (pm *ProxyManager) WatchEvents() {
 
 const maxWatchBackoff = 5 * time.Minute
 
+const (
+	backoffMultiplier     = 2
+	statusSubChanBuf      = 64
+	proxyURLPollInterval  = 500 * time.Millisecond
+)
+
 func (pm *ProxyManager) reconnectBackoff(provider targetproviders.TargetProvider, current time.Duration, reason string) time.Duration {
 	pm.log.Warn().Str("provider", provider.GetDefaultProxyProviderName()).
 		Dur("retry_after", current).
 		Msg(reason + ", reconnecting")
 	time.Sleep(current)
-	next := current * 2 //nolint:mnd
+	next := current * backoffMultiplier
 	if next > maxWatchBackoff {
 		return maxWatchBackoff
 	}
@@ -237,7 +243,7 @@ type statusSubscription struct {
 
 // SubscribeStatusEvents returns a channel of proxy events and a cancel function.
 func (pm *ProxyManager) SubscribeStatusEvents() (<-chan model.ProxyEvent, func()) {
-	sub := &statusSubscription{ch: make(chan model.ProxyEvent, 64)} //nolint:mnd
+	sub := &statusSubscription{ch: make(chan model.ProxyEvent, statusSubChanBuf)}
 
 	pm.mtx.Lock()
 	pm.statusSubscribers[sub] = struct{}{}
@@ -618,7 +624,7 @@ const proxyURLWaitTimeout = 60 * time.Second
 
 func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
 	deadline := time.Now().Add(proxyURLWaitTimeout)
-	ticker := time.NewTicker(500 * time.Millisecond) //nolint:mnd
+	ticker := time.NewTicker(proxyURLPollInterval)
 	defer ticker.Stop()
 
 	for {

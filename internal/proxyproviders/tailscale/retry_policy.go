@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+const (
+	defaultRetryMaxAttempts = 3
+	defaultRetryInitDelay   = 2 * time.Second
+	defaultRetryMaxDelay    = 30 * time.Second
+)
+
 // RetryPolicy determines which errors are recoverable and how to retry.
 type RetryPolicy struct {
 	// MaxAttempts is the maximum number of retry attempts (0 = no retry).
@@ -21,9 +27,9 @@ type RetryPolicy struct {
 // NewRetryPolicy creates a RetryPolicy with sensible defaults.
 func NewRetryPolicy() RetryPolicy {
 	return RetryPolicy{
-		MaxAttempts:    3,                //nolint:mnd
-		InitialBackoff: 2 * time.Second,  //nolint:mnd
-		MaxBackoff:     30 * time.Second, //nolint:mnd
+		MaxAttempts:    defaultRetryMaxAttempts,
+		InitialBackoff: defaultRetryInitDelay,
+		MaxBackoff:     defaultRetryMaxDelay,
 	}
 }
 

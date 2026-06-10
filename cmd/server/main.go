@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +28,12 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/dashboard"
 	pm "github.com/almeidapaulopt/tsdproxy/internal/proxymanager"
 	"github.com/almeidapaulopt/tsdproxy/web"
+)
+
+const (
+	dirPermission   fs.FileMode = 0o700
+	filePermission  fs.FileMode = 0o600
+	shutdownTimeout             = 10 * time.Second
 )
 
 type WebApp struct {
@@ -50,10 +57,10 @@ func InitializeApp() (*WebApp, error) {
 
 	// Write HTTP port to data dir for the healthcheck binary to read.
 	portFile := filepath.Join(config.Config.Tailscale.DataDir, ".http-port")
-	if err := os.MkdirAll(config.Config.Tailscale.DataDir, 0o700); err != nil { //nolint:mnd
+	if err := os.MkdirAll(config.Config.Tailscale.DataDir, dirPermission); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	if err := os.WriteFile(portFile, []byte(strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)), 0o600); err != nil { //nolint:mnd
+	if err := os.WriteFile(portFile, []byte(strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)), filePermission); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to write healthcheck port file: %v\n", err)
 	}
 
@@ -176,7 +183,7 @@ func (app *WebApp) Stop() {
 	app.Health.SetNotReady()
 
 	if app.httpServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) //nolint:mnd
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := app.httpServer.Shutdown(ctx); err != nil {
 			app.Log.Error().Err(err).Msg("HTTP server forced shutdown")

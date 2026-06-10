@@ -11,6 +11,8 @@ import (
 
 const maxBackoff = 30 * time.Second
 
+const backoffMultiplier = 2
+
 // Retry executes op with exponential backoff until it succeeds or maxRetries is exceeded.
 func Retry(ctx context.Context, op func() error, maxRetries int, initialBackoff time.Duration) error {
 	var lastErr error
@@ -28,7 +30,7 @@ func Retry(ctx context.Context, op func() error, maxRetries int, initialBackoff 
 		if attempt < maxRetries {
 			backoff := initialBackoff
 			for i := 0; i < attempt; i++ {
-				next := backoff * 2 //nolint:mnd
+				next := backoff * backoffMultiplier
 				if next <= backoff || next > maxBackoff {
 					backoff = maxBackoff
 					break

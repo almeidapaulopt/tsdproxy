@@ -12,6 +12,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/lifecycle"
 )
 
+const dnsValidationRetries = 10
+
 type LifecycleManager struct {
 	tracker *lifecycle.StateTracker
 	cleanup bool
@@ -41,7 +43,7 @@ func (lm *LifecycleManager) SetupDNS(ctx context.Context, provider Provider, dom
 			return errors.New("cname not propagated yet")
 		}
 		return nil
-	}, 10, 2*time.Second); err != nil { //nolint:mnd
+	}, dnsValidationRetries, 2*time.Second); err != nil {
 		lm.tracker.Set(domain, DNSStatusError)
 		return fmt.Errorf("cname propagation for %s: %w", domain, err)
 	}

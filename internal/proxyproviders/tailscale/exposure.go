@@ -525,7 +525,9 @@ func (e *ServicesVIPExposure) rollbackAcquired() {
 	}
 	for portName, portCfg := range e.cfg.Ports {
 		if _, ok := e.listeners[portName]; ok {
-			_ = e.servicesServer.Release(e.serviceName, uint16(portCfg.ProxyPort)) //nolint:gosec
+			if err := e.servicesServer.Release(e.serviceName, uint16(portCfg.ProxyPort)); err != nil { //nolint:gosec
+				e.servicesServer.log.Error().Err(err).Str("port", portName).Msg("failed to release service")
+			}
 			delete(e.listeners, portName)
 		}
 	}
