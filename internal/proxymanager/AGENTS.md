@@ -6,7 +6,7 @@ Central orchestrator. Wires target, proxy, DNS, and TLS providers per container 
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `proxymanager.go` | 938 | `ProxyManager` struct. Provider registration, event loop, per-ID mutex, broadcast, restart/pause/resume, `ReloadProviders()` (dead code — never called) |
+| `proxymanager.go` | 938 | `ProxyManager` struct. Provider registration, event loop, per-ID mutex, broadcast, restart/pause/resume |
 | `proxy.go` | 783 | `Proxy` struct per container. Composes 3 providers, start/stop/status/ports, status history ring (last 5), log buffer subscription |
 | `port.go` | 545 | Port handlers: `httpProxy`, `httpRedirect`, `tcpForward`, `udpForward`. Reverse proxy, TLS, rate limiting |
 | `health.go` | ~120 | `healthChecker`. Periodic HTTP/TCP pings with configurable interval and thresholds |
@@ -61,8 +61,7 @@ Status changes broadcast via `broadcastStatusEvents()` to all SSE subscribers an
 
 - **Per-proxy ACME bypass**: If `addTLSProviders()` skips ACME (no global DNS default), `resolveAndSetProviders()` creates a per-proxy ACME instance using the proxy's own DNS provider. Tests assert this as a known BUG.
 - **`tailscaletls.New(nil)`**: TLS provider created with nil local client first. Replaced with real client after proxy starts in `setupDomainForProxy()`.
-- **`InsecureSkipVerify`**: `port.go` uses `//nolint` (bare) for config-driven TLS skip on proxy transport.
+- **`InsecureSkipVerify`**: `port.go` uses `//nolint:gosec` for config-driven TLS skip on proxy transport.
 - **`waitForProxyURL`**: Polls until tsnet populates the proxy URL (async). Timeout blocks startup.
 - **`hostMu`**: Second `sync.Map` of mutexes serializes hostname registration to prevent duplicate Tailscale machines.
 - **`clampDuration`**: Prevents `time.NewTicker` panics from negative durations caused by int64 overflow in health check intervals.
-- **`ReloadProviders()`**: Method exists but is dead code — not wired to any trigger (fsnotify or API). Main config requires restart.

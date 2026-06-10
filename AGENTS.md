@@ -177,10 +177,6 @@ Steps 4–5 skipped for host-network containers.
 - **User preferences:** Persisted per Tailscale user as JSON at `{DataDir}/dashboard/preferences/{userID}.json`. Identity key: `ResolveWhois(r).ID`, fallback `__localhost__`. Schema: `dark`, `view`, `sort`, `grouped`, `filterStatus`, `filterHealth`, `pinned`. Search is transient.
 - **Proxy actions:** `hx-post` with `hx-swap="none"` — SSE drives state updates.
 
-## ANTI-PATTERNS (THIS PROJECT)
-
-- **Global mutable state**: `config.Config` (package-level var) — set once during init, accessed everywhere. No live-reload of the global config (only list provider files are watched via fsnotify, and they're mutex-protected). If main-config live-reload is ever added, wrap in `atomic.Pointer[config]` for copy-on-swap reads. `core.proxyAuthToken` is write-once before handlers (low practical risk). `core.csrfProtection` is immutable after init.
-
 ## COMMANDS
 
 ```bash

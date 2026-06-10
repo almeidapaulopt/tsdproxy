@@ -49,6 +49,3 @@ Shutdown(ctx, 10s timeout) → health.SetNotReady() → server.Shutdown()
 
 - **`proxyAuthToken` is package-level mutable**: set in `InitProxyAuth()`, accessed by middleware. No sync primitive beyond single-goroutine init sequence.
 - **`fmt.Fprintf(os.Stderr, ...)` in `cmd/server/main.go`**: uses fmt instead of zerolog because logger doesn't exist yet. Acceptable for pre-logger messages.
-- **Version injection only works via GoReleaser**: Makefile ldflags target wrong vars (`AppVersion`, `BuildDate`, etc.) that don't exist in `version.go`. Local builds always show "dev".
-- **`-tags=prod` is inert**: GoReleaser passes this build tag but no `//go:build prod` constraints exist in source.
-- **`WatchEvents` goroutines leak**: No context cancellation tied to `app.Stop()` — reconnect loop runs until process exit.
