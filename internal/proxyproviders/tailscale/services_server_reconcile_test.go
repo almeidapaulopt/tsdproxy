@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -337,10 +338,10 @@ func TestCloseWhileRunning(t *testing.T) {
 	// Close while listeners are active.
 	ss.Close()
 
-	// Verify done channel is closed.
+	// Verify done channel is closed (event loop goroutine needs time to exit).
 	select {
 	case <-ss.ev.Done():
-	default:
+	case <-time.After(3 * time.Second):
 		t.Fatal("done channel should be closed after Close")
 	}
 
@@ -364,7 +365,7 @@ func TestCloseWhileRunningMultiPortSameService(t *testing.T) {
 
 	select {
 	case <-ss.ev.Done():
-	default:
+	case <-time.After(3 * time.Second):
 		t.Fatal("done channel should be closed after Close")
 	}
 

@@ -105,7 +105,7 @@ func TestStateTracker_ConcurrentAccess(_ *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			domain := "domain-" + string(rune('A'+n))
+			domain := "domain-" + string(rune('A'+n)) //nolint:gosec // n is always 0-9
 			st.Set(domain, StatusActive)
 		}(i)
 	}
@@ -115,7 +115,7 @@ func TestStateTracker_ConcurrentAccess(_ *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			domain := "domain-" + string(rune('A'+n))
+			domain := "domain-" + string(rune('A'+n)) //nolint:gosec // n is always 0-9
 			_ = st.Get(domain)
 		}(i)
 	}
@@ -125,7 +125,7 @@ func TestStateTracker_ConcurrentAccess(_ *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			domain := "domain-" + string(rune('A'+n))
+			domain := "domain-" + string(rune('A'+n)) //nolint:gosec // n is always 0-9
 			st.Delete(domain)
 		}(i)
 	}

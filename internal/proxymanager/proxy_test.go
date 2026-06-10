@@ -737,7 +737,7 @@ func TestSubscribeLogs_Disabled(t *testing.T) {
 func TestSubscribeLogs_Enabled(t *testing.T) {
 	t.Parallel()
 	buf := NewLogRingBuffer(zerolog.Nop(), 10)
-	buf.Write([]byte("line1"))
+	_, _ = buf.Write([]byte("line1"))
 	proxy := &Proxy{logBuffer: buf}
 
 	snapshot, ch := proxy.SubscribeLogs()

@@ -105,7 +105,7 @@ func TestMiddleware(t *testing.T) {
 
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -126,7 +126,7 @@ func TestMiddleware_RecordsMetrics(t *testing.T) {
 
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte("not found"))
+		_, _ = w.Write([]byte("not found"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -149,9 +149,9 @@ func TestMiddleware_Flusher(t *testing.T) {
 		if !ok {
 			t.Fatal("expected http.Flusher interface")
 		}
-		w.Write([]byte("partial"))
+		_, _ = w.Write([]byte("partial"))
 		flusher.Flush()
-		w.Write([]byte("done"))
+		_, _ = w.Write([]byte("done"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -284,7 +284,7 @@ func TestConcurrentDeleteProxyMetrics(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			name := "proxy-" + string(rune('A'+n))
+			name := "proxy-" + string(rune('A'+n)) //nolint:gosec
 			m.DeleteProxyMetrics(name)
 		}(i)
 	}

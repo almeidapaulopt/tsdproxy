@@ -20,6 +20,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 )
 
 // Stub implementations for proxyproviders interfaces.
@@ -202,7 +203,7 @@ func TestAPI_ListProxiesHandler_FiltersInvisible(t *testing.T) {
 	api.HTTP.Mux.ServeHTTP(w, r)
 
 	var resp apiProxiesResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	if len(resp.Proxies) != 1 {
 		t.Fatalf("expected 1 visible proxy, got %d", len(resp.Proxies))
 	}
@@ -225,7 +226,7 @@ func TestAPI_GetProxyHandler(t *testing.T) {
 	}
 
 	var proxy apiProxy
-	json.Unmarshal(w.Body.Bytes(), &proxy)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &proxy))
 	if proxy.Name != "testproxy" {
 		t.Fatalf("expected testproxy, got %s", proxy.Name)
 	}
@@ -262,7 +263,7 @@ func TestAPI_GetProxyPortsHandler(t *testing.T) {
 	var resp struct {
 		Ports []apiPort `json:"ports"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	if len(resp.Ports) != 2 {
 		t.Fatalf("expected 2 ports, got %d", len(resp.Ports))
 	}
@@ -292,7 +293,9 @@ func TestAPI_VersionHandler(t *testing.T) {
 	}
 
 	var v apiVersionResponse
-	json.Unmarshal(w.Body.Bytes(), &v)
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {
+		t.Fatalf("json unmarshal failed: %v", err)
+	}
 	if v.Author == "" {
 		t.Fatal("expected author to be set")
 	}
@@ -312,7 +315,9 @@ func TestAPI_AggregateHealthHandler(t *testing.T) {
 	}
 
 	var h apiHealthResponse
-	json.Unmarshal(w.Body.Bytes(), &h)
+	if err := json.Unmarshal(w.Body.Bytes(), &h); err != nil {
+		t.Fatalf("json unmarshal failed: %v", err)
+	}
 	if h.Total != 1 {
 		t.Fatalf("expected total 1, got %d", h.Total)
 	}
@@ -329,7 +334,9 @@ func TestAPI_WriteJSONError(t *testing.T) {
 	}
 
 	var errResp apiErrorResponse
-	json.Unmarshal(w.Body.Bytes(), &errResp)
+	if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+		t.Fatalf("json unmarshal failed: %v", err)
+	}
 	if errResp.Message != "test error" {
 		t.Fatalf("expected 'test error', got %s", errResp.Message)
 	}

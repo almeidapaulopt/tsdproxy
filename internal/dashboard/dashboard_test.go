@@ -13,6 +13,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 )
 
 func testingLogger(t *testing.T) zerolog.Logger {
@@ -742,7 +743,7 @@ func TestPreferencesStore_Load_CachesAfterFirstLoad(t *testing.T) {
 
 	p, _ := s.Load("cacheduser")
 	p.View = "list"
-	s.Save("cacheduser", p)
+	require.NoError(t, s.Save("cacheduser", p))
 
 	p2, _ := s.Load("cacheduser")
 	if p2.View != "list" {
@@ -755,7 +756,7 @@ func TestPreferencesStore_LoadFromDiskAfterCacheMiss(t *testing.T) {
 	s, _ := NewPreferencesStore(dir, testingLogger(t))
 
 	prefs := model.Preferences{View: "list", Sort: "status"}
-	s.Save("diskuser", prefs)
+	require.NoError(t, s.Save("diskuser", prefs))
 
 	s2, _ := NewPreferencesStore(dir, testingLogger(t))
 	loaded, err := s2.Load("diskuser")
@@ -821,7 +822,8 @@ func TestPreferencesStore_TogglePin_Remove(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewPreferencesStore(dir, testingLogger(t))
 
-	s.TogglePin("pinuser2", "proxy1")
+	_, err := s.TogglePin("pinuser2", "proxy1")
+	require.NoError(t, err)
 	p, err := s.TogglePin("pinuser2", "proxy1")
 	if err != nil {
 		t.Fatalf("TogglePin failed: %v", err)
@@ -835,7 +837,7 @@ func TestPreferencesStore_Load_CorruptFile(t *testing.T) {
 	dir := t.TempDir()
 	s, _ := NewPreferencesStore(dir, testingLogger(t))
 
-	s.Save("corrupt", model.Preferences{View: "list"})
+	require.NoError(t, s.Save("corrupt", model.Preferences{View: "list"}))
 	storeDir := dir + "/dashboard/preferences"
 	if err := os.WriteFile(storeDir+"/corrupt.json", []byte("not json"), 0o600); err != nil { //nolint:mnd
 		t.Fatalf("WriteFile failed: %v", err)
@@ -843,8 +845,8 @@ func TestPreferencesStore_Load_CorruptFile(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	s2, _ := NewPreferencesStore(cacheDir, testingLogger(t))
-	os.MkdirAll(cacheDir+"/dashboard/preferences", 0o700)
-	os.WriteFile(cacheDir+"/dashboard/preferences/corrupt.json", []byte("not json"), 0o600)
+	require.NoError(t, os.MkdirAll(cacheDir+"/dashboard/preferences", 0o700))
+	require.NoError(t, os.WriteFile(cacheDir+"/dashboard/preferences/corrupt.json", []byte("not json"), 0o600))
 
 	p, err := s2.Load("corrupt")
 	if err != nil {

@@ -807,7 +807,7 @@ func TestStopAllProxies_ConcurrentSafe(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			ctx, cancel := context.WithCancel(context.Background())
-			name := string(rune('a' + n))
+			name := string(rune('a' + n)) //nolint:gosec
 			pm.mtx.Lock()
 			pm.Proxies[name] = &Proxy{
 				Config:        &model.Config{Hostname: name},

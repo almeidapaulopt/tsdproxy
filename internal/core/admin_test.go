@@ -411,17 +411,17 @@ func TestResolveWhois(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
 		whoisCtx          model.Whois
-		setWhoisCtx       bool
+		name              string
 		wantID            string
 		wantUsername      string
 		wantDisplayName   string
 		wantProfilePicURL string
+		setWhoisCtx       bool
 	}{
 		{
-			name:       "no identity returns empty",
-			wantID:     "",
+			name:        "no identity returns empty",
+			wantID:      "",
 			setWhoisCtx: false,
 		},
 		{
@@ -648,29 +648,36 @@ func TestStripProxyIdentityHeaders(t *testing.T) {
 				}
 			}
 
-			if tt.wantInContext {
-				if gotWhois.ID != tt.identityHeaders[consts.HeaderID] {
-					t.Errorf("ResolveWhois().ID = %q, want %q", gotWhois.ID, tt.identityHeaders[consts.HeaderID])
-				}
-				if gotWhois.Username != tt.identityHeaders[consts.HeaderUsername] {
-					t.Errorf("ResolveWhois().Username = %q, want %q", gotWhois.Username, tt.identityHeaders[consts.HeaderUsername])
-				}
-				if gotWhois.DisplayName != tt.identityHeaders[consts.HeaderDisplayName] {
-					t.Errorf("ResolveWhois().DisplayName = %q, want %q", gotWhois.DisplayName, tt.identityHeaders[consts.HeaderDisplayName])
-				}
-				if gotWhois.ProfilePicURL != tt.identityHeaders[consts.HeaderProfilePicURL] {
-					t.Errorf("ResolveWhois().ProfilePicURL = %q, want %q", gotWhois.ProfilePicURL, tt.identityHeaders[consts.HeaderProfilePicURL])
-				}
-			} else {
-				if gotWhois.ID != "" {
-					t.Errorf("ResolveWhois().ID = %q, want empty (no context)", gotWhois.ID)
-				}
-			}
+			verifyWhoisInContext(t, tt.wantInContext, gotWhois, tt.identityHeaders)
 
 			if rec.Code != http.StatusOK {
 				t.Errorf("StripProxyIdentityHeaders status = %d, want %d", rec.Code, http.StatusOK)
 			}
 		})
+	}
+}
+
+func verifyWhoisInContext(t *testing.T, wantInContext bool, gotWhois model.Whois, headers map[string]string) {
+	t.Helper()
+
+	if !wantInContext {
+		if gotWhois.ID != "" {
+			t.Errorf("ResolveWhois().ID = %q, want empty (no context)", gotWhois.ID)
+		}
+		return
+	}
+
+	if gotWhois.ID != headers[consts.HeaderID] {
+		t.Errorf("ResolveWhois().ID = %q, want %q", gotWhois.ID, headers[consts.HeaderID])
+	}
+	if gotWhois.Username != headers[consts.HeaderUsername] {
+		t.Errorf("ResolveWhois().Username = %q, want %q", gotWhois.Username, headers[consts.HeaderUsername])
+	}
+	if gotWhois.DisplayName != headers[consts.HeaderDisplayName] {
+		t.Errorf("ResolveWhois().DisplayName = %q, want %q", gotWhois.DisplayName, headers[consts.HeaderDisplayName])
+	}
+	if gotWhois.ProfilePicURL != headers[consts.HeaderProfilePicURL] {
+		t.Errorf("ResolveWhois().ProfilePicURL = %q, want %q", gotWhois.ProfilePicURL, headers[consts.HeaderProfilePicURL])
 	}
 }
 
