@@ -312,7 +312,7 @@ func (ts *targetState) replace(origin, target *url.URL) {
 // isPortRange checks whether a port string contains a range expression (e.g., "56000-56100").
 func isPortRange(s string) bool {
 	parts := strings.SplitN(s, rangeSep, splitPairCount)
-	if len(parts) != splitPairCount {                   
+	if len(parts) != splitPairCount {
 		return false
 	}
 	_, err1 := strconv.Atoi(parts[0])
@@ -323,7 +323,7 @@ func isPortRange(s string) bool {
 // parsePortRange parses a port range string like "56000-56100" and returns the start and end ports.
 func parsePortRange(s string) (start, end int, err error) {
 	parts := strings.SplitN(s, rangeSep, splitPairCount)
-	if len(parts) != splitPairCount {                   
+	if len(parts) != splitPairCount {
 		return 0, 0, fmt.Errorf("invalid port range %q: expected format start-end", s)
 	}
 

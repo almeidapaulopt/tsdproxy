@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	hoursPerDay   = 24
+	hoursPerDay    = 24
 	minutesPerHour = 60
 )
 

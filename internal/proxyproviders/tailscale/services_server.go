@@ -263,6 +263,8 @@ func (ss *ServicesServer) sendProducer(ctx context.Context, cmd servicesCmd) boo
 }
 
 // loop is the core event loop. It owns all mutable state.
+//
+//nolint:cyclop // event loop with large switch is inherently complex; splitting reduces readability
 func (ss *ServicesServer) loop() {
 	defer ss.ev.Close()
 

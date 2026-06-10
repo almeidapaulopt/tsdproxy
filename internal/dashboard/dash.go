@@ -28,7 +28,7 @@ const (
 	hxRequestHeader = "true"
 	subjectRemote   = "__remote__"
 
-	hoursPerDay    = 24
+	hoursPerDay      = 24
 	defaultHTTPSPort = 443
 	defaultHTTPPort  = 80
 )
@@ -117,7 +117,7 @@ func formatAgo(t time.Time) string {
 			return "1m ago"
 		}
 		return fmt.Sprintf("%dm ago", m)
-	case d < time.Duration(hoursPerDay) * time.Hour:
+	case d < time.Duration(hoursPerDay)*time.Hour:
 		h := int(math.Round(d.Hours()))
 		if h == 1 {
 			return "1h ago"
@@ -159,7 +159,7 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 			}
 			return
 		}
-		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"})
+		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"}) //nolint:goconst
 	}
 }
 

@@ -193,9 +193,9 @@ func (pm *ProxyManager) WatchEvents() {
 const maxWatchBackoff = 5 * time.Minute
 
 const (
-	backoffMultiplier     = 2
-	statusSubChanBuf      = 64
-	proxyURLPollInterval  = 500 * time.Millisecond
+	backoffMultiplier    = 2
+	statusSubChanBuf     = 64
+	proxyURLPollInterval = 500 * time.Millisecond
 )
 
 func (pm *ProxyManager) reconnectBackoff(provider targetproviders.TargetProvider, current time.Duration, reason string) time.Duration {

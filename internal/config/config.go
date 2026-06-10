@@ -18,6 +18,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
+const defaultControlURL = "https://controlplane.tailscale.com"
+
 // ValidateKeyFilePath resolves symlinks and verifies the path points to a
 // regular file, preventing reads through symlinks, FIFOs, or device files.
 func ValidateKeyFilePath(path string) (string, error) {

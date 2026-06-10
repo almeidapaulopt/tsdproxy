@@ -37,9 +37,11 @@ func (s HealthStatus) String() string {
 	case HealthDown:
 		return "down"
 	default:
-		return "unknown"
+		return healthStrUnknown
 	}
 }
+
+const healthStrUnknown = "unknown"
 
 // HealthResult holds the latest health check result for a proxy target.
 type HealthResult struct {

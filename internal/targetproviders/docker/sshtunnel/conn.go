@@ -15,11 +15,11 @@ import (
 
 type (
 	sshSessionConn struct {
-		session *ssh.Session
+		log     zerolog.Logger
 		stdin   io.WriteCloser
 		stdout  io.Reader
+		session *ssh.Session
 		closed  atomic.Bool
-		log     zerolog.Logger
 	}
 
 	addr struct{}
