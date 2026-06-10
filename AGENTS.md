@@ -179,10 +179,7 @@ Steps 4–5 skipped for host-network containers.
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
-- **Global mutable state**: `config.Config` (package-level var) — set during init, accessed everywhere. Live-reload via fsnotify may mutate fields concurrently (needs investigation). `core.proxyAuthToken` is write-once before handlers (low practical risk). `core.csrfProtection` is immutable after init (not a real anti-pattern).
-- **InsecureSkipVerify**: `proxymanager/port.go`, `proxymanager/health.go` — config-driven TLS validation toggle, secure by default (`tlsValidate: true`). Warning logged when disabled. Uses `//nolint:gosec`.
-- **println/fmt.Print in prod**: `cmd/server/main.go` (3 instances), `internal/config/generateproviders.go` (2 instances) — all pre-logger (logger not initialized yet). Acceptable for startup/fatal output.
-- **Swallowed errors**: `dashboard/dash.go` discards render errors with `_ =` (templ rendering); `proxyproviders/tailscale/port_router.go` ignores TLS handshake error by design (SNI extraction only).
+- **Global mutable state**: `config.Config` (package-level var) — set once during init, accessed everywhere. No live-reload of the global config (only list provider files are watched via fsnotify, and they're mutex-protected). If main-config live-reload is ever added, wrap in `atomic.Pointer[config]` for copy-on-swap reads. `core.proxyAuthToken` is write-once before handlers (low practical risk). `core.csrfProtection` is immutable after init.
 
 ## COMMANDS
 
