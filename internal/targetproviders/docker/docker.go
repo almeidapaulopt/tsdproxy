@@ -366,7 +366,10 @@ func (c *Client) setDefaultBridgeAddress() {
 	c.log.Trace().Msg("getDefaultBridgeAddress")
 	defer c.log.Trace().Msg("End getDefaultBridgeAddress")
 
-	networkListResult, err := c.docker.NetworkList(context.Background(), client.NetworkListOptions{})
+	networkCtx, networkCancel := context.WithTimeout(context.Background(), containerInspectTimeout)
+	defer networkCancel()
+
+	networkListResult, err := c.docker.NetworkList(networkCtx, client.NetworkListOptions{})
 	if err != nil {
 		c.log.Error().Err(err).Msg("Error listing Docker networks")
 		return

@@ -320,6 +320,9 @@ func (c *container) generateTargetFromFirstTarget(ctx context.Context, port mode
 
 	// multiple targets not supported in this TargetProvider
 	p := port.GetFirstTarget()
+	if p == nil {
+		return port, fmt.Errorf("no target URL for port %s", port.String())
+	}
 
 	targetURL, err := c.getTargetURL(ctx, p, port.NoAutoDetect)
 	if err != nil {
