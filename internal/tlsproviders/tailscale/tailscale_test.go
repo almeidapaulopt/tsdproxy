@@ -22,21 +22,21 @@ func TestProvider_Name(t *testing.T) {
 
 func TestProvider_Provision_NilClient(t *testing.T) {
 	p := New(nil, 0)
-	err := p.Provision(context.TODO(), "myapp.tailnet.ts.net")
+	err := p.Provision(context.Background(), "myapp.tailnet.ts.net")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "local client is nil")
 }
 
 func TestProvider_Provision_NotMagicDNSDomain(t *testing.T) {
 	p := New(nil, 0)
-	err := p.Provision(context.TODO(), "app.example.com")
+	err := p.Provision(context.Background(), "app.example.com")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not a MagicDNS domain")
 }
 
 func TestProvider_Cleanup(t *testing.T) {
 	p := New(nil, 0)
-	err := p.Cleanup(context.TODO(), "myapp.tailnet.ts.net")
+	err := p.Cleanup(context.Background(), "myapp.tailnet.ts.net")
 	assert.NoError(t, err)
 }
 
@@ -62,7 +62,7 @@ func TestProvider_New_NegativeConcurrency(t *testing.T) {
 func TestProvider_SetLocalClient(t *testing.T) {
 	p := New(nil, 0)
 	p.SetLocalClient(nil)
-	err := p.Provision(context.TODO(), "myapp.tailnet.ts.net")
+	err := p.Provision(context.Background(), "myapp.tailnet.ts.net")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "local client is nil")
 }
@@ -81,7 +81,7 @@ func TestProvider_SetMaxConcurrency_Zero(t *testing.T) {
 
 func TestProvider_GetCertificate_NilClient(t *testing.T) {
 	p := New(nil, 0)
-	_, err := p.GetCertificate(context.TODO(), "myapp.tailnet.ts.net")
+	_, err := p.GetCertificate(context.Background(), "myapp.tailnet.ts.net")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "local client is nil")
 }
