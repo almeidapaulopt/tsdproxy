@@ -257,6 +257,86 @@ func TestClient_ProcessSinglePort_Valid(t *testing.T) {
 	}
 }
 
+func TestClient_GetPorts_PortRangeExpands(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, nil)
+	ports := c.getPorts(map[string]port{
+		"2222-2224/tcp": {
+			Targets: []string{"http://backend:8080"},
+		},
+	})
+
+	if len(ports) != 3 {
+		t.Fatalf("expected 3 ports from range 2222-2224, got %d", len(ports))
+	}
+	for key, pc := range ports {
+		if len(pc.GetTargets()) != 1 {
+			t.Fatalf("port %s: expected 1 target, got %d", key, len(pc.GetTargets()))
+		}
+	}
+}
+
+func TestClient_GetPorts_PortRangeWithRedirect(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, nil)
+	ports := c.getPorts(map[string]port{
+		"2222-2223/tcp": {
+			Targets:    []string{"https://app.example.com"},
+			IsRedirect: true,
+		},
+	})
+
+	if len(ports) != 2 {
+		t.Fatalf("expected 2 ports from range, got %d", len(ports))
+	}
+	for key, pc := range ports {
+		if !pc.IsRedirect {
+			t.Fatalf("port %s: expected IsRedirect to be inherited from parent", key)
+		}
+		if len(pc.GetTargets()) != 1 {
+			t.Fatalf("port %s: expected 1 target, got %d", key, len(pc.GetTargets()))
+		}
+	}
+}
+
+func TestClient_GetPorts_PortRangeNoTargets(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, nil)
+	ports := c.getPorts(map[string]port{
+		"2222-2224/tcp": {
+			Targets: nil,
+		},
+	})
+
+	if len(ports) != 0 {
+		t.Fatalf("expected 0 ports when range has no targets, got %d", len(ports))
+	}
+}
+
+func TestClient_GetPorts_PortRangeWithTLSValidate(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, nil)
+	ports := c.getPorts(map[string]port{
+		"2222-2224/tcp": {
+			Targets:     []string{"https://backend:8443"},
+			TLSValidate: false,
+		},
+	})
+
+	if len(ports) != 3 {
+		t.Fatalf("expected 3 ports from range, got %d", len(ports))
+	}
+	for key, pc := range ports {
+		if pc.TLSValidate {
+			t.Fatalf("port %s: expected TLSValidate to be inherited as false", key)
+		}
+	}
+}
+
 func TestClient_ProcessSinglePort_InvalidLabel(t *testing.T) {
 	c := newTestClient(t, nil)
 	ports := make(model.PortConfigList)
