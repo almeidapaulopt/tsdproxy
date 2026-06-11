@@ -91,3 +91,40 @@ func TestLifecycle_GetStatus_Unknown(t *testing.T) {
 	lm := NewLifecycleManager(true)
 	assert.Equal(t, DNSStatusNone, lm.GetStatus("unknown.example.com"))
 }
+
+func TestLifecycle_CleanupDNS_DeleteRecordError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("dns server unreachable")
+	p := &mockProvider{
+		validateOk: true,
+		deleteErr:  expectedErr,
+	}
+
+	lm := NewLifecycleManager(true)
+
+	require.NoError(t, lm.SetupDNS(context.Background(), p, "app.example.com", "myapp.ts.net"))
+
+	err := lm.CleanupDNS(context.Background(), p, "app.example.com")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "dns server unreachable")
+}
+
+func TestLifecycle_SetupDNS_ValidateRecordError(t *testing.T) {
+	t.Parallel()
+
+	validateErr := errors.New("dns lookup failed")
+	p := &mockProvider{
+		validateOk:  false,
+		validateErr: validateErr,
+	}
+
+	lm := NewLifecycleManager(true)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := lm.SetupDNS(ctx, p, "app.example.com", "myapp.ts.net")
+	require.Error(t, err)
+	assert.Equal(t, DNSStatusError, lm.GetStatus("app.example.com"))
+}
