@@ -26,6 +26,7 @@ import (
 
 const (
 	hxRequestHeader = "true"
+	justAgoString   = "just now"
 	subjectRemote   = "__remote__"
 
 	hoursPerDay      = 24
@@ -110,7 +111,7 @@ func formatAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:
-		return "just now"
+		return justAgoString
 	case d < time.Hour:
 		m := int(math.Round(d.Minutes()))
 		if m == 1 {

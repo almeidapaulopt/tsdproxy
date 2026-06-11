@@ -15,6 +15,8 @@ type (
 	}
 )
 
+const statusStringUnknown = "Unknown"
+
 const (
 	ProxyStatusInitializing ProxyStatus = iota
 	ProxyStatusStarting
@@ -48,7 +50,7 @@ var proxyStatusStrings = []string{
 func (s ProxyStatus) String() string {
 	i := int(s)
 	if i < 0 || i >= len(proxyStatusStrings) {
-		return "Unknown"
+		return statusStringUnknown
 	}
 	return proxyStatusStrings[i]
 }
