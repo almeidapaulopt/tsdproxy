@@ -41,6 +41,34 @@ func TestSafeID(t *testing.T) {
 	}
 }
 
+func TestJSString_ProducesValidJSONString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "empty", input: "", expected: `""`},
+		{name: "plain text", input: "hello", expected: `"hello"`},
+		{name: "double quotes", input: `say "hello"`, expected: `"say \"hello\""`},
+		{name: "backslash", input: `a\b`, expected: `"a\\b"`},
+		{name: "newline", input: "line1\nline2", expected: `"line1\nline2"`},
+		{name: "tab", input: "col1\tcol2", expected: `"col1\tcol2"`},
+		{name: "control char", input: "a\x00b", expected: `"a\u0000b"`},
+		{name: "unicode", input: "café", expected: `"café"`},
+		{name: "angle brackets", input: "<script>", expected: `"\u003cscript\u003e"`},
+		{name: "ampersand", input: "a&b", expected: `"a\u0026b"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := JSString(tt.input)
+			if result != tt.expected {
+				t.Errorf("JSString(%q) = %s, want %s", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestSafeIDUniqueness(t *testing.T) {
 	pairs := []struct{ a, b string }{
 		{"foo.bar", "foo_bar"},
