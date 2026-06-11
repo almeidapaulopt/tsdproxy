@@ -7,11 +7,14 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"tailscale.com/tsnet"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 // --- NewNodeLifecycle ---
@@ -165,4 +168,42 @@ func TestNewRetryPolicy_Defaults(t *testing.T) {
 
 	p := NewRetryPolicy()
 	assert.Equal(t, 3, p.MaxAttempts) //nolint:mnd
+}
+
+// --- sendEvent ---
+
+func TestNodeLifecycle_SendEvent_Delivers(t *testing.T) {
+	t.Parallel()
+
+	nl := NewNodeLifecycle(zerolog.Nop(), NodeLifecycleConfig{})
+	evt := NodeEvent{Status: model.ProxyStatusRunning, URL: "test.ts.net"}
+	nl.sendEvent(evt)
+
+	select {
+	case got := <-nl.events:
+		assert.Equal(t, evt, got)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event")
+	}
+}
+
+func TestNodeLifecycle_SendEvent_DropsOnFullBuffer(t *testing.T) {
+	t.Parallel()
+
+	nl := NewNodeLifecycle(zerolog.Nop(), NodeLifecycleConfig{})
+	for i := 0; i < cap(nl.events); i++ {
+		nl.events <- NodeEvent{}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		nl.sendEvent(NodeEvent{Status: model.ProxyStatusRunning})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("sendEvent blocked on full buffer — expected non-blocking drop")
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"testing"
 
@@ -398,6 +399,133 @@ func TestHTTPHostHeader_NoHeadersEnd_StripsPort(t *testing.T) {
 	host, _ := httpHostHeader(br)
 	if host != "example.com" {
 		t.Fatalf("expected %q, got %q", "example.com", host)
+	}
+}
+
+// --- httpHostHeaderFromBytes ---
+
+func TestHTTPHostHeaderFromBytes_StandardHost(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\n\r\n")
+
+	host := httpHostHeaderFromBytes(raw)
+	if host != "example.com" {
+		t.Fatalf("expected 'example.com', got %q", host)
+	}
+}
+
+func TestHTTPHostHeaderFromBytes_LowercaseHost(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("GET / HTTP/1.1\r\nhost: example.com\r\n\r\n")
+
+	host := httpHostHeaderFromBytes(raw)
+	if host != "example.com" {
+		t.Fatalf("expected 'example.com', got %q", host)
+	}
+}
+
+func TestHTTPHostHeaderFromBytes_WithPort(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("GET / HTTP/1.1\r\nHost: example.com:8080\r\n\r\n")
+
+	host := httpHostHeaderFromBytes(raw)
+	if host != "example.com:8080" {
+		t.Fatalf("expected 'example.com:8080' (port not stripped by this function), got %q", host)
+	}
+}
+
+func TestHTTPHostHeaderFromBytes_NoHost(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("GET / HTTP/1.1\r\n\r\n")
+
+	host := httpHostHeaderFromBytes(raw)
+	if host != "" {
+		t.Fatalf("expected empty string, got %q", host)
+	}
+}
+
+func TestHTTPHostHeaderFromBytes_EmptyBytes(t *testing.T) {
+	t.Parallel()
+
+	host := httpHostHeaderFromBytes(nil)
+	if host != "" {
+		t.Fatalf("expected empty string for nil bytes, got %q", host)
+	}
+
+	host = httpHostHeaderFromBytes([]byte{})
+	if host != "" {
+		t.Fatalf("expected empty string for empty bytes, got %q", host)
+	}
+}
+
+// --- untilEOL ---
+
+func TestUntilEOL_CRLF(t *testing.T) {
+	t.Parallel()
+
+	result := untilEOL([]byte("example.com\r\n"))
+	if string(result) != "example.com" {
+		t.Fatalf("expected 'example.com', got %q", string(result))
+	}
+}
+
+func TestUntilEOL_LF(t *testing.T) {
+	t.Parallel()
+
+	result := untilEOL([]byte("example.com\n"))
+	if string(result) != "example.com" {
+		t.Fatalf("expected 'example.com', got %q", string(result))
+	}
+}
+
+func TestUntilEOL_NullByte(t *testing.T) {
+	t.Parallel()
+
+	result := untilEOL([]byte("example.com\x00extra"))
+	if string(result) != "example.com" {
+		t.Fatalf("expected 'example.com', got %q", string(result))
+	}
+}
+
+func TestUntilEOL_NoDelimiter(t *testing.T) {
+	t.Parallel()
+
+	result := untilEOL([]byte("example.com"))
+	if string(result) != "example.com" {
+		t.Fatalf("expected 'example.com', got %q", string(result))
+	}
+}
+
+func TestUntilEOL_Empty(t *testing.T) {
+	t.Parallel()
+
+	result := untilEOL(nil)
+	if string(result) != "" {
+		t.Fatalf("expected empty string, got %q", string(result))
+	}
+
+	result = untilEOL([]byte{})
+	if string(result) != "" {
+		t.Fatalf("expected empty string, got %q", string(result))
+	}
+}
+
+// --- readerConn.Write ---
+
+func TestReaderConn_Write_NilConnReturnsEOF(t *testing.T) {
+	t.Parallel()
+
+	rc := &readerConn{reader: bytes.NewReader([]byte("hello"))}
+	n, err := rc.Write([]byte("data"))
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("expected io.EOF, got %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 bytes written, got %d", n)
 	}
 }
 

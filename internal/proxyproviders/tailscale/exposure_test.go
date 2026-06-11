@@ -110,6 +110,25 @@ func TestPerProxyExposure_Close_Idempotent(t *testing.T) {
 	}
 }
 
+func TestPerProxyExposure_Close_Started(t *testing.T) {
+	t.Parallel()
+
+	e := NewPerProxyExposure(zerolog.Nop())
+	e.mtx.Lock()
+	e.started = true
+	e.mtx.Unlock()
+
+	if err := e.Close(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e.mtx.RLock()
+	started := e.started
+	e.mtx.RUnlock()
+	if started {
+		t.Error("started should be false after Close")
+	}
+}
+
 // SharedSNIExposure
 
 func TestNewSharedSNIExposure(t *testing.T) {
@@ -146,6 +165,73 @@ func TestSharedSNIExposure_Close_Idempotent(t *testing.T) {
 	}
 	if err := e.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error on second close: %v", err)
+	}
+}
+
+func TestSharedSNIExposure_Close_Started(t *testing.T) {
+	t.Parallel()
+
+	e := NewSharedSNIExposure(nil, "example.ts.net")
+	e.mtx.Lock()
+	e.started = true
+	e.mtx.Unlock()
+
+	if err := e.Close(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e.mtx.RLock()
+	started := e.started
+	e.mtx.RUnlock()
+	if started {
+		t.Error("started should be false after Close")
+	}
+}
+
+func TestSharedSNIExposure_getRawTCPListener_NotStarted(t *testing.T) {
+	t.Parallel()
+
+	e := NewSharedSNIExposure(nil, "example.ts.net")
+	_, err := e.getRawTCPListener("tcp")
+	if !errors.Is(err, errExposureNotStarted) {
+		t.Errorf("expected errExposureNotStarted, got %v", err)
+	}
+}
+
+func TestSharedSNIExposure_getRawTCPListener_NotFound(t *testing.T) {
+	t.Parallel()
+
+	e := NewSharedSNIExposure(nil, "example.ts.net")
+	e.mtx.Lock()
+	e.started = true
+	e.mtx.Unlock()
+
+	_, err := e.getRawTCPListener("nonexistent")
+	if !errors.Is(err, ErrProxyPortNotFound) {
+		t.Errorf("expected ErrProxyPortNotFound, got %v", err)
+	}
+}
+
+func TestSharedSNIExposure_getPacketConn_NotStarted(t *testing.T) {
+	t.Parallel()
+
+	e := NewSharedSNIExposure(nil, "example.ts.net")
+	_, err := e.getPacketConn("udp")
+	if !errors.Is(err, errExposureNotStarted) {
+		t.Errorf("expected errExposureNotStarted, got %v", err)
+	}
+}
+
+func TestSharedSNIExposure_getPacketConn_NotFound(t *testing.T) {
+	t.Parallel()
+
+	e := NewSharedSNIExposure(nil, "example.ts.net")
+	e.mtx.Lock()
+	e.started = true
+	e.mtx.Unlock()
+
+	_, err := e.getPacketConn("nonexistent")
+	if !errors.Is(err, ErrProxyPortNotFound) {
+		t.Errorf("expected ErrProxyPortNotFound, got %v", err)
 	}
 }
 
@@ -186,6 +272,32 @@ func TestServicesVIPExposure_Close_Idempotent(t *testing.T) {
 	if err := e.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error on second close: %v", err)
 	}
+}
+
+func TestServicesVIPExposure_Close_Started(t *testing.T) {
+	t.Parallel()
+
+	e := NewServicesVIPExposure(nil, "myservice")
+	e.mtx.Lock()
+	e.started = true
+	e.mtx.Unlock()
+
+	if err := e.Close(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	e.mtx.RLock()
+	started := e.started
+	e.mtx.RUnlock()
+	if started {
+		t.Error("started should be false after Close")
+	}
+}
+
+func TestServicesVIPExposure_RollbackAcquired_NilCfg(t *testing.T) {
+	t.Parallel()
+
+	e := NewServicesVIPExposure(nil, "myservice")
+	e.rollbackAcquired()
 }
 
 func TestServicesVIPExposure_FirstFQDN_Empty(t *testing.T) {

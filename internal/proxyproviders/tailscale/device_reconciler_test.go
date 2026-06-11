@@ -413,6 +413,62 @@ func TestReconcile_DeviceReconnectsBetweenListAndGet_NotDeleted(t *testing.T) {
 	assert.True(t, conflictCalled, "onConflict must fire so the caller learns the hostname is contested")
 }
 
+// --- isNumeric ---
+
+func TestIsNumeric_Valid(t *testing.T) {
+	t.Parallel()
+
+	if !isNumeric("123") {
+		t.Fatal("isNumeric('123') should return true")
+	}
+	if !isNumeric("0") {
+		t.Fatal("isNumeric('0') should return true")
+	}
+	if !isNumeric("999999") {
+		t.Fatal("isNumeric('999999') should return true")
+	}
+}
+
+func TestIsNumeric_Empty(t *testing.T) {
+	t.Parallel()
+
+	if isNumeric("") {
+		t.Fatal("isNumeric('') should return false")
+	}
+}
+
+func TestIsNumeric_Invalid(t *testing.T) {
+	t.Parallel()
+
+	if isNumeric("123a") {
+		t.Fatal("isNumeric('123a') should return false")
+	}
+	if isNumeric("-1") {
+		t.Fatal("isNumeric('-1') should return false")
+	}
+	if isNumeric("12.3") {
+		t.Fatal("isNumeric('12.3') should return false")
+	}
+	if isNumeric("abc") {
+		t.Fatal("isNumeric('abc') should return false")
+	}
+}
+
+// --- listerForReconcile ---
+
+func TestListerForReconcile_WithInjectedLister(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{}
+	r := newTestReconciler(mock)
+	lister := r.listerForReconcile()
+	if lister != mock {
+		t.Error("listerForReconcile() should return the injected lister")
+	}
+}
+
+// --- Reconcile ---
+
 func TestReconcile_DeviceDisappearsBetweenListAndGet_NotDeleted(t *testing.T) {
 	t.Parallel()
 

@@ -167,6 +167,91 @@ func TestSave_CreatesDirIfMissing(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, "tsdproxy.yaml"))
 }
 
+// --- CleanAll ---
+
+func TestCleanAll_RemovesDirectory(t *testing.T) {
+	t.Parallel()
+
+	sm := newStateManager(t)
+	dir := t.TempDir()
+	touchStateFile(t, dir)
+	assert.FileExists(t, filepath.Join(dir, "tailscaled.state"))
+
+	sm.CleanAll(dir)
+
+	_, err := os.Stat(dir)
+	assert.True(t, os.IsNotExist(err), "directory should be removed by CleanAll")
+}
+
+func TestCleanAll_DirNotExists_NoError(t *testing.T) {
+	t.Parallel()
+
+	sm := newStateManager(t)
+	dir := filepath.Join(t.TempDir(), "nonexistent")
+
+	sm.CleanAll(dir)
+}
+
+// --- CleanAuthState ---
+
+func TestCleanAuthState_RemovesStateFiles(t *testing.T) {
+	t.Parallel()
+
+	sm := newStateManager(t)
+	dir := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tailscaled.state"), []byte("state"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tailscaled.log1.txt"), []byte("log1"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tailscaled.log2.txt"), []byte("log2"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tailscaled.log.conf"), []byte("config"), 0o600))
+
+	sm.CleanAuthState(dir)
+
+	assert.NoFileExists(t, filepath.Join(dir, "tailscaled.state"))
+	assert.NoFileExists(t, filepath.Join(dir, "tailscaled.log1.txt"))
+	assert.NoFileExists(t, filepath.Join(dir, "tailscaled.log2.txt"))
+	assert.NoFileExists(t, filepath.Join(dir, "tailscaled.log.conf"))
+}
+
+func TestCleanAuthState_NoFiles_NoError(t *testing.T) {
+	t.Parallel()
+
+	sm := newStateManager(t)
+	dir := t.TempDir()
+
+	sm.CleanAuthState(dir)
+}
+
+// --- CleanAuthStateDirs ---
+
+func TestCleanAuthStateDirs_Multiple(t *testing.T) {
+	t.Parallel()
+
+	sm := newStateManager(t)
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir1, "tailscaled.state"), []byte("state"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir2, "tailscaled.state"), []byte("state"), 0o600))
+
+	sm.CleanAuthStateDirs(dir1, dir2)
+
+	assert.NoFileExists(t, filepath.Join(dir1, "tailscaled.state"))
+	assert.NoFileExists(t, filepath.Join(dir2, "tailscaled.state"))
+}
+
+func TestCleanAuthStateDirs_EmptyString(t *testing.T) {
+	t.Parallel()
+
+	sm := newStateManager(t)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tailscaled.state"), []byte("state"), 0o600))
+
+	sm.CleanAuthStateDirs(dir, "")
+	assert.NoFileExists(t, filepath.Join(dir, "tailscaled.state"))
+}
+
 // --- Lifecycle ---
 
 func TestLifecycle_FullCycle(t *testing.T) {
