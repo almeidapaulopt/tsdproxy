@@ -266,27 +266,34 @@ func (p *port) close() error {
 
 // tcpPort forwards raw TCP connections from the Tailscale listener to the target backend.
 type tcpPort struct {
-	log      zerolog.Logger
-	ctx      context.Context
-	listener net.Listener
-	cancel   context.CancelFunc
-	pconfig  model.PortConfig
-	mtx      sync.Mutex
-	wg       sync.WaitGroup // track active connections
+	log       zerolog.Logger
+	ctx       context.Context
+	listener  net.Listener
+	cancel    context.CancelFunc
+	pconfig   model.PortConfig
+	mtx       sync.Mutex
+	wg        sync.WaitGroup // track active connections
+	acceptWg  sync.WaitGroup // tracks whether startWithListener has finished
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *tcpPort {
 	ctxPort, cancel := context.WithCancel(ctx)
 
-	return &tcpPort{
+	tp := &tcpPort{
 		log:     log.With().Str("port", pconfig.String()).Logger(),
 		ctx:     ctxPort,
 		cancel:  cancel,
 		pconfig: pconfig,
 	}
+	tp.acceptWg.Add(1)
+
+	return tp
 }
 
 func (p *tcpPort) startWithListener(l net.Listener) error {
+	defer p.acceptWg.Done()
+	defer p.wg.Wait()
+
 	p.mtx.Lock()
 	p.listener = l
 	p.mtx.Unlock()
@@ -306,13 +313,15 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 			return fmt.Errorf("tcp accept: %w", err)
 		}
 
-		go p.handleConn(conn)
+		p.wg.Add(1)
+		go func(c net.Conn) {
+			defer p.wg.Done()
+			p.handleConn(c)
+		}(conn)
 	}
 }
 
 func (p *tcpPort) handleConn(clientConn net.Conn) {
-	p.wg.Add(1)
-	defer p.wg.Done()
 	defer clientConn.Close()
 
 	target := p.pconfig.GetFirstTarget()
@@ -355,7 +364,7 @@ func (p *tcpPort) close() error {
 
 	p.cancel()
 
-	p.wg.Wait()
+	p.acceptWg.Wait()
 
 	return errs
 }
