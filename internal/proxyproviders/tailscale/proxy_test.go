@@ -4,6 +4,7 @@
 package tailscale
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -111,7 +112,7 @@ func TestProxy_GetListener_PortNotInConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing port")
 	}
-	if err != ErrProxyPortNotFound {
+	if !errors.Is(err, ErrProxyPortNotFound) {
 		t.Errorf("error = %v, want ErrProxyPortNotFound", err)
 	}
 }
@@ -125,7 +126,7 @@ func TestProxy_GetRawTCPListener_PortNotInConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing port")
 	}
-	if err != ErrProxyPortNotFound {
+	if !errors.Is(err, ErrProxyPortNotFound) {
 		t.Errorf("error = %v, want ErrProxyPortNotFound", err)
 	}
 }
@@ -139,7 +140,7 @@ func TestProxy_GetPacketConn_PortNotInConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing port")
 	}
-	if err != ErrProxyPortNotFound {
+	if !errors.Is(err, ErrProxyPortNotFound) {
 		t.Errorf("error = %v, want ErrProxyPortNotFound", err)
 	}
 }

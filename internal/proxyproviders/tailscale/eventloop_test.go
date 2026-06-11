@@ -155,7 +155,7 @@ func TestEventLoopSendProducerWithCtxReturnsFalseWhenCancelled(t *testing.T) {
 
 	ok := el.SendProducer(ctx, testCmd{value: 3})
 	if ok {
-		t.Fatal("SendProducer should return false with cancelled context")
+		t.Fatal("SendProducer should return false with canceled context")
 	}
 }
 
@@ -316,7 +316,7 @@ func TestSendAndWaitReturnsValueOnSuccess(t *testing.T) {
 	// Simulate a loop that reads the command and sends a reply.
 	go func() {
 		cmd := <-el.Cmds()
-		reply <- "got:" + string(rune('0'+cmd.value))
+		reply <- "got:" + string(rune('0'+cmd.value)) //nolint:gosec
 	}()
 
 	val, ok := SendAndWait[testCmd, string](el, testCmd{value: 3}, reply)

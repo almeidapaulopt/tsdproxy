@@ -579,5 +579,8 @@ func TestLoadTailscaleEnvOverrides_NoProviders(_ *testing.T) {
 
 func TestIsRunningInDocker(t *testing.T) {
 	t.Parallel()
-	_ = isRunningInDocker()
+	result := isRunningInDocker()
+	if _, err := os.Stat("/.dockerenv"); err == nil && !result {
+		t.Error("isRunningInDocker() = false but /.dockerenv exists")
+	}
 }

@@ -4,6 +4,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -71,8 +72,11 @@ func TestGenerateDockerConfig_TSDProxyHostname(t *testing.T) {
 	}
 
 	// Note: host.docker.internal DNS lookup may override this in CI environments.
-	// We check that it was at least set during generation.
-	_ = docker.TargetHostname
+	valid := docker.TargetHostname == "myhost.example.com" ||
+		strings.EqualFold(docker.TargetHostname, "host.docker.internal")
+	if !valid {
+		t.Errorf("TargetHostname = %q, want %q or host.docker.internal", docker.TargetHostname, "myhost.example.com")
+	}
 }
 
 func TestGenerateTailscaleConfig_Defaults(t *testing.T) {

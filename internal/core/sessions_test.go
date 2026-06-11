@@ -68,7 +68,7 @@ func TestSessionMiddleware_ValidExistingCookie_ReusesSessionID(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{
+	req.AddCookie(&http.Cookie{ //nolint:gosec
 		Name:  "session_id",
 		Value: existingID,
 	})
@@ -96,7 +96,7 @@ func TestSessionMiddleware_InvalidCookieValue_GeneratesNewUUID(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{
+	req.AddCookie(&http.Cookie{ //nolint:gosec
 		Name:  "session_id",
 		Value: "not-a-valid-uuid",
 	})

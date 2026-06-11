@@ -196,7 +196,7 @@ func TestAcquireCertForDomain_ContextCancelled(t *testing.T) {
 	cancel()
 
 	acquireCertForDomain(ctx, mc, "test.ts.net", sem, zerolog.Nop())
-	assert.Equal(t, int32(0), mc.calls.Load(), "pre-cancelled context should not call CertPair")
+	assert.Equal(t, int32(0), mc.calls.Load(), "pre-canceled context should not call CertPair")
 }
 
 func TestCertPairToTLSCertificate_Success(t *testing.T) {

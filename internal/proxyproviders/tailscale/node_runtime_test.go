@@ -47,6 +47,6 @@ func TestNewNodeRuntimeClose(t *testing.T) {
 	rt.Cancel()
 
 	if ctx.Err() == nil {
-		t.Error("expected context to be cancelled after calling Cancel()")
+		t.Error("expected context to be canceled after calling Cancel()")
 	}
 }

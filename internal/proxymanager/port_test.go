@@ -1097,7 +1097,7 @@ func TestNewPortProxy_Minimal(t *testing.T) {
 func TestHTTPProxy_ContextCanceled_SilentNo502(t *testing.T) {
 	t.Parallel()
 
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(5 * time.Second)
 		w.WriteHeader(http.StatusOK)
 	}))

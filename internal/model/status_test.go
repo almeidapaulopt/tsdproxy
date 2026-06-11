@@ -14,20 +14,20 @@ func TestProxyStatusString(t *testing.T) {
 		want   string
 		status ProxyStatus
 	}{
-		{ProxyStatusInitializing, "Initializing"},
-		{ProxyStatusStarting, "Starting"},
-		{ProxyStatusAuthenticating, "Authenticating"},
-		{ProxyStatusRunning, "Running"},
-		{ProxyStatusStopping, "Stopping"},
-		{ProxyStatusStopped, "Stopped"},
-		{ProxyStatusError, "Error"},
-		{ProxyStatusPaused, "Paused"},
-		{ProxyStatusAwaitingApproval, "AwaitingApproval"},
-		{ProxyStatusAuthFailed, "AuthFailed"},
-		{ProxyStatusDeviceConflict, "DeviceConflict"},
-		{ProxyStatusReconciling, "Reconciling"},
-		{ProxyStatus(-1), "Unknown"},
-		{ProxyStatus(999), "Unknown"},
+		{"Initializing", ProxyStatusInitializing},
+		{"Starting", ProxyStatusStarting},
+		{"Authenticating", ProxyStatusAuthenticating},
+		{"Running", ProxyStatusRunning},
+		{"Stopping", ProxyStatusStopping},
+		{"Stopped", ProxyStatusStopped},
+		{"Error", ProxyStatusError},
+		{"Paused", ProxyStatusPaused},
+		{"AwaitingApproval", ProxyStatusAwaitingApproval},
+		{"AuthFailed", ProxyStatusAuthFailed},
+		{"DeviceConflict", ProxyStatusDeviceConflict},
+		{"Reconciling", ProxyStatusReconciling},
+		{"Unknown", ProxyStatus(-1)},
+		{"Unknown", ProxyStatus(999)},
 	}
 
 	for _, tc := range tests {

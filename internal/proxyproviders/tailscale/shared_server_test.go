@@ -324,7 +324,7 @@ func TestSharedServerWhoisWithRequest(t *testing.T) {
 	}
 }
 
-func TestSharedServerReleaseOnNilRuntime(t *testing.T) {
+func TestSharedServerReleaseOnNilRuntime(_ *testing.T) {
 	ss := NewSharedServer(SharedServerConfig{
 		Hostname: "test-server",
 		Log:      zerolog.Nop(),
