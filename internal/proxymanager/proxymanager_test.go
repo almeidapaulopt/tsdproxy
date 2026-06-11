@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
@@ -746,11 +747,14 @@ func TestGetTargetLock_LocksExclusively(t *testing.T) {
 
 // -- updateProxyCount / cleanupProxyMetrics ------------------------------------
 
-func TestUpdateProxyCount(_ *testing.T) {
+func TestUpdateProxyCount(t *testing.T) {
 	pm := newTestProxyManager()
 	pm.Proxies["a"] = &Proxy{Config: &model.Config{Hostname: "a"}}
 	pm.Proxies["b"] = &Proxy{Config: &model.Config{Hostname: "b"}}
 	pm.updateProxyCount()
+	if len(pm.Proxies) != 2 {
+		t.Fatalf("expected 2 proxies, got %d", len(pm.Proxies))
+	}
 }
 
 func TestUpdateProxyCount_NilMetrics(t *testing.T) {
@@ -840,4 +844,340 @@ func TestAddProxyProvider_ConvertsToLowercase(t *testing.T) {
 	if !ok {
 		t.Fatal("expected provider stored as lowercase")
 	}
+}
+
+// -- setupDomainForProxy tests ---------------------------------------------------
+
+type dnsErrorProvider struct{ mockDNSProvider }
+
+func (d *dnsErrorProvider) CreateRecord(_ context.Context, _, _, _ string) error {
+	return errors.New("dns create failed")
+}
+
+type tlsErrorProvider struct{ mockTLSProvider }
+
+func (t *tlsErrorProvider) Provision(_ context.Context, _ string) error {
+	return errors.New("tls provision failed")
+}
+
+func newSetupDomainTestProxy(t *testing.T) (*ProxyManager, *Proxy) {
+	t.Helper()
+
+	pm := newTestProxyManager()
+	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	p := &Proxy{
+		log:           zerolog.Nop(),
+		Config:        &model.Config{},
+		providerProxy: &stubProviderProxy{url: "https://myapp.tailnet.ts.net"},
+		ctx:           ctx,
+		cancel:        cancel,
+		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
+	}
+
+	return pm, p
+}
+
+func TestSetupDomainForProxy_HappyPath(t *testing.T) {
+	t.Parallel()
+
+	pm, p := newSetupDomainTestProxy(t)
+	p.SetDNSAndTLSProviders(&mockDNSProvider{name: "cloudflare"}, &mockTLSProvider{name: "acme"})
+
+	proxyConfig := &model.Config{Domain: "app.example.com"}
+
+	err := pm.setupDomainForProxy(p, proxyConfig)
+
+	assert.NoError(t, err)
+	assert.Equal(t, dnsproviders.DNSStatusActive, p.GetDNSStatus())
+	assert.Equal(t, tlsproviders.TLSStatusActive, p.GetTLSStatus())
+}
+
+func TestSetupDomainForProxy_DNSError(t *testing.T) {
+	t.Parallel()
+
+	pm, p := newSetupDomainTestProxy(t)
+	p.SetDNSAndTLSProviders(&dnsErrorProvider{}, &mockTLSProvider{name: "acme"})
+
+	proxyConfig := &model.Config{Domain: "app.example.com"}
+
+	err := pm.setupDomainForProxy(p, proxyConfig)
+
+	assert.Error(t, err)
+	assert.Equal(t, dnsproviders.DNSStatusError, p.GetDNSStatus())
+}
+
+func TestSetupDomainForProxy_TLSError(t *testing.T) {
+	t.Parallel()
+
+	pm, p := newSetupDomainTestProxy(t)
+	p.SetDNSAndTLSProviders(&mockDNSProvider{name: "cloudflare"}, &tlsErrorProvider{})
+
+	proxyConfig := &model.Config{Domain: "app.example.com"}
+
+	err := pm.setupDomainForProxy(p, proxyConfig)
+
+	assert.Error(t, err)
+	assert.Equal(t, dnsproviders.DNSStatusActive, p.GetDNSStatus())
+	assert.Equal(t, tlsproviders.TLSStatusError, p.GetTLSStatus())
+}
+
+func TestSetupDomainForProxy_TailscaleTLSPath(t *testing.T) {
+	t.Parallel()
+
+	pm, p := newSetupDomainTestProxy(t)
+	p.providerProxy = &stubLocalClientProvider{localClient: nil}
+	p.SetDNSAndTLSProviders(&mockDNSProvider{name: "cloudflare"}, &mockTLSProvider{name: "tailscale"})
+
+	proxyConfig := &model.Config{Domain: "app.example.com"}
+
+	err := pm.setupDomainForProxy(p, proxyConfig)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "tailscale local client not available")
+}
+
+// -- waitForProxyURL ------------------------------------------------------------
+
+func TestWaitForProxyURL_URLAvailableImmediately(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	p := &Proxy{
+		log:           zerolog.Nop(),
+		Config:        &model.Config{},
+		providerProxy: &stubProviderProxy{url: "https://myapp.tailnet.ts.net"},
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
+	host, err := pm.waitForProxyURL(p)
+	assert.NoError(t, err)
+	assert.Equal(t, "myapp.tailnet.ts.net", host)
+}
+
+func TestWaitForProxyURL_URLBecomesAvailableAfterPoll(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	proxy := &delayedURLProxy{delay: 1 * time.Second}
+	p := &Proxy{
+		log:           zerolog.Nop(),
+		Config:        &model.Config{},
+		providerProxy: proxy,
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
+	host, err := pm.waitForProxyURL(p)
+	assert.NoError(t, err)
+	assert.Equal(t, "delayed.tailnet.ts.net", host)
+}
+
+func TestWaitForProxyURL_ContextCancelled(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &Proxy{
+		log:           zerolog.Nop(),
+		Config:        &model.Config{},
+		providerProxy: &stubProviderProxy{url: ""},
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+	}()
+
+	_, err := pm.waitForProxyURL(p)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "context canceled")
+}
+
+func TestWaitForProxyURL_Timeout(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	p := &Proxy{
+		log:           zerolog.Nop(),
+		Config:        &model.Config{},
+		providerProxy: &stubProviderProxy{url: ""},
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+
+	pm := newTestProxyManager()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := pm.waitForProxyURL(p)
+		done <- err
+	}()
+
+	cancel()
+
+	select {
+	case err := <-done:
+		assert.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForProxyURL did not return after context cancellation")
+	}
+}
+
+// delayedURLProxy returns empty URL until the delay has elapsed, then returns a real URL.
+type delayedURLProxy struct {
+	started time.Time
+	stubProviderProxy
+	delay time.Duration
+	once  sync.Once
+}
+
+func (d *delayedURLProxy) GetURL() string {
+	d.once.Do(func() { d.started = time.Now() })
+	if time.Since(d.started) >= d.delay {
+		return "https://delayed.tailnet.ts.net"
+	}
+	return ""
+}
+
+// -- cleanupDomainForProxy ------------------------------------------------------
+
+func TestCleanupDomainForProxy_EmptyDomainSkipsCleanup(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	p := &Proxy{
+		log:    zerolog.Nop(),
+		Config: &model.Config{Domain: ""},
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	pm.cleanupDomainForProxy(p)
+	assert.Equal(t, dnsproviders.DNSStatusNone, p.GetDNSStatus())
+	assert.Equal(t, tlsproviders.TLSStatusNone, p.GetTLSStatus())
+}
+
+func TestCleanupDomainForProxy_NilProvidersResetsStatus(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	p := &Proxy{
+		log:    zerolog.Nop(),
+		Config: &model.Config{Domain: "app.example.com"},
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	p.setDNSStatus(dnsproviders.DNSStatusActive)
+	p.setTLSStatus(tlsproviders.TLSStatusActive)
+
+	pm.cleanupDomainForProxy(p)
+	assert.Equal(t, dnsproviders.DNSStatusNone, p.GetDNSStatus())
+	assert.Equal(t, tlsproviders.TLSStatusNone, p.GetTLSStatus())
+}
+
+func TestCleanupDomainForProxy_TLSCleanupErrorLogged(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	p := &Proxy{
+		log:    zerolog.Nop(),
+		Config: &model.Config{Domain: "app.example.com"},
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	p.SetDNSAndTLSProviders(nil, &errorTLSProvider{})
+
+	pm.cleanupDomainForProxy(p)
+	assert.Equal(t, dnsproviders.DNSStatusNone, p.GetDNSStatus())
+	assert.Equal(t, tlsproviders.TLSStatusNone, p.GetTLSStatus())
+}
+
+func TestCleanupDomainForProxy_DNSCleanupErrorLogged(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	p := &Proxy{
+		log:    zerolog.Nop(),
+		Config: &model.Config{Domain: "app.example.com"},
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	p.SetDNSAndTLSProviders(&errorDNSProvider{}, nil)
+
+	pm.cleanupDomainForProxy(p)
+	assert.Equal(t, dnsproviders.DNSStatusNone, p.GetDNSStatus())
+	assert.Equal(t, tlsproviders.TLSStatusNone, p.GetTLSStatus())
+}
+
+func TestCleanupDomainForProxy_HappyPathResetsStatuses(t *testing.T) {
+	t.Parallel()
+	pm := newTestProxyManager()
+	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	p := &Proxy{
+		log:    zerolog.Nop(),
+		Config: &model.Config{Domain: "app.example.com"},
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	p.SetDNSAndTLSProviders(&mockDNSProvider{name: "test-dns"}, &mockTLSProvider{name: "test-tls"})
+	p.setDNSStatus(dnsproviders.DNSStatusActive)
+	p.setTLSStatus(tlsproviders.TLSStatusActive)
+
+	pm.cleanupDomainForProxy(p)
+	assert.Equal(t, dnsproviders.DNSStatusNone, p.GetDNSStatus())
+	assert.Equal(t, tlsproviders.TLSStatusNone, p.GetTLSStatus())
+}
+
+type errorTLSProvider struct{ mockTLSProvider }
+
+func (e *errorTLSProvider) Cleanup(_ context.Context, _ string) error {
+	return errors.New("tls cleanup failed")
+}
+
+type errorDNSProvider struct{ mockDNSProvider }
+
+func (e *errorDNSProvider) DeleteRecord(_ context.Context, _, _ string) error {
+	return errors.New("dns cleanup failed")
 }

@@ -5,6 +5,7 @@ package proxymanager
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -1091,6 +1092,99 @@ func TestNewPortProxy_Minimal(t *testing.T) {
 	if p.httpServer == nil {
 		t.Fatal("httpServer not initialized")
 	}
+}
+
+func TestHTTPProxy_ContextCanceled_SilentNo502(t *testing.T) {
+	t.Parallel()
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	backendURL, err := url.Parse(backend.URL)
+	if err != nil {
+		t.Fatalf("parse backend URL: %v", err)
+	}
+
+	pconfig := model.PortConfig{
+		ProxyProtocol: "http",
+		TLSValidate:   false,
+	}
+	pconfig.AddTarget(backendURL)
+
+	p := newPortProxy(
+		context.Background(),
+		pconfig,
+		zerolog.Nop(),
+		false,
+		func(next http.Handler) http.Handler { return next },
+		nil,
+		"test-proxy",
+		"test-port",
+		nil,
+		false,
+	)
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("frontend listen: %v", err)
+	}
+	go func() { _ = p.startWithListener(frontLn) }()
+	defer p.close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+frontLn.Addr().String()+"/test", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			t.Logf("request error (acceptable for canceled context): %v", err)
+		}
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusBadGateway {
+		t.Error("context.Canceled should NOT produce a 502 Bad Gateway")
+	}
+}
+
+func TestHTTPRedirect_NilTarget_Returns502(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	pconfig := model.PortConfig{ProxyProtocol: "http"}
+
+	rp := newPortRedirect(ctx, pconfig, zerolog.Nop())
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- rp.startWithListener(ln)
+	}()
+
+	resp, err := http.Get("http://" + ln.Addr().String() + "/")
+	if err != nil {
+		t.Fatalf("failed to GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("expected 502 for nil target, got %d", resp.StatusCode)
+	}
+
+	rp.close()
+	<-errCh
 }
 
 func TestTCPPort_CancelledContext(t *testing.T) {

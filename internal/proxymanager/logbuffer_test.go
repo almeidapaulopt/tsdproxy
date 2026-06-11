@@ -4,6 +4,7 @@
 package proxymanager
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -286,4 +287,29 @@ func drainChannel(ch chan string, n int, timeout time.Duration) []string {
 		}
 	}
 	return result
+}
+
+func TestLogRingBuffer_ConcurrentWriteAndClose(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBuffer(t, 100)
+
+	var wg sync.WaitGroup
+
+	const writers = 10
+	wg.Add(writers)
+	for i := range writers {
+		go func(id int) {
+			defer wg.Done()
+			for j := range 100 {
+				_, _ = fmt.Fprintf(b, "writer-%d line-%d", id, j)
+			}
+		}(i)
+	}
+
+	time.AfterFunc(10*time.Millisecond, func() {
+		b.Close()
+	})
+
+	wg.Wait()
 }

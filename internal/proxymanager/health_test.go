@@ -182,13 +182,17 @@ func TestHealthChecker_CheckTCP_ConnectionRefused(t *testing.T) {
 	}
 }
 
-func TestHealthChecker_CheckTCP_InvalidTarget(_ *testing.T) {
+func TestHealthChecker_CheckTCP_InvalidTarget(t *testing.T) {
+	t.Parallel()
 	hc := newHealthChecker(zerolog.Nop(), "tcp://[::1]:99999", "tcp", 30*time.Second, 3, 0, true, func() error {
 		return nil
 	})
 	defer hc.stop()
 
-	_ = hc.checkTCP(context.Background()) // should not panic
+	result := hc.checkTCP(context.Background())
+	if result.Status != HealthDown {
+		t.Fatalf("expected HealthDown for invalid target, got %s", result.Status)
+	}
 }
 
 func TestHealthChecker_CheckUDP_ResolveError(t *testing.T) {
@@ -204,15 +208,20 @@ func TestHealthChecker_CheckUDP_ResolveError(t *testing.T) {
 	}
 }
 
-func TestHealthChecker_CheckUDP_DialError(_ *testing.T) {
+func TestHealthChecker_CheckUDP_DialError(t *testing.T) {
+	t.Parallel()
 	hc := newHealthChecker(zerolog.Nop(), "udp://0.0.0.0:0", "udp", 30*time.Second, 3, 0, true, func() error {
 		return nil
 	})
 	defer hc.stop()
 
 	result := hc.checkUDP(context.Background())
-	// dial to 0.0.0.0:0 may succeed but write may fail; either way should not panic
-	_ = result
+	if result.Status == HealthUnknown {
+		t.Fatalf("expected HealthDown or HealthHealthy, got %s", result.Status)
+	}
+	if result.Status != HealthDown && result.Status != HealthHealthy {
+		t.Fatalf("expected HealthDown or HealthHealthy, got %s", result.Status)
+	}
 }
 
 func TestHealthChecker_NextBackoff_OverflowProtection(t *testing.T) {
