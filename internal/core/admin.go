@@ -26,21 +26,37 @@ const localhostUserID = "__localhost__"
 
 const authTokenBytes = 32
 
-var proxyAuthToken string
+// ProxyAuth holds the per-process secret used to authenticate identity
+// headers forwarded by the internal reverse proxy.
+type ProxyAuth struct {
+	token string
+}
 
-// InitProxyAuth generates the per-process secret used to authenticate
-// identity headers forwarded by the internal reverse proxy. Must be
-// called once during startup, before any HTTP handlers are registered.
-func InitProxyAuth(log zerolog.Logger) {
+// NewProxyAuth generates a new ProxyAuth with a random 32-byte token.
+func NewProxyAuth(log zerolog.Logger) *ProxyAuth {
 	b := make([]byte, authTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		log.Fatal().Err(err).Msg("failed to generate proxy auth token")
 	}
-	proxyAuthToken = hex.EncodeToString(b)
+	return &ProxyAuth{token: hex.EncodeToString(b)}
 }
 
-// ProxyAuthToken returns the per-process secret set by InitProxyAuth.
-func ProxyAuthToken() string { return proxyAuthToken }
+// Token returns the per-process proxy auth token.
+func (a *ProxyAuth) Token() string { return a.token }
+
+// validToken checks whether the request carries a valid per-process
+// auth token from localhost. Returns false when the token is uninitialised
+// (fail-closed) and uses constant-time comparison.
+func (a *ProxyAuth) validToken(r *http.Request) bool {
+	if !model.IsLocalhost(r.RemoteAddr) {
+		return false
+	}
+	if a.token == "" {
+		return false
+	}
+	token := r.Header.Get(consts.HeaderAuthToken)
+	return subtle.ConstantTimeCompare([]byte(token), []byte(a.token)) == 1
+}
 
 // AdminMiddleware authenticates requests to admin-only endpoints.
 //
@@ -235,20 +251,6 @@ func isCGNAT(ip net.IP) bool {
 	return cgnat.Contains(ip)
 }
 
-// validProxyAuthToken checks whether the request carries a valid per-process
-// auth token from localhost. Returns false when the token is uninitialised
-// (fail-closed) and uses constant-time comparison.
-func validProxyAuthToken(r *http.Request) bool {
-	if !model.IsLocalhost(r.RemoteAddr) {
-		return false
-	}
-	if proxyAuthToken == "" {
-		return false
-	}
-	token := r.Header.Get(consts.HeaderAuthToken)
-	return subtle.ConstantTimeCompare([]byte(token), []byte(proxyAuthToken)) == 1
-}
-
 // StripProxyIdentityHeaders removes x-tsdproxy-* identity and auth-token
 // headers from incoming requests. When the request carries the correct
 // per-process auth token and originates from localhost (i.e. from the
@@ -256,9 +258,9 @@ func validProxyAuthToken(r *http.Request) bool {
 // the validated identity is promoted into the request context so that
 // ResolveWhois can read it. All raw identity headers and the auth token
 // are always stripped, regardless of validity.
-func StripProxyIdentityHeaders(next http.Handler) http.Handler {
+func (a *ProxyAuth) StripProxyIdentityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		valid := validProxyAuthToken(r)
+		valid := a.validToken(r)
 
 		// Always strip the auth token immediately so downstream handlers
 		// never see the secret, even if they log or reflect headers.

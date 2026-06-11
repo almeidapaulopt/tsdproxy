@@ -19,34 +19,27 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-func saveProxyAuthToken(t *testing.T) {
+func newTestProxyAuth(t *testing.T, token string) *ProxyAuth {
 	t.Helper()
-	origToken := proxyAuthToken
-	t.Cleanup(func() { proxyAuthToken = origToken })
+	return &ProxyAuth{token: token}
 }
 
-func TestInitProxyAuth(t *testing.T) {
-	saveProxyAuthToken(t)
+func TestNewProxyAuth(t *testing.T) {
 	log := zerolog.Nop()
 
-	if got := ProxyAuthToken(); got != "" {
-		t.Errorf("ProxyAuthToken() before init = %q, want empty", got)
+	auth1 := NewProxyAuth(log)
+	token1 := auth1.Token()
+	if token1 == "" {
+		t.Fatal("NewProxyAuth() generated empty token")
+	}
+	if len(token1) != 64 {
+		t.Errorf("NewProxyAuth() token length = %d, want 64", len(token1))
 	}
 
-	InitProxyAuth(log)
-	token := ProxyAuthToken()
-	if token == "" {
-		t.Fatal("InitProxyAuth() generated empty token")
-	}
-	if len(token) != 64 {
-		t.Errorf("InitProxyAuth() token length = %d, want 64", len(token))
-	}
-
-	oldToken := token
-	InitProxyAuth(log)
-	newToken := ProxyAuthToken()
-	if newToken == oldToken {
-		t.Error("InitProxyAuth() generated the same token on second call")
+	auth2 := NewProxyAuth(log)
+	token2 := auth2.Token()
+	if token2 == token1 {
+		t.Error("NewProxyAuth() generated the same token on second call")
 	}
 }
 
@@ -516,43 +509,39 @@ func TestIsCGNAT(t *testing.T) {
 }
 
 func TestValidProxyAuthToken(t *testing.T) {
-	saveProxyAuthToken(t)
-
 	tests := []struct {
-		name              string
-		remoteAddr        string
-		proxyAuthTokenVal string
-		authHeaderVal     string
-		want              bool
+		name          string
+		remoteAddr    string
+		authToken     string
+		authHeaderVal string
+		want          bool
 	}{
-		{name: "localhost valid token", remoteAddr: "127.0.0.1:12345", proxyAuthTokenVal: "secret-token", authHeaderVal: "secret-token", want: true},
-		{name: "localhost wrong token", remoteAddr: "127.0.0.1:12345", proxyAuthTokenVal: "secret-token", authHeaderVal: "wrong-token", want: false},
-		{name: "non-localhost valid token", remoteAddr: "8.8.8.8:8080", proxyAuthTokenVal: "secret-token", authHeaderVal: "secret-token", want: false},
-		{name: "localhost no auth header", remoteAddr: "127.0.0.1:12345", proxyAuthTokenVal: "secret-token", authHeaderVal: "", want: false},
-		{name: "localhost empty proxyAuthToken", remoteAddr: "127.0.0.1:12345", proxyAuthTokenVal: "", authHeaderVal: "secret-token", want: false},
-		{name: "non-localhost empty proxyAuthToken", remoteAddr: "8.8.8.8:8080", proxyAuthTokenVal: "", authHeaderVal: "", want: false},
+		{name: "localhost valid token", remoteAddr: "127.0.0.1:12345", authToken: "secret-token", authHeaderVal: "secret-token", want: true},
+		{name: "localhost wrong token", remoteAddr: "127.0.0.1:12345", authToken: "secret-token", authHeaderVal: "wrong-token", want: false},
+		{name: "non-localhost valid token", remoteAddr: "8.8.8.8:8080", authToken: "secret-token", authHeaderVal: "secret-token", want: false},
+		{name: "localhost no auth header", remoteAddr: "127.0.0.1:12345", authToken: "secret-token", authHeaderVal: "", want: false},
+		{name: "localhost empty token", remoteAddr: "127.0.0.1:12345", authToken: "", authHeaderVal: "secret-token", want: false},
+		{name: "non-localhost empty token", remoteAddr: "8.8.8.8:8080", authToken: "", authHeaderVal: "", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			saveProxyAuthToken(t)
-			proxyAuthToken = tt.proxyAuthTokenVal
+			auth := newTestProxyAuth(t, tt.authToken)
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.RemoteAddr = tt.remoteAddr
 			if tt.authHeaderVal != "" {
 				req.Header.Set(consts.HeaderAuthToken, tt.authHeaderVal)
 			}
 
-			if got := validProxyAuthToken(req); got != tt.want {
-				t.Errorf("validProxyAuthToken() = %v, want %v", got, tt.want)
+			if got := auth.validToken(req); got != tt.want {
+				t.Errorf("validToken() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestStripProxyIdentityHeaders(t *testing.T) {
-	saveProxyAuthToken(t)
-	proxyAuthToken = "valid-secret"
+	auth := newTestProxyAuth(t, "valid-secret")
 
 	tests := []struct {
 		identityHeaders map[string]string
@@ -614,7 +603,7 @@ func TestStripProxyIdentityHeaders(t *testing.T) {
 
 			var headersAfter http.Header
 			var gotWhois model.Whois
-			handler := StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			handler := auth.StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				headersAfter = r.Header.Clone()
 				gotWhois = ResolveWhois(r)
 			}))
@@ -764,8 +753,7 @@ func TestIsLocalhost(t *testing.T) {
 }
 
 func TestStripProxyIdentityHeaders_PromotesToContext(t *testing.T) {
-	saveProxyAuthToken(t)
-	proxyAuthToken = "test-secret"
+	auth := newTestProxyAuth(t, "test-secret")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -778,7 +766,7 @@ func TestStripProxyIdentityHeaders_PromotesToContext(t *testing.T) {
 
 	var gotWhois model.Whois
 	var headersAfter http.Header
-	handler := StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	handler := auth.StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		gotWhois = ResolveWhois(r)
 		headersAfter = r.Header.Clone()
 	}))
@@ -808,7 +796,7 @@ func TestStripProxyIdentityHeaders_PromotesToContext(t *testing.T) {
 }
 
 func TestResolveWhois_IgnoresSpoofedHeaders(t *testing.T) {
-	saveProxyAuthToken(t)
+	auth := newTestProxyAuth(t, "test-secret")
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -817,7 +805,7 @@ func TestResolveWhois_IgnoresSpoofedHeaders(t *testing.T) {
 	req.Header.Set(consts.HeaderUsername, "spoofed")
 
 	var gotWhois model.Whois
-	handler := StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	handler := auth.StripProxyIdentityHeaders(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		gotWhois = ResolveWhois(r)
 	}))
 	handler.ServeHTTP(rec, req)
