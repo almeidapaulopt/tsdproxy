@@ -49,6 +49,7 @@ type (
 		cancel            context.CancelFunc
 		Proxies           ProxyList
 		cfg               *config.Data
+		proxyAuthToken    string
 		TargetProviders   TargetProviderList
 		ProxyProviders    ProxyProviderList
 		DNSProviders      DNSProviderList
@@ -72,12 +73,13 @@ var (
 )
 
 // NewProxyManager function creates a new ProxyManager.
-func NewProxyManager(logger zerolog.Logger, cfg *config.Data) *ProxyManager {
+func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken string) *ProxyManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	pm := &ProxyManager{
 		ctx:               ctx,
 		cancel:            cancel,
 		cfg:               cfg,
+		proxyAuthToken:    proxyAuthToken,
 		Proxies:           make(ProxyList),
 		TargetProviders:   make(TargetProviderList),
 		ProxyProviders:    make(ProxyProviderList),
@@ -847,7 +849,7 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	// server must be fully stopped before those filesystem operations run.
 	pm.closeAndRemoveProxy(proxyConfig.Hostname, proxyConfig.ProxyProvider)
 
-	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics, pm.cfg.Telemetry.Enabled, pm.cfg.HTTP.Port)
+	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics, pm.cfg.Telemetry.Enabled, pm.cfg.HTTP.Port, pm.proxyAuthToken)
 	if err != nil {
 		return fmt.Errorf("error creating proxy: %w", err)
 	}

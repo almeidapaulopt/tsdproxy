@@ -18,7 +18,7 @@ import (
 // -- NewProxyManager -----------------------------------------------------------
 
 func TestNewProxyManager(t *testing.T) {
-	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig())
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig(), "test-token")
 
 	if pm.Proxies == nil {
 		t.Fatal("expected Proxies map to be initialized")
@@ -270,7 +270,7 @@ func TestNewProxyManager_Start(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig())
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig(), "test-token")
 	pm.Start()
 }
 
@@ -285,7 +285,7 @@ func TestMetricsHandler(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig())
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig(), "test-token")
 
 	h := pm.MetricsHandler()
 	if h == nil {

@@ -70,6 +70,7 @@ func newPortProxy(
 	identityHeaders bool,
 	telemetryEnabled bool,
 	httpPort uint16,
+	proxyAuthToken string,
 ) *port {
 	log = log.With().Str("port", pconfig.String()).Logger()
 
@@ -143,7 +144,7 @@ func newPortProxy(
 					// backends — a leaked token allows identity spoofing on
 					// the management API.
 					if isManagementTarget(pconfig.GetFirstTarget(), httpPort) {
-						r.Out.Header.Set(consts.HeaderAuthToken, core.ProxyAuthToken())
+						r.Out.Header.Set(consts.HeaderAuthToken, proxyAuthToken)
 					}
 				}
 			}

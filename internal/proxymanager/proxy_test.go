@@ -461,7 +461,7 @@ func TestNewProxy_ProviderError(t *testing.T) {
 	t.Parallel()
 	failingProvider := &stubProxyProvider{failNewProxy: true}
 
-	_, err := NewProxy(zerolog.Nop(), &model.Config{Hostname: "test"}, failingProvider, nil, false, 0)
+	_, err := NewProxy(zerolog.Nop(), &model.Config{Hostname: "test"}, failingProvider, nil, false, 0, "test-token")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error initializing proxy on proxyProvider")
 }
@@ -474,6 +474,7 @@ func TestNewProxy_WithAccessLog(t *testing.T) {
 		nil,
 		false,
 		0,
+		"test-token",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, proxy)

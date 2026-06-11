@@ -72,6 +72,7 @@ func newTestProxy(t *testing.T, name string, visible bool) *proxymanager.Proxy {
 		nil,   // metrics — nil safe for handlers that only read Config
 		false, // telemetryEnabled
 		0,     // httpPort
+		"",    // proxyAuthToken
 	)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
@@ -98,6 +99,7 @@ func newTestProxyWithPorts(t *testing.T, name string, visible bool, ports model.
 		nil,
 		false,
 		0,
+		"", // proxyAuthToken
 	)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
@@ -121,7 +123,7 @@ func setupAPI(t *testing.T) (*API, *proxymanager.ProxyManager) {
 	})
 
 	httpSrv := core.NewHTTPServer(zerolog.Nop())
-	pm := proxymanager.NewProxyManager(zerolog.Nop(), cfg)
+	pm := proxymanager.NewProxyManager(zerolog.Nop(), cfg, "test-token")
 
 	api := New(httpSrv, pm, zerolog.Nop(), cfg)
 	api.AddRoutes()
@@ -460,6 +462,7 @@ func TestAPI_ListProxiesHandler_LabelFallback(t *testing.T) {
 		nil,
 		false,
 		0,
+		"", // proxyAuthToken
 	)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)

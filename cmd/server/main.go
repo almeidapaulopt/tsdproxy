@@ -44,6 +44,7 @@ type WebApp struct {
 	ProxyManager   *pm.ProxyManager
 	Dashboard      *dashboard.Dashboard
 	Cfg            *config.Data
+	assets         *web.Assets
 	httpServer     *http.Server
 	tracerProvider *sdktrace.TracerProvider
 }
@@ -65,16 +66,18 @@ func InitializeApp() (*WebApp, error) {
 
 	logger := core.NewLog(cfg)
 
-	core.InitProxyAuth(logger)
+	assets := web.NewAssets()
+
+	proxyAuth := core.NewProxyAuth(logger)
 
 	httpServer := core.NewHTTPServer(logger)
-	httpServer.Use(core.StripProxyIdentityHeaders)
+	httpServer.Use(proxyAuth.StripProxyIdentityHeaders)
 	httpServer.Use(core.SessionMiddleware)
 	httpServer.Use(core.CSRFMiddleware)
 
 	health := core.NewHealthHandler(httpServer, logger)
 
-	proxymanager := pm.NewProxyManager(logger, cfg)
+	proxymanager := pm.NewProxyManager(logger, cfg, proxyAuth.Token())
 
 	dash := dashboard.NewDashboard(httpServer, logger, proxymanager, cfg)
 
@@ -96,6 +99,7 @@ func InitializeApp() (*WebApp, error) {
 		ProxyManager:   proxymanager,
 		Dashboard:      dash,
 		Cfg:            cfg,
+		assets:         assets,
 		tracerProvider: tracerProvider,
 	}
 	return webApp, nil
@@ -127,7 +131,7 @@ func (app *WebApp) Start() {
 	api.New(app.HTTP, app.ProxyManager, app.Log, app.Cfg).AddRoutes()
 
 	// Static assets from embedded dist/ (CSS, JS, icons, etc.)
-	app.HTTP.Mux.Handle("/", web.Static)
+	app.HTTP.Mux.Handle("/", app.assets.Handler())
 
 	adminMW := core.AdminMiddleware(app.Cfg)
 	app.HTTP.Get("/metrics", adminMW(app.ProxyManager.MetricsHandler()))

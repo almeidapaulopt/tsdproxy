@@ -56,21 +56,22 @@ type (
 		ctx              context.Context
 		tlsProvider      tlsproviders.Provider
 		dnsProvider      dnsproviders.Provider
-		URL              *url.URL
-		health           *healthChecker
+		cancel           context.CancelFunc
 		onUpdate         func(event model.ProxyEvent)
 		logBuffer        *LogRingBuffer
 		reResolveConfig  func() (*model.Config, error)
 		Config           *model.Config
 		metrics          *metrics.Metrics
 		ports            map[string]portHandler
-		cancel           context.CancelFunc
+		URL              *url.URL
+		health           *healthChecker
+		proxyAuthToken   string
 		healthPortName   string
 		statusHistory    []StatusTransition
 		setupWg          sync.WaitGroup
-		tlsStatus        tlsproviders.TLSStatus
 		status           model.ProxyStatus
 		dnsStatus        dnsproviders.DNSStatus
+		tlsStatus        tlsproviders.TLSStatus
 		mtx              sync.RWMutex
 		opMu             sync.Mutex
 		httpPort         uint16
@@ -86,6 +87,7 @@ func NewProxy(log zerolog.Logger,
 	m *metrics.Metrics,
 	telemetryEnabled bool,
 	httpPort uint16,
+	proxyAuthToken string,
 ) (*Proxy, error) {
 	var err error
 
@@ -124,6 +126,7 @@ func NewProxy(log zerolog.Logger,
 		logBuffer:        logBuffer,
 		telemetryEnabled: telemetryEnabled,
 		httpPort:         httpPort,
+		proxyAuthToken:   proxyAuthToken,
 	}
 
 	p.initPorts()
@@ -555,6 +558,7 @@ func (proxy *Proxy) initPorts() {
 				proxy.Config.IdentityHeaders,
 				proxy.telemetryEnabled,
 				proxy.httpPort,
+				proxy.proxyAuthToken,
 			)
 		} else if v.ProxyProtocol == model.ProtoUDP {
 			ph = newPortUDP(proxy.ctx, v, log)
