@@ -82,9 +82,13 @@ func NewStatusWatcher(cfg StatusWatcherConfig) *StatusWatcher {
 	if onDone == nil {
 		onDone = func() {}
 	}
+	onEvent := cfg.OnEvent
+	if onEvent == nil {
+		onEvent = func(NodeEvent) {}
+	}
 	return &StatusWatcher{
 		log:          cfg.Log,
-		onEvent:      cfg.OnEvent,
+		onEvent:      onEvent,
 		onDone:       onDone,
 		pollInterval: cfg.PollInterval,
 	}

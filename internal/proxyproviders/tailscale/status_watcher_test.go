@@ -527,6 +527,57 @@ func TestWatch_MultipleEvents(t *testing.T) {
 	}
 }
 
+func TestWatch_NilOnEvent_NoPanic(t *testing.T) {
+	t.Parallel()
+
+	mockSrc := newMockStatusSource()
+	mockSrc.setStatusResp(statusResponse{
+		backendState: "Running",
+		dnsName:      "test.ts.net",
+		selfOK:       true,
+	})
+
+	done := make(chan struct{}, 1)
+
+	w := NewStatusWatcher(StatusWatcherConfig{
+		OnEvent:      nil,
+		OnDone:       func() { done <- struct{}{} },
+		PollInterval: testPollInterval,
+	})
+	w.source = mockSrc
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	var panicked bool
+	recoverCh := make(chan struct{}, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+			recoverCh <- struct{}{}
+		}()
+		w.Watch(ctx, nil)
+	}()
+
+	select {
+	case <-recoverCh:
+		if panicked {
+			t.Fatal("Watch panicked with nil OnEvent")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Watch did not complete in time")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("onDone was not called")
+	}
+}
+
 func TestNewStatusWatcher_NilOnDone(t *testing.T) {
 	w := NewStatusWatcher(StatusWatcherConfig{
 		OnEvent:      func(NodeEvent) {},
