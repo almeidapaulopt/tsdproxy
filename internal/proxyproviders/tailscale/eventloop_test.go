@@ -95,7 +95,7 @@ func TestEventLoopSendProducerNilCtxReturnsTrue(t *testing.T) {
 
 	el := NewEventLoop[testCmd](1)
 
-	ok := el.SendProducer(nil, testCmd{value: 1})
+	ok := el.SendProducer(context.TODO(), testCmd{value: 1}) //nolint:staticcheck
 	if !ok {
 		t.Fatal("SendProducer with nil ctx should return true")
 	}
@@ -116,7 +116,7 @@ func TestEventLoopSendProducerNilCtxReturnsFalseWhenClosed(t *testing.T) {
 
 	// Use a buffered done channel read to avoid blocking:
 	// After Close, done is closed so SendProducer should return false immediately.
-	ok := el.SendProducer(nil, testCmd{value: 1})
+	ok := el.SendProducer(context.Background(), testCmd{value: 1})
 	if ok {
 		t.Fatal("SendProducer should return false after Close")
 	}
