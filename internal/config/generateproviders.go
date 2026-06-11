@@ -17,23 +17,18 @@ const (
 	TailscaleDefaultProviderName = "default"
 )
 
-// generateDefaultProviders method Generate the config from environment variables
+// generateDefaultProviders generates the config from environment variables
 // used in 0.x.x versions
 func (c *Data) generateDefaultProviders() error {
-	// Legacy Hostname from DOCKER_HOST from environment
-	//
 	errDocker := c.generateDockerConfig()
 	errTailscale := c.generateTailscaleConfig()
 
 	return errors.Join(errDocker, errTailscale)
 }
 
-// generateDockerConfig method generate the Docker Config provider from environment variables
+// generateDockerConfig generates the Docker Config provider from environment variables
 func (c *Data) generateDockerConfig() error {
-	// Legacy Hostname from DOCKER_HOST from environment
-	//
 	docker := new(DockerTargetProviderConfig)
-	// set DockerConfig defaults
 	if err := defaults.Set(docker); err != nil {
 		return fmt.Errorf("set docker defaults: %w", err)
 	}
@@ -56,10 +51,9 @@ func (c *Data) generateDockerConfig() error {
 	return nil
 }
 
-// generateTailscaleConfig method  generate the Tailscale Config provider from environment variables
+// generateTailscaleConfig generates the Tailscale Config provider from environment variables
 func (c *Data) generateTailscaleConfig() error {
 	ts := new(TailscaleServerConfig)
-	// set TailscaleConfig defaults
 	if err := defaults.Set(ts); err != nil {
 		return fmt.Errorf("set tailscale defaults: %w", err)
 	}

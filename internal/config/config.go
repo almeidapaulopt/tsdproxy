@@ -217,7 +217,6 @@ func InitializeConfig() (*Data, error) {
 	// services mode requires clientId for the VIP Services API).
 	cfg.LoadTailscaleEnvOverrides()
 
-	// validate config
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}

@@ -74,12 +74,8 @@ func InitializeApp() (*WebApp, error) {
 
 	health := core.NewHealthHandler(httpServer, logger)
 
-	// Start ProxyManager
-	//
 	proxymanager := pm.NewProxyManager(logger, cfg)
 
-	// init Dashboard
-	//
 	dash := dashboard.NewDashboard(httpServer, logger, proxymanager, cfg)
 
 	var tracerProvider *sdktrace.TracerProvider
@@ -117,8 +113,7 @@ func main() {
 	app.Start()
 	defer app.Stop()
 
-	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 10 seconds.
-	//
+	// Wait for interrupt signal to gracefully shutdown the server.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
@@ -128,10 +123,6 @@ func (app *WebApp) Start() {
 	app.Log.Info().
 		Str("Version", core.GetVersion()).Msg("Starting server")
 
-	// Start the webserver
-	//
-	// Add Routes
-	//
 	app.Dashboard.AddRoutes()
 	api.New(app.HTTP, app.ProxyManager, app.Log, app.Cfg).AddRoutes()
 
@@ -140,18 +131,13 @@ func (app *WebApp) Start() {
 
 	adminMW := core.AdminMiddleware(app.Cfg)
 	app.HTTP.Get("/metrics", adminMW(app.ProxyManager.MetricsHandler()))
-	// Setup proxy for existing containers
-	//
+
 	app.Log.Info().Msg("Setting up proxy proxies")
 
 	app.ProxyManager.Start()
 
-	// Start watching docker events
-	//
 	app.ProxyManager.WatchEvents()
 
-	// Start the webserver
-	//
 	go func() {
 		app.Log.Info().Msg("Initializing WebServer")
 
@@ -190,8 +176,6 @@ func (app *WebApp) Stop() {
 		}
 	}
 
-	// Shutdown things here
-	//
 	if app.Dashboard != nil {
 		app.Dashboard.Close()
 	}

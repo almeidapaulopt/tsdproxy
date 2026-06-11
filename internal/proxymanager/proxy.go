@@ -48,7 +48,7 @@ type (
 		Status    model.ProxyStatus
 	}
 
-	// Proxy struct is a struct that contains all the information needed to run a proxy.
+	// Proxy holds the state for a single proxy.
 	Proxy struct {
 		log              zerolog.Logger
 		startedAt        time.Time
@@ -80,7 +80,6 @@ type (
 	}
 )
 
-// NewProxy function is a function that creates a new proxy.
 func NewProxy(log zerolog.Logger,
 	pcfg *model.Config,
 	proxyProvider proxyproviders.Provider,
@@ -88,7 +87,6 @@ func NewProxy(log zerolog.Logger,
 	telemetryEnabled bool,
 	httpPort uint16,
 ) (*Proxy, error) {
-	//
 	var err error
 
 	log = log.With().Str("proxyname", pcfg.Hostname).Logger()
@@ -97,8 +95,6 @@ func NewProxy(log zerolog.Logger,
 	log.Debug().Str("hostname", pcfg.Hostname).
 		Msg("initializing proxy")
 
-	// Create the proxyProvider proxy
-	//
 	pProvider, err := proxyProvider.NewProxy(pcfg)
 	if err != nil {
 		return nil, fmt.Errorf("error initializing proxy on proxyProvider: %w", err)
@@ -162,7 +158,7 @@ func (proxy *Proxy) Start() error {
 	return proxy.startListeners()
 }
 
-// Close method is a method that initiate proxy close procedure.
+// Close initiates the proxy shutdown procedure.
 func (proxy *Proxy) Close() {
 	proxy.opMu.Lock()
 	defer proxy.opMu.Unlock()
@@ -171,7 +167,6 @@ func (proxy *Proxy) Close() {
 
 	proxy.stopHealthChecker()
 
-	// cancel context
 	proxy.cancel()
 
 	// Close log subscribers so SSE handlers unblock.
@@ -179,7 +174,6 @@ func (proxy *Proxy) Close() {
 		proxy.logBuffer.Close()
 	}
 
-	// make sure all listeners are closed
 	proxy.close()
 
 	proxy.setStatus(model.ProxyStatusStopped)
@@ -231,10 +225,8 @@ func (proxy *Proxy) Resume() error {
 	proxy.paused = false
 	proxy.mtx.Unlock()
 
-	// Re-init ports from config
 	proxy.initPorts()
 
-	// Start each port with a new listener from the provider
 	proxy.mtx.RLock()
 	portsConfig := proxy.Config.Ports
 	proxy.mtx.RUnlock()
@@ -639,7 +631,6 @@ func (proxy *Proxy) startPort(name string, l net.Listener) {
 	proxy.mtx.RLock()
 	defer proxy.mtx.RUnlock()
 
-	// make sure port exists
 	if p, ok := proxy.ports[name]; ok {
 		go func() {
 			if err := p.startWithListener(l); err != nil {
@@ -752,7 +743,6 @@ func (proxy *Proxy) startPacketPort(name string, pc net.PacketConn) {
 	}()
 }
 
-// close method is a method that closes all listeners ans httpServer.
 func (proxy *Proxy) close() {
 	var errs error
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("stopping proxy")

@@ -248,7 +248,6 @@ func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
 	return authKey, nil
 }
 
-// NewProxy method implements proxyprovider NewProxy method.
 func (c *Client) NewProxy(config *model.Config) (proxyproviders.ProxyInterface, error) {
 	if c.shared {
 		return c.newSharedProxy(config)
@@ -299,7 +298,6 @@ func (c *Client) buildLifecycleConfig(config *model.Config, nodeCfg NodeConfig) 
 		deviceReconciler = c.deviceReconciler
 	}
 
-	// Resolve auth retry policy from provider config.
 	maxAttempts := c.authRetry.MaxAttempts
 	if !c.authRetry.Enabled {
 		maxAttempts = 0

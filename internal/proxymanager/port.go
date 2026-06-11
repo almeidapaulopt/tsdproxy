@@ -71,13 +71,10 @@ func newPortProxy(
 	telemetryEnabled bool,
 	httpPort uint16,
 ) *port {
-	//
 	log = log.With().Str("port", pconfig.String()).Logger()
 
 	ctxPort, cancel := context.WithCancel(ctx)
 
-	// Create the reverse proxy
-	//
 	if !pconfig.TLSValidate {
 		log.Warn().Str("port", pconfig.String()).Msg("TLS validation disabled for this port")
 	}
@@ -179,7 +176,6 @@ func newPortProxy(
 		handler = core.LoggerMiddleware(log, handler, core.WithAccessLogWriter(logBuffer))
 	}
 
-	// add metrics as outermost middleware
 	if m != nil {
 		handler = m.Middleware(proxyName, portName)(handler)
 	}
@@ -188,7 +184,6 @@ func newPortProxy(
 		handler = otelhttp.NewHandler(handler, "proxy", otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents))
 	}
 
-	// main http Server
 	httpServer := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: core.ReadHeaderTimeout,
@@ -487,7 +482,6 @@ func (p *udpPort) getOrCreateBackendConn(
 	mapMtx *sync.Mutex,
 	pc net.PacketConn,
 ) (*net.UDPConn, error) {
-	//
 	mapMtx.Lock()
 	defer mapMtx.Unlock()
 

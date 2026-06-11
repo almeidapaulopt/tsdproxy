@@ -104,7 +104,6 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 	}
 
 	c.setDefaultBridgeAddress()
-	// c.setIsTsdproxyRunningHere()
 
 	return c, nil
 }
@@ -222,8 +221,7 @@ func enabledContainerFilter() client.Filters {
 func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.log.Trace().Msg("WatchEvents")
 	defer c.log.Trace().Msg("End WatchEvents")
-	// Filter Start/stop events for containers
-	//
+
 	eventsFilter := enabledContainerFilter()
 	eventsFilter.Add("type", string(devents.ContainerEventType))
 	eventsFilter.Add("event", string(devents.ActionDie))

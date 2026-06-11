@@ -25,7 +25,6 @@ import (
 
 var rfc1123Hostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 
-// container struct stores the data from the docker container.
 type (
 	container struct {
 		log                    zerolog.Logger
@@ -58,11 +57,9 @@ type (
 	ContainerOption func(*container)
 )
 
-// newContainer function returns a new container.
 func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dservice swarm.Service,
 	providerAutoDetect bool, opts ...ContainerOption,
 ) *container {
-	//
 	newlog := logger.With().Str("container", dcontainer.Name).Logger()
 	newlog.Trace().Msg("New Container")
 	defer newlog.Trace().Msg("End New Container")
@@ -89,7 +86,6 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	c.healthCheckFailures = c.getLabelInt(LabelHealthCheckFailures, c.providerHealthFailures, 1, healthCheckMaxFailures)
 	c.healthCheckCooldown = c.getLabelInt(LabelHealthCheckCooldown, c.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
 
-	// add ports from container
 	c.setContainerPorts(dcontainer, dservice)
 	c.setContainerNetwork(dcontainer)
 
@@ -117,7 +113,6 @@ func (c *container) setContainerPorts(dcontainer ctypes.InspectResponse, dservic
 		}
 	}
 
-	// add ports from service
 	for _, b := range dservice.Endpoint.Ports {
 		if _, ok := c.ports[strconv.Itoa(int(b.TargetPort))]; ok {
 			continue
@@ -181,14 +176,11 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	c.log.Trace().Msg("New ProxyConfig")
 	defer c.log.Trace().Msg("End New ProxyConfig")
 
-	// Get the proxy URL
-	//
 	hostname, err := c.getProxyHostname()
 	if err != nil {
 		return nil, fmt.Errorf("error parsing Hostname: %w", err)
 	}
 
-	// Get the Tailscale configuration
 	tailscale, err := c.getTailscaleConfig()
 	if err != nil {
 		return nil, err
@@ -334,7 +326,6 @@ func (c *container) generateTargetFromFirstTarget(ctx context.Context, port mode
 	return port, nil
 }
 
-// getTailscaleConfig method returns the tailscale configuration.
 func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 	c.log.Trace().Msg("getTailscaleConfig")
 	defer c.log.Trace().Msg("End getTailscaleConfig")
@@ -357,7 +348,6 @@ func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 	}, nil
 }
 
-// getName method returns the name of the container
 func (c *container) getName() string {
 	return strings.TrimLeft(c.name, "/")
 }
@@ -495,7 +485,6 @@ func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort
 	return u, err == nil
 }
 
-// getPublishedPort method returns the container port
 func (c *container) getPublishedPort(internalPort string) string {
 	c.log.Trace().Msg("getPublishedPort")
 	defer c.log.Trace().Msg("End getPublishedPort")
@@ -509,7 +498,6 @@ func (c *container) getPublishedPort(internalPort string) string {
 	return ""
 }
 
-// getProxyHostname method returns the proxy URL from the container label.
 func (c *container) getProxyHostname() (string, error) {
 	c.log.Trace().Msg("getProxyHostname")
 	defer c.log.Trace().Msg("End getProxyHostname")

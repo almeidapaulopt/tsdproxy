@@ -21,7 +21,6 @@ func TestWhoisCache_Eviction_PastExpiryRemoved(t *testing.T) {
 	c := NewWhoisCache(time.Hour, 2)
 	resolveCount := int32(0)
 
-	// Insert 3 entries with distinct IPs.
 	who1 := model.Whois{ID: "user-1", DisplayName: "Alice"}
 	who2 := model.Whois{ID: "user-2", DisplayName: "Bob"}
 	who3 := model.Whois{ID: "user-3", DisplayName: "Charlie"}
@@ -42,9 +41,6 @@ func TestWhoisCache_Eviction_PastExpiryRemoved(t *testing.T) {
 		require.Equal(t, entry.who, result)
 	}
 
-	// We inserted 3 entries with maxEntries=2. The 3rd insert triggered evict(),
-	// which should have removed the oldest entry (100.64.0.1).
-	// Verify by looking up 100.64.0.1 — it should call resolve again.
 	resolveBefore := atomic.LoadInt32(&resolveCount)
 	result, err := c.Lookup("100.64.0.1", func() (model.Whois, error) {
 		atomic.AddInt32(&resolveCount, 1)
@@ -76,15 +72,12 @@ func TestWhoisCache_Eviction_ExpiredOnly(t *testing.T) {
 	// Wait for all entries to expire.
 	time.Sleep(50 * time.Millisecond)
 
-	// The 6th insert should evict expired entries cleanly.
 	_, err := c.Lookup("100.64.0.9", func() (model.Whois, error) {
 		atomic.AddInt32(&resolveCount, 1)
 		return model.Whois{ID: "user-new", DisplayName: "new"}, nil
 	})
 	require.NoError(t, err)
 
-	// All previous entries are expired, so evict() removes them.
-	// We should be able to look up an old IP and trigger re-resolution.
 	resolveBefore := atomic.LoadInt32(&resolveCount)
 	_, err = c.Lookup("100.64.0.0", func() (model.Whois, error) {
 		atomic.AddInt32(&resolveCount, 1)
@@ -101,7 +94,6 @@ func TestWhoisCache_NoEviction_BelowMaxEntries(t *testing.T) {
 	c := NewWhoisCache(time.Hour, 10)
 	resolveCount := int32(0)
 
-	// Insert 2 entries with maxEntries=10 — no eviction should happen.
 	who1 := model.Whois{ID: "user-1"}
 	who2 := model.Whois{ID: "user-2"}
 
@@ -119,7 +111,6 @@ func TestWhoisCache_NoEviction_BelowMaxEntries(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Both entries should still be cached.
 	resolveBefore := atomic.LoadInt32(&resolveCount)
 	result, err := c.Lookup("100.64.0.1", func() (model.Whois, error) {
 		atomic.AddInt32(&resolveCount, 1)
@@ -137,7 +128,6 @@ func TestWhoisCache_EmptyMaxEntries_NoEviction(t *testing.T) {
 	c := NewWhoisCache(time.Hour) // no maxEntries (default 0 = unlimited)
 	resolveCount := int32(0)
 
-	// Insert 10 entries — no eviction since maxEntries is 0.
 	for i := range 10 {
 		ip := "100.64.0." + string(rune('0'+i))
 		_, err := c.Lookup(ip, func() (model.Whois, error) {
@@ -147,7 +137,6 @@ func TestWhoisCache_EmptyMaxEntries_NoEviction(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// First entry should still be cached.
 	resolveBefore := atomic.LoadInt32(&resolveCount)
 	result, err := c.Lookup("100.64.0.0", func() (model.Whois, error) {
 		atomic.AddInt32(&resolveCount, 1)
