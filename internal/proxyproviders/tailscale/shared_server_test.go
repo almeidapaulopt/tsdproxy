@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -274,6 +275,63 @@ func TestSharedServerCloseIsTerminal(t *testing.T) {
 	default:
 		t.Fatal("done channel should be closed after Close")
 	}
+}
+
+func TestSharedServerAcquireOnClosedServer(t *testing.T) {
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+
+	ss.Close()
+	<-ss.ev.Done()
+
+	_, _, err := ss.Acquire("test.example.com", 443, model.ProtoHTTPS)
+	if err == nil {
+		t.Fatal("expected error from Acquire on closed server")
+	}
+}
+
+func TestSharedServerWhoisNilRequest(t *testing.T) {
+	t.Parallel()
+
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	w := ss.Whois(nil)
+	if w != (model.Whois{}) {
+		t.Fatalf("expected zero Whois for nil request, got %+v", w)
+	}
+}
+
+func TestSharedServerWhoisWithRequest(t *testing.T) {
+	t.Parallel()
+
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	r := &http.Request{RemoteAddr: "100.64.0.1:12345"}
+
+	w := ss.Whois(r)
+	if w != (model.Whois{}) {
+		t.Fatalf("expected zero Whois when local client is nil, got %+v", w)
+	}
+}
+
+func TestSharedServerReleaseOnNilRuntime(t *testing.T) {
+	ss := NewSharedServer(SharedServerConfig{
+		Hostname: "test-server",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	ss.Release("test.example.com", 443, model.ProtoHTTPS)
 }
 
 func TestSharedServerAcquirePacketOnClosedServer(t *testing.T) {

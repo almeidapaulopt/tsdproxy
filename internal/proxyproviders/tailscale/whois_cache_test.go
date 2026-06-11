@@ -155,17 +155,20 @@ func TestWhoisCache_EmptyIDCachedAsNegative(t *testing.T) {
 
 	emptyWho := model.Whois{ID: "", DisplayName: ""}
 
-	_, _ = c.Lookup("100.64.0.1", func() (model.Whois, error) {
+	w1, err1 := c.Lookup("100.64.0.1", func() (model.Whois, error) {
 		atomic.AddInt32(&resolveCount, 1)
 		return emptyWho, nil
 	})
-	_, _ = c.Lookup("100.64.0.1", func() (model.Whois, error) {
-		atomic.AddInt32(&resolveCount, 1)
-		return emptyWho, nil
-	})
+	require.NoError(t, err1)
+	assert.Equal(t, emptyWho, w1)
 
-	// Empty-ID results are cached as negative entries with a short TTL,
-	// so the second lookup should hit the cache.
+	w2, err2 := c.Lookup("100.64.0.1", func() (model.Whois, error) {
+		atomic.AddInt32(&resolveCount, 1)
+		return emptyWho, nil
+	})
+	require.NoError(t, err2)
+	assert.Equal(t, emptyWho, w2)
+
 	assert.Equal(t, int32(1), atomic.LoadInt32(&resolveCount))
 }
 
