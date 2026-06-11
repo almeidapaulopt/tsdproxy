@@ -400,7 +400,7 @@ func (pm *ProxyManager) addDNSProviders() {
 			}
 			pm.DNSProviders[name] = cloudflaredns.New(cfg.APIToken.Value())
 			pm.log.Debug().Str("provider", name).Msg("Created Cloudflare DNS provider")
-		case "magicdns":
+		case model.DNSProviderMagicDNS:
 			pm.DNSProviders[name] = magicdns.New()
 			pm.log.Debug().Str("provider", name).Msg("Created MagicDNS provider")
 		default:
