@@ -69,7 +69,9 @@ func newTestProxy(t *testing.T, name string, visible bool) *proxymanager.Proxy {
 			},
 		},
 		&stubProvider{},
-		nil, // metrics — nil safe for handlers that only read Config
+		nil,   // metrics — nil safe for handlers that only read Config
+		false, // telemetryEnabled
+		0,     // httpPort
 	)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
@@ -94,6 +96,8 @@ func newTestProxyWithPorts(t *testing.T, name string, visible bool, ports model.
 		},
 		&stubProvider{},
 		nil,
+		false,
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
@@ -103,10 +107,8 @@ func newTestProxyWithPorts(t *testing.T, name string, visible bool, ports model.
 
 func setupAPI(t *testing.T) (*API, *proxymanager.ProxyManager) {
 	t.Helper()
-	origConfig := config.Config
-	t.Cleanup(func() { config.Config = origConfig })
-	config.SetTestConfig(t.TempDir(), "")
-	config.Config.AdminAllowLocalhost = true
+	cfg := config.NewTestData(t.TempDir(), "")
+	cfg.AdminAllowLocalhost = true
 
 	oldReg := prometheus.DefaultRegisterer
 	oldGatherer := prometheus.DefaultGatherer
@@ -119,9 +121,9 @@ func setupAPI(t *testing.T) (*API, *proxymanager.ProxyManager) {
 	})
 
 	httpSrv := core.NewHTTPServer(zerolog.Nop())
-	pm := proxymanager.NewProxyManager(zerolog.Nop())
+	pm := proxymanager.NewProxyManager(zerolog.Nop(), cfg)
 
-	api := New(httpSrv, pm, zerolog.Nop())
+	api := New(httpSrv, pm, zerolog.Nop(), cfg)
 	api.AddRoutes()
 
 	return api, pm
@@ -456,6 +458,8 @@ func TestAPI_ListProxiesHandler_LabelFallback(t *testing.T) {
 		},
 		&stubProvider{},
 		nil,
+		false,
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)

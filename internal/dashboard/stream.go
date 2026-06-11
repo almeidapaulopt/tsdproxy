@@ -114,7 +114,7 @@ func (dash *Dashboard) streamHandler() http.HandlerFunc {
 			channel: make(chan SSEMessage, chanSizeSSEQueue),
 			done:    make(chan struct{}),
 			userID:  userID,
-			isAdmin: core.IsAdmin(r),
+			isAdmin: core.IsAdmin(r, dash.cfg),
 			connID:  connID,
 			log:     dash.Log,
 		}

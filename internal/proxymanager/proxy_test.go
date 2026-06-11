@@ -458,20 +458,22 @@ func TestStartPacketPort_WrongPortType(t *testing.T) {
 }
 
 func TestNewProxy_ProviderError(t *testing.T) {
-	setupTestConfig(t)
+	t.Parallel()
 	failingProvider := &stubProxyProvider{failNewProxy: true}
 
-	_, err := NewProxy(zerolog.Nop(), &model.Config{Hostname: "test"}, failingProvider, nil)
+	_, err := NewProxy(zerolog.Nop(), &model.Config{Hostname: "test"}, failingProvider, nil, false, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error initializing proxy on proxyProvider")
 }
 
 func TestNewProxy_WithAccessLog(t *testing.T) {
-	setupTestConfig(t)
+	t.Parallel()
 	proxy, err := NewProxy(zerolog.Nop(),
 		&model.Config{Hostname: "test", ProxyAccessLog: true},
 		&stubProxyProvider{},
 		nil,
+		false,
+		0,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, proxy)

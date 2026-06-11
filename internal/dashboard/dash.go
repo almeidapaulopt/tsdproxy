@@ -38,6 +38,7 @@ type Dashboard struct {
 	Log             zerolog.Logger
 	HTTP            *core.HTTPServer
 	pm              *proxymanager.ProxyManager
+	cfg             *config.Data
 	prefs           *PreferencesStore
 	sseClients      map[string]*sseClient
 	stopCh          chan struct{}
@@ -45,8 +46,8 @@ type Dashboard struct {
 	mtx             sync.RWMutex
 }
 
-func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.ProxyManager) *Dashboard {
-	prefs, err := NewPreferencesStore(config.Config.Tailscale.DataDir, log)
+func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.ProxyManager, cfg *config.Data) *Dashboard {
+	prefs, err := NewPreferencesStore(cfg.Tailscale.DataDir, log)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to initialize preferences store")
 	}
@@ -55,6 +56,7 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 		Log:             log.With().Str("module", "dashboard").Logger(),
 		HTTP:            http,
 		pm:              pm,
+		cfg:             cfg,
 		prefs:           prefs,
 		sseClients:      make(map[string]*sseClient),
 		stopCh:          make(chan struct{}),
@@ -79,15 +81,15 @@ func (dash *Dashboard) dashboardSubject(r *http.Request) string {
 	if core.IsTrustedSource(r.RemoteAddr) {
 		return "__localhost__"
 	}
-	if core.ValidAPIKey(r) {
+	if core.ValidAPIKey(r, dash.cfg) {
 		return "__apikey__"
 	}
 	return subjectRemote
 }
 
 func (dash *Dashboard) AddRoutes() {
-	viewMW := core.ViewerMiddleware()
-	adminMW := core.AdminMiddleware()
+	viewMW := core.ViewerMiddleware(dash.cfg)
+	adminMW := core.AdminMiddleware(dash.cfg)
 
 	dash.HTTP.Get("/{$}", viewMW(dash.dashboardHandler()))
 	dash.HTTP.Get("/dashboard/list", viewMW(dash.listFragmentHandler()))
@@ -192,7 +194,7 @@ func (dash *Dashboard) dashboardHandler() http.HandlerFunc {
 		prefs := dash.loadPrefs(userID)
 		who := core.ResolveWhois(r)
 
-		viewData := dash.buildDashboardViewData(prefs, "", core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, "", core.IsAdmin(r, dash.cfg))
 		viewData.User = who
 		viewData.Version = core.GetVersion()
 
@@ -212,7 +214,7 @@ func (dash *Dashboard) listFragmentHandler() http.HandlerFunc {
 
 		dash.updateClientSearch(userID, connID, search)
 
-		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -235,7 +237,7 @@ func (dash *Dashboard) proxyModalHandler() http.HandlerFunc {
 			return
 		}
 
-		data := buildProxyDataFromProxy(name, proxy, pinnedSet(dash.loadPrefs(dash.dashboardSubject(r))), core.IsAdmin(r))
+		data := buildProxyDataFromProxy(name, proxy, pinnedSet(dash.loadPrefs(dash.dashboardSubject(r))), core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyModal(data)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -292,7 +294,7 @@ func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 		}
 
 		prefs := dash.loadPrefs(userID)
-		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -328,7 +330,7 @@ func (dash *Dashboard) togglePinHandler() http.HandlerFunc {
 
 		prefs := dash.loadPrefs(userID)
 		search := r.FormValue("search")
-		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")

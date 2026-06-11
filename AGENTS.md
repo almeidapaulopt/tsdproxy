@@ -87,7 +87,7 @@ tsdproxy/
 | `PortRouter` | Struct | `internal/proxyproviders/tailscale/port_router.go` | SNI/HTTP Host routing: TLS ClientHello peeking, domain dispatch |
 | `WhoisCache` | Struct | `internal/proxyproviders/tailscale/whois_cache.go` | TTL-based cache + singleflight dedup for Tailscale identity |
 | `HTTPServer` | Struct | `internal/core/http.go` | HTTP mux + middleware chain |
-| `Config` (global) | Var | `internal/config/config.go` | Singleton config accessed globally (no DI) |
+| `InitializeConfig()` | Func | `internal/config/config.go` | Returns `(*ConfigData, error)` — callers inject the result into constructors |
 | `Config` (per-proxy) | Struct | `internal/model/proxyconfig.go` | Per-proxy config: hostname, ports, tailscale, dashboard, providers |
 | `PortConfig` | Struct | `internal/model/port.go` | Port mapping: target, proxy port, TLS, redirect |
 | `Dashboard` | Struct | `internal/dashboard/dash.go` | SSE streaming dashboard |
@@ -154,7 +154,7 @@ Steps 4–5 skipped for host-network containers.
 ## CONVENTIONS
 
 - **SPDX headers required**: Every `.go` file must start with `SPDX-FileCopyrightText` + `SPDX-License-Identifier: MIT` (enforced by `goheader` linter)
-- **Global config singleton**: `config.Config` accessed directly (not injected)
+- **Config via dependency injection**: `*config.Data` passed through constructors (not global singleton)
 - **Provider pattern**: Four provider types pluggable via interfaces; register via config-driven switch in `proxymanager.go`
 - **Zero-value defaults**: `github.com/creasty/defaults` for struct defaults; `model/default.go` for constants
 - **Error handling**: Three-tier: `fmt.Errorf("context: %w", err)` wrapping → sentinel `ErrFoo` vars → custom `XxxError` types

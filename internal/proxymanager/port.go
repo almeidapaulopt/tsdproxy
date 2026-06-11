@@ -21,7 +21,6 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
@@ -69,6 +68,8 @@ func newPortProxy(
 	portName string,
 	logBuffer *LogRingBuffer,
 	identityHeaders bool,
+	telemetryEnabled bool,
+	httpPort uint16,
 ) *port {
 	//
 	log = log.With().Str("port", pconfig.String()).Logger()
@@ -144,7 +145,7 @@ func newPortProxy(
 					// server (self-proxy case).  Never expose it to external
 					// backends — a leaked token allows identity spoofing on
 					// the management API.
-					if isManagementTarget(pconfig.GetFirstTarget()) {
+					if isManagementTarget(pconfig.GetFirstTarget(), httpPort) {
 						r.Out.Header.Set(consts.HeaderAuthToken, core.ProxyAuthToken())
 					}
 				}
@@ -183,7 +184,7 @@ func newPortProxy(
 		handler = m.Middleware(proxyName, portName)(handler)
 	}
 
-	if config.Config.Telemetry.Enabled {
+	if telemetryEnabled {
 		handler = otelhttp.NewHandler(handler, "proxy", otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents))
 	}
 
@@ -266,14 +267,14 @@ func (p *port) close() error {
 
 // tcpPort forwards raw TCP connections from the Tailscale listener to the target backend.
 type tcpPort struct {
-	log       zerolog.Logger
-	ctx       context.Context
-	listener  net.Listener
-	cancel    context.CancelFunc
-	pconfig   model.PortConfig
-	mtx       sync.Mutex
-	wg        sync.WaitGroup // track active connections
-	acceptWg  sync.WaitGroup // tracks whether startWithListener has finished
+	log      zerolog.Logger
+	ctx      context.Context
+	listener net.Listener
+	cancel   context.CancelFunc
+	pconfig  model.PortConfig
+	mtx      sync.Mutex
+	wg       sync.WaitGroup // track active connections
+	acceptWg sync.WaitGroup // tracks whether startWithListener has finished
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *tcpPort {
@@ -646,7 +647,7 @@ func resolvePeerIP(r *http.Request) string {
 // because tsdproxy binds to that port exclusively, but if http.hostname is set
 // to a specific non-loopback IP and a co-located service happens to listen on
 // 127.0.0.1:<same-port>, that service would receive the per-process auth token.
-func isManagementTarget(target *url.URL) bool {
+func isManagementTarget(target *url.URL, httpPort uint16) bool {
 	if target == nil {
 		return false
 	}
@@ -658,5 +659,5 @@ func isManagementTarget(target *url.URL) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback() &&
-		target.Port() == strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)
+		target.Port() == strconv.FormatUint(uint64(httpPort), 10)
 }

@@ -103,8 +103,9 @@ func (s *stubTLSProv) Name() string {
 	return "test-tls"
 }
 
-func newPMWithMocks() *ProxyManager {
-	pm := newTestProxyManager()
+func newPMWithMocks(t *testing.T) *ProxyManager {
+	t.Helper()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.TargetProviders["docker"] = &stubTargetProv{defaultProv: "tailscale"}
 	pm.ProxyProviders["tailscale"] = &stubProxyProv{}
 	return pm
@@ -114,7 +115,7 @@ func newPMWithMocks() *ProxyManager {
 
 func TestHandleProxyEvent_Start(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +154,7 @@ func TestHandleProxyEvent_Start(t *testing.T) {
 
 func TestHandleProxyEvent_Start_AddTargetError(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	pm.TargetProviders["docker"] = &stubTargetProv{addTargetErr: errors.New("no such container")}
 	event := targetproviders.TargetEvent{
 		TargetProvider: pm.TargetProviders["docker"],
@@ -171,7 +172,7 @@ func TestHandleProxyEvent_Start_AddTargetError(t *testing.T) {
 
 func TestHandleProxyEvent_Stop(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	pm.Proxies["my-proxy"] = &Proxy{
 		Config:        &model.Config{TargetID: "my-id", Hostname: "my-proxy"},
@@ -197,7 +198,7 @@ func TestHandleProxyEvent_Stop(t *testing.T) {
 
 func TestHandleProxyEvent_Restart(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +243,7 @@ func TestHandleProxyEvent_Restart(t *testing.T) {
 
 func TestHandleProxyEvent_UnknownAction(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	event := targetproviders.TargetEvent{
 		TargetProvider: &stubTargetProv{},
 		ID:             "x",
@@ -261,7 +262,7 @@ func TestHandleProxyEvent_UnknownAction(t *testing.T) {
 
 func TestEventStop_RemovesProxyByTargetID(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	ctxA, cancelA := context.WithCancel(context.Background())
 	ctxB, cancelB := context.WithCancel(context.Background())
 	pm.Proxies["a"] = &Proxy{
@@ -297,7 +298,7 @@ func TestEventStop_RemovesProxyByTargetID(t *testing.T) {
 
 func TestEventStop_NonExistentTarget(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	pm.Proxies["a"] = &Proxy{
 		Config:        &model.Config{TargetID: "target-a", Hostname: "a"},
@@ -325,7 +326,7 @@ func TestEventStop_NonExistentTarget(t *testing.T) {
 
 func TestCloseAndRemoveProxy_Exists(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	pm.Proxies["test"] = &Proxy{
 		Config:        &model.Config{Hostname: "test"},
@@ -344,14 +345,14 @@ func TestCloseAndRemoveProxy_Exists(t *testing.T) {
 	}
 }
 
-func TestCloseAndRemoveProxy_NotExists(_ *testing.T) {
-	pm := newPMWithMocks()
+func TestCloseAndRemoveProxy_NotExists(t *testing.T) {
+	pm := newPMWithMocks(t)
 	pm.closeAndRemoveProxy("ghost")
 }
 
 func TestCloseAndRemoveProxy_ProviderChangeWarning(t *testing.T) {
 	t.Parallel()
-	pm := newPMWithMocks()
+	pm := newPMWithMocks(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	pm.Proxies["test"] = &Proxy{
 		Config:        &model.Config{Hostname: "test", ProxyProvider: "old-provider"},
@@ -372,14 +373,14 @@ func TestCloseAndRemoveProxy_ProviderChangeWarning(t *testing.T) {
 
 // -- StopAllProxies ------------------------------------------------------------
 
-func TestStopAllProxies_Empty(_ *testing.T) {
-	pm := newTestProxyManager()
+func TestStopAllProxies_Empty(t *testing.T) {
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.StopAllProxies()
 }
 
 func TestStopAllProxies_WithProxies(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	ctxA, cancelA := context.WithCancel(context.Background())
 	ctxB, cancelB := context.WithCancel(context.Background())
 	pm.Proxies["a"] = &Proxy{
@@ -409,7 +410,7 @@ func TestStopAllProxies_WithProxies(t *testing.T) {
 
 func TestGetProxyProvider_ByProxyConfig(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	prov := &stubProxyProv{}
 	pm.ProxyProviders["myprov"] = prov
 	p, err := pm.getProxyProvider(&model.Config{ProxyProvider: "myprov"})
@@ -423,7 +424,7 @@ func TestGetProxyProvider_ByProxyConfig(t *testing.T) {
 
 func TestGetProxyProvider_ByProxyConfig_Lowercase(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	prov := &stubProxyProv{}
 	pm.ProxyProviders["myprov"] = prov
 	p, err := pm.getProxyProvider(&model.Config{ProxyProvider: "MyProv"})
@@ -437,7 +438,7 @@ func TestGetProxyProvider_ByProxyConfig_Lowercase(t *testing.T) {
 
 func TestGetProxyProvider_ByProxyConfig_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	_, err := pm.getProxyProvider(&model.Config{ProxyProvider: "missing"})
 	if !errors.Is(err, ErrProxyProviderNotFound) {
 		t.Fatalf("expected ErrProxyProviderNotFound, got %v", err)
@@ -446,7 +447,7 @@ func TestGetProxyProvider_ByProxyConfig_NotFound(t *testing.T) {
 
 func TestGetProxyProvider_ByTargetDefault(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	prov := &stubProxyProv{}
 	pm.TargetProviders["docker"] = &stubTargetProv{defaultProv: "ts-default"}
 	pm.ProxyProviders["ts-default"] = prov
@@ -461,7 +462,7 @@ func TestGetProxyProvider_ByTargetDefault(t *testing.T) {
 
 func TestGetProxyProvider_ByTargetDefault_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.TargetProviders["docker"] = &stubTargetProv{defaultProv: "nonexistent"}
 	_, err := pm.getProxyProvider(&model.Config{TargetProvider: "docker"})
 	if !errors.Is(err, ErrProxyProviderNotFound) {
@@ -470,11 +471,11 @@ func TestGetProxyProvider_ByTargetDefault_NotFound(t *testing.T) {
 }
 
 func TestGetProxyProvider_ByGlobalDefault(t *testing.T) {
-	orig := config.Config.DefaultProxyProvider
-	config.Config.DefaultProxyProvider = "global-ts"
-	defer func() { config.Config.DefaultProxyProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultProxyProvider = "global-ts"
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	prov := &stubProxyProv{}
 	pm.TargetProviders["docker"] = &stubTargetProv{defaultProv: ""}
 	pm.ProxyProviders["global-ts"] = prov
@@ -488,11 +489,11 @@ func TestGetProxyProvider_ByGlobalDefault(t *testing.T) {
 }
 
 func TestGetProxyProvider_AllEmpty_ReturnsError(t *testing.T) {
-	orig := config.Config.DefaultProxyProvider
-	config.Config.DefaultProxyProvider = ""
-	defer func() { config.Config.DefaultProxyProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultProxyProvider = ""
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	pm.TargetProviders["docker"] = &stubTargetProv{defaultProv: ""}
 	_, err := pm.getProxyProvider(&model.Config{TargetProvider: "docker"})
 	if !errors.Is(err, ErrProxyProviderNotFound) {
@@ -502,7 +503,7 @@ func TestGetProxyProvider_AllEmpty_ReturnsError(t *testing.T) {
 
 func TestGetProxyProvider_TargetProviderNotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	_, err := pm.getProxyProvider(&model.Config{TargetProvider: "nonexistent"})
 	if !errors.Is(err, ErrTargetProviderNotFound) {
 		t.Fatalf("expected ErrTargetProviderNotFound, got %v", err)
@@ -513,7 +514,7 @@ func TestGetProxyProvider_TargetProviderNotFound(t *testing.T) {
 
 func TestResolveDNSProviderLocked_ByProxyConfig(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.DNSProviders["my-dns"] = &stubDNSProv{name: "my-dns"}
 	p, err := pm.resolveDNSProviderLocked(&model.Config{DNSProvider: "my-dns"})
 	if err != nil {
@@ -526,7 +527,7 @@ func TestResolveDNSProviderLocked_ByProxyConfig(t *testing.T) {
 
 func TestResolveDNSProviderLocked_ByProxyConfig_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	_, err := pm.resolveDNSProviderLocked(&model.Config{DNSProvider: "missing"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -534,11 +535,11 @@ func TestResolveDNSProviderLocked_ByProxyConfig_NotFound(t *testing.T) {
 }
 
 func TestResolveDNSProviderLocked_ByGlobalDefault(t *testing.T) {
-	orig := config.Config.DefaultDNSProvider
-	config.Config.DefaultDNSProvider = "global-dns"
-	defer func() { config.Config.DefaultDNSProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultDNSProvider = "global-dns"
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	pm.DNSProviders["global-dns"] = &stubDNSProv{name: "global-dns"}
 	p, err := pm.resolveDNSProviderLocked(&model.Config{})
 	if err != nil {
@@ -550,11 +551,11 @@ func TestResolveDNSProviderLocked_ByGlobalDefault(t *testing.T) {
 }
 
 func TestResolveDNSProviderLocked_GlobalDefaultNotFound(t *testing.T) {
-	orig := config.Config.DefaultDNSProvider
-	config.Config.DefaultDNSProvider = "missing"
-	defer func() { config.Config.DefaultDNSProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultDNSProvider = "missing"
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	_, err := pm.resolveDNSProviderLocked(&model.Config{})
 	if err == nil {
 		t.Fatal("expected error")
@@ -562,11 +563,11 @@ func TestResolveDNSProviderLocked_GlobalDefaultNotFound(t *testing.T) {
 }
 
 func TestResolveDNSProviderLocked_NoneConfigured(t *testing.T) {
-	orig := config.Config.DefaultDNSProvider
-	config.Config.DefaultDNSProvider = ""
-	defer func() { config.Config.DefaultDNSProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultDNSProvider = ""
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	_, err := pm.resolveDNSProviderLocked(&model.Config{})
 	if !errors.Is(err, ErrNoDNSProvider) {
 		t.Fatalf("expected ErrNoDNSProvider, got %v", err)
@@ -574,11 +575,11 @@ func TestResolveDNSProviderLocked_NoneConfigured(t *testing.T) {
 }
 
 func TestResolveDNSProviderLocked_ProxyConfigTakesPrecedence(t *testing.T) {
-	orig := config.Config.DefaultDNSProvider
-	config.Config.DefaultDNSProvider = "global"
-	defer func() { config.Config.DefaultDNSProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultDNSProvider = "global"
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	pm.DNSProviders["global"] = &stubDNSProv{name: "global"}
 	pm.DNSProviders["per-proxy"] = &stubDNSProv{name: "per-proxy"}
 	p, err := pm.resolveDNSProviderLocked(&model.Config{DNSProvider: "per-proxy"})
@@ -594,7 +595,7 @@ func TestResolveDNSProviderLocked_ProxyConfigTakesPrecedence(t *testing.T) {
 
 func TestResolveTLSProviderLocked_ByProxyConfig(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.TLSProviders["my-tls"] = &stubTLSProv{name: "my-tls"}
 	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "my-tls"})
 	if err != nil {
@@ -607,7 +608,7 @@ func TestResolveTLSProviderLocked_ByProxyConfig(t *testing.T) {
 
 func TestResolveTLSProviderLocked_TailscaleName(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "tailscale"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -618,13 +619,13 @@ func TestResolveTLSProviderLocked_TailscaleName(t *testing.T) {
 }
 
 func TestResolveTLSProviderLocked_TailscaleInConfig(t *testing.T) {
-	orig := config.Config.TLSProviders
-	config.Config.TLSProviders = map[string]*config.TLSProviderConfig{
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.TLSProviders = map[string]*config.TLSProviderConfig{
 		"ts": {Provider: "tailscale"},
 	}
-	defer func() { config.Config.TLSProviders = orig }()
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "ts"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -636,7 +637,7 @@ func TestResolveTLSProviderLocked_TailscaleInConfig(t *testing.T) {
 
 func TestResolveTLSProviderLocked_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	_, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "missing"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -644,11 +645,11 @@ func TestResolveTLSProviderLocked_NotFound(t *testing.T) {
 }
 
 func TestResolveTLSProviderLocked_NoneConfigured(t *testing.T) {
-	orig := config.Config.DefaultTLSProvider
-	config.Config.DefaultTLSProvider = ""
-	defer func() { config.Config.DefaultTLSProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultTLSProvider = ""
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	_, err := pm.resolveTLSProviderLocked(&model.Config{})
 	if !errors.Is(err, ErrNoTLSProvider) {
 		t.Fatalf("expected ErrNoTLSProvider, got %v", err)
@@ -656,11 +657,11 @@ func TestResolveTLSProviderLocked_NoneConfigured(t *testing.T) {
 }
 
 func TestResolveTLSProviderLocked_UsesDefault(t *testing.T) {
-	orig := config.Config.DefaultTLSProvider
-	config.Config.DefaultTLSProvider = "my-default"
-	defer func() { config.Config.DefaultTLSProvider = orig }()
+	t.Parallel()
+	cfg := newTestConfig(t)
+	cfg.DefaultTLSProvider = "my-default"
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(cfg)
 	pm.TLSProviders["my-default"] = &stubTLSProv{name: "my-default"}
 	p, err := pm.resolveTLSProviderLocked(&model.Config{})
 	if err != nil {
@@ -698,7 +699,7 @@ func TestExtractHost(t *testing.T) {
 
 func TestAddAndGetTargetProvider(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	tp := &stubTargetProv{name: "docker"}
 	pm.addTargetProvider(tp, "docker")
 	got, ok := pm.getTargetProvider("docker")
@@ -712,7 +713,7 @@ func TestAddAndGetTargetProvider(t *testing.T) {
 
 func TestGetTargetProvider_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	_, ok := pm.getTargetProvider("nonexistent")
 	if ok {
 		t.Fatal("expected false")
@@ -723,7 +724,7 @@ func TestGetTargetProvider_NotFound(t *testing.T) {
 
 func TestGetTargetLock_LocksExclusively(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	m := pm.getTargetLock("lock-test")
 	m.Lock()
 	locked := make(chan bool)
@@ -748,7 +749,7 @@ func TestGetTargetLock_LocksExclusively(t *testing.T) {
 // -- updateProxyCount / cleanupProxyMetrics ------------------------------------
 
 func TestUpdateProxyCount(t *testing.T) {
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.Proxies["a"] = &Proxy{Config: &model.Config{Hostname: "a"}}
 	pm.Proxies["b"] = &Proxy{Config: &model.Config{Hostname: "b"}}
 	pm.updateProxyCount()
@@ -759,21 +760,21 @@ func TestUpdateProxyCount(t *testing.T) {
 
 func TestUpdateProxyCount_NilMetrics(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.metrics = nil
 	pm.updateProxyCount()
 }
 
 func TestCleanupProxyMetrics(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.Proxies["test"] = &Proxy{Config: &model.Config{Hostname: "test"}}
 	pm.cleanupProxyMetrics("test")
 }
 
 func TestCleanupProxyMetrics_NilMetrics(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.metrics = nil
 	pm.cleanupProxyMetrics("test")
 }
@@ -782,7 +783,7 @@ func TestCleanupProxyMetrics_NilMetrics(t *testing.T) {
 
 func TestGetHostLock_SameHostname_ReturnsSameMutex(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	m1 := pm.getHostLock("test-host")
 	m2 := pm.getHostLock("test-host")
 	if m1 != m2 {
@@ -792,7 +793,7 @@ func TestGetHostLock_SameHostname_ReturnsSameMutex(t *testing.T) {
 
 func TestGetHostLock_DifferentHostnames_DifferentMutexes(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	m1 := pm.getHostLock("host-1")
 	m2 := pm.getHostLock("host-2")
 	if m1 == m2 {
@@ -804,7 +805,7 @@ func TestGetHostLock_DifferentHostnames_DifferentMutexes(t *testing.T) {
 
 func TestStopAllProxies_ConcurrentSafe(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -838,7 +839,7 @@ func TestStopAllProxies_ConcurrentSafe(t *testing.T) {
 
 func TestAddProxyProvider_ConvertsToLowercase(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.addProxyProvider(&stubProxyProv{}, "MyProv")
 	_, ok := pm.ProxyProviders["myprov"]
 	if !ok {
@@ -863,7 +864,7 @@ func (t *tlsErrorProvider) Provision(_ context.Context, _ string) error {
 func newSetupDomainTestProxy(t *testing.T) (*ProxyManager, *Proxy) {
 	t.Helper()
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
 	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
 
@@ -945,7 +946,7 @@ func TestSetupDomainForProxy_TailscaleTLSPath(t *testing.T) {
 
 func TestWaitForProxyURL_URLAvailableImmediately(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel() })
@@ -965,7 +966,7 @@ func TestWaitForProxyURL_URLAvailableImmediately(t *testing.T) {
 
 func TestWaitForProxyURL_URLBecomesAvailableAfterPoll(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel() })
@@ -986,7 +987,7 @@ func TestWaitForProxyURL_URLBecomesAvailableAfterPoll(t *testing.T) {
 
 func TestWaitForProxyURL_ContextCancelled(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Proxy{
@@ -1021,7 +1022,7 @@ func TestWaitForProxyURL_Timeout(t *testing.T) {
 		cancel:        cancel,
 	}
 
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 
 	done := make(chan error, 1)
 	go func() {
@@ -1059,7 +1060,7 @@ func (d *delayedURLProxy) GetURL() string {
 
 func TestCleanupDomainForProxy_EmptyDomainSkipsCleanup(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
 	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
 
@@ -1080,7 +1081,7 @@ func TestCleanupDomainForProxy_EmptyDomainSkipsCleanup(t *testing.T) {
 
 func TestCleanupDomainForProxy_NilProvidersResetsStatus(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
 	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
 
@@ -1104,7 +1105,7 @@ func TestCleanupDomainForProxy_NilProvidersResetsStatus(t *testing.T) {
 
 func TestCleanupDomainForProxy_TLSCleanupErrorLogged(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
 	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
 
@@ -1126,7 +1127,7 @@ func TestCleanupDomainForProxy_TLSCleanupErrorLogged(t *testing.T) {
 
 func TestCleanupDomainForProxy_DNSCleanupErrorLogged(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
 	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
 
@@ -1148,7 +1149,7 @@ func TestCleanupDomainForProxy_DNSCleanupErrorLogged(t *testing.T) {
 
 func TestCleanupDomainForProxy_HappyPathResetsStatuses(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
 	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
 

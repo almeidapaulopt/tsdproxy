@@ -9,10 +9,10 @@ import (
 )
 
 // newTestConfigForGenerate creates a minimal config for testing generate methods.
-func newTestConfigForGenerate(t *testing.T) *config {
+func newTestConfigForGenerate(t *testing.T) *Data {
 	t.Helper()
 
-	return &config{
+	return &Data{
 		Docker: make(map[string]*DockerTargetProviderConfig),
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: make(map[string]*TailscaleServerConfig),

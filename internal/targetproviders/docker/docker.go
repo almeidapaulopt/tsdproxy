@@ -44,13 +44,14 @@ type (
 		healthCheckEnabled       bool
 		tryDockerInternalNetwork bool
 		autoRestart              bool
+		proxyAccessLogDefault    bool
 	}
 )
 
 var _ targetproviders.TargetProvider = (*Client)(nil)
 
 // New function returns a new Docker TargetProvider
-func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig) (*Client, error) {
+func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig, proxyAccessLogDefault bool) (*Client, error) {
 	newlog := log.With().Str("docker", name).Logger()
 	newlog.Trace().Msg("New Docker TargetProvider")
 	defer newlog.Trace().Msg("End New Docker TargetProvider")
@@ -99,6 +100,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		healthCheckFailures:      provider.HealthCheckFailures,
 		healthCheckCooldown:      provider.HealthCheckCooldown,
 		containers:               make(map[string]*container),
+		proxyAccessLogDefault:    proxyAccessLogDefault,
 	}
 
 	c.setDefaultBridgeAddress()
@@ -178,6 +180,7 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 		withTargetProviderName(c.name),
 		withProviderAutoRestart(c.autoRestart),
 		withProviderHealthCheck(c.healthCheckEnabled, c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
+		withProxyAccessLogDefault(c.proxyAccessLogDefault),
 	)
 
 	pcfg, err := ctn.newProxyConfig(ctx)

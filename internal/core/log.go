@@ -21,17 +21,17 @@ import (
 
 var ErrHijackNotSupported = errors.New("hijack not supported")
 
-func NewLog() zerolog.Logger {
+func NewLog(cfg *config.Data) zerolog.Logger {
 	var logger zerolog.Logger
 
-	if config.Config.Log.JSON {
+	if cfg.Log.JSON {
 		logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 	} else {
 		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
 	}
 
 	log.Logger = logger
-	logLevel, err := zerolog.ParseLevel(config.Config.Log.Level)
+	logLevel, err := zerolog.ParseLevel(cfg.Log.Level)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Could not parse log level")
 	}
@@ -41,7 +41,7 @@ func NewLog() zerolog.Logger {
 	}
 
 	zerolog.SetGlobalLevel(logLevel)
-	logger.Info().Str("Log level", config.Config.Log.Level).Msg("Log Settings")
+	logger.Info().Str("Log level", cfg.Log.Level).Msg("Log Settings")
 
 	return logger
 }

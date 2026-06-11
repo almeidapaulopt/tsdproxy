@@ -35,11 +35,11 @@ func (e *DomainProviderError) Error() string {
 }
 
 // validate method  Validate configurations.
-func (c *config) validate() error {
+func (c *Data) validate() error {
 	log.Info().Msg("Validating configuration...")
 	validate := validator.New()
 
-	if err := validate.Struct(Config); err != nil {
+	if err := validate.Struct(c); err != nil {
 		var validationErrors validator.ValidationErrors
 		if errors.As(err, &validationErrors) {
 			for _, e := range validationErrors {
@@ -86,7 +86,7 @@ func (c *config) validate() error {
 	return nil
 }
 
-func (c *config) addDefaultProxyProviderToDockerProviders() error {
+func (c *Data) addDefaultProxyProviderToDockerProviders() error {
 	for _, p := range c.Docker {
 		if p.DefaultProxyProvider == "" {
 			p.DefaultProxyProvider = c.DefaultProxyProvider
@@ -99,14 +99,14 @@ func (c *config) addDefaultProxyProviderToDockerProviders() error {
 	return nil
 }
 
-func (c *config) getDefaultProxyProvider() (string, error) {
+func (c *Data) getDefaultProxyProvider() (string, error) {
 	for name := range c.Tailscale.Providers {
 		return strings.ToLower(name), nil
 	}
 	return "", ErrNoDefaultProxyProvider
 }
 
-func (c *config) hasProxyProvider(name string) bool {
+func (c *Data) hasProxyProvider(name string) bool {
 	for n := range c.Tailscale.Providers {
 		if strings.EqualFold(n, name) {
 			return true
@@ -142,7 +142,7 @@ func isReconcileIntervalPositive(p *TailscaleServerConfig) bool {
 	return d > 0
 }
 
-func (c *config) validateProxyProviders() error {
+func (c *Data) validateProxyProviders() error {
 	if len(c.Tailscale.Providers) == 0 {
 		return errors.New("no tailscale proxy providers configured")
 	}
@@ -169,7 +169,7 @@ func (c *config) validateProxyProviders() error {
 	return nil
 }
 
-func (c *config) validateServicesProvider(name string, p *TailscaleServerConfig) error {
+func (c *Data) validateServicesProvider(name string, p *TailscaleServerConfig) error {
 	if !p.Services {
 		return nil
 	}
@@ -200,7 +200,7 @@ func (c *config) validateServicesProvider(name string, p *TailscaleServerConfig)
 	return nil
 }
 
-func (c *config) validateProviderOAuthFeatures(name string, p *TailscaleServerConfig) error {
+func (c *Data) validateProviderOAuthFeatures(name string, p *TailscaleServerConfig) error {
 	if isReconcileIntervalPositive(p) {
 		if !hasOAuthCredentials(p) && !p.PreventDuplicates {
 			return fmt.Errorf("tailscale provider %q: reconcileInterval requires OAuth credentials (clientId + clientSecret) or preventDuplicates enabled", name)
@@ -230,7 +230,7 @@ func (c *config) validateProviderOAuthFeatures(name string, p *TailscaleServerCo
 	return nil
 }
 
-func (c *config) validateDNSProviders() error {
+func (c *Data) validateDNSProviders() error {
 	if c.DefaultDNSProvider != "" {
 		if _, ok := c.DNSProviders[c.DefaultDNSProvider]; !ok {
 			return fmt.Errorf("defaultDNSProvider %q not found in dnsProviders", c.DefaultDNSProvider)
@@ -254,7 +254,7 @@ func (c *config) validateDNSProviders() error {
 	return nil
 }
 
-func (c *config) validateTLSProviders() error {
+func (c *Data) validateTLSProviders() error {
 	if c.DefaultTLSProvider != "" {
 		if _, ok := c.TLSProviders[c.DefaultTLSProvider]; !ok {
 			return fmt.Errorf("defaultTLSProvider %q not found in tlsProviders", c.DefaultTLSProvider)

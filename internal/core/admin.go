@@ -46,23 +46,23 @@ func ProxyAuthToken() string { return proxyAuthToken }
 //
 // Access is granted in priority order:
 //  1. Valid API key via Authorization: Bearer <token>
-//  2. Tailscale identity in config.Config.Admins list
+//  2. Tailscale identity in cfg.Admins list
 //  3. Localhost + AdminAllowLocalhost
 //
-// When config.Config.Admins is empty, any authenticated Tailscale user
+// When cfg.Admins is empty, any authenticated Tailscale user
 // is considered an admin. Use ViewerMiddleware for read-only access
 // that allows all Tailscale users regardless of the admins list.
-func AdminMiddleware() Middleware {
+func AdminMiddleware(cfg *config.Data) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if ValidAPIKey(r) {
+			if ValidAPIKey(r, cfg) {
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			id := ResolveWhois(r).ID
 
-			admins := config.Config.Admins
+			admins := cfg.Admins
 			if len(admins) > 0 {
 				if id != "" && slices.Contains(admins, id) {
 					next.ServeHTTP(w, r)
@@ -73,7 +73,7 @@ func AdminMiddleware() Middleware {
 					return
 				}
 
-				if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+				if IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -87,7 +87,7 @@ func AdminMiddleware() Middleware {
 				return
 			}
 
-			if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+			if IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -100,10 +100,10 @@ func AdminMiddleware() Middleware {
 // ViewerMiddleware authenticates requests to read-only dashboard endpoints.
 // Any authenticated Tailscale user is allowed, regardless of the admins list.
 // Use AdminMiddleware for endpoints that require admin privileges.
-func ViewerMiddleware() Middleware {
+func ViewerMiddleware(cfg *config.Data) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if ValidAPIKey(r) {
+			if ValidAPIKey(r, cfg) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -114,7 +114,7 @@ func ViewerMiddleware() Middleware {
 				return
 			}
 
-			if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+			if IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -125,32 +125,32 @@ func ViewerMiddleware() Middleware {
 }
 
 // IsAdmin checks whether the authenticated user for the given request
-// has admin privileges. Returns true when config.Config.Admins is empty
+// has admin privileges. Returns true when cfg.Admins is empty
 // (all users are admins) or when the user's Tailscale ID is in the list.
-func IsAdmin(r *http.Request) bool {
-	if ValidAPIKey(r) {
+func IsAdmin(r *http.Request, cfg *config.Data) bool {
+	if ValidAPIKey(r, cfg) {
 		return true
 	}
 	id := ResolveWhois(r).ID
 	if id != "" {
-		return UserIDIsAdmin(id)
+		return UserIDIsAdmin(id, cfg)
 	}
-	return IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost
+	return IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost
 }
 
-func UserIDIsAdmin(id string) bool {
-	admins := config.Config.Admins
+func UserIDIsAdmin(id string, cfg *config.Data) bool {
+	admins := cfg.Admins
 	if len(admins) == 0 {
 		return true
 	}
 	if id == localhostUserID {
-		return config.Config.AdminAllowLocalhost
+		return cfg.AdminAllowLocalhost
 	}
 	return slices.Contains(admins, id)
 }
 
-func ValidAPIKey(r *http.Request) bool {
-	key := config.Config.APIKey
+func ValidAPIKey(r *http.Request, cfg *config.Data) bool {
+	key := cfg.APIKey
 	if key == "" {
 		return false
 	}

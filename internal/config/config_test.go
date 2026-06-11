@@ -13,14 +13,13 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
 
 var testValidate = validator.New()
 
 func TestConfig_Defaults(t *testing.T) {
-	c := &config{}
+	t.Parallel()
+	c := &Data{}
 	require.NoError(t, defaults.Set(c))
 	assert.Equal(t, "default", c.DefaultProxyProvider)
 	assert.True(t, c.CleanupDNS)
@@ -112,34 +111,6 @@ func TestTLSProviderConfig_Defaults(t *testing.T) {
 	assert.Equal(t, "https://acme-v02.api.letsencrypt.org/directory", cfg.CA)
 }
 
-// TestClearSecrets_PreservesProviderAuthKey is a regression test for a bug where
-// ClearSecrets wiped provider.AuthKey before tsproxy.New captured it into the
-// Client struct. Per-proxy ResolveAuthKey reads that Client copy each time a
-// new container starts, so it must survive ClearSecrets.
-func TestClearSecrets_PreservesProviderAuthKey(t *testing.T) {
-	c := &config{}
-	require.NoError(t, defaults.Set(c))
-
-	c.Tailscale.Providers = map[string]*TailscaleServerConfig{
-		"default": {
-			AuthKey:    secretstring.SecretString("tskey-auth-regression"),
-			ControlURL: "https://controlplane.tailscale.com",
-		},
-	}
-	c.DNSProviders = map[string]*DNSProviderConfig{
-		"cf": {Provider: "cloudflare", APIToken: "cf-token"},
-	}
-	c.APIKey = "api-key"
-
-	c.ClearSecrets()
-
-	assert.Equal(t, secretstring.SecretString("tskey-auth-regression"),
-		c.Tailscale.Providers["default"].AuthKey,
-		"provider AuthKey must survive ClearSecrets; it is consumed lazily by tsproxy.New → ResolveAuthKey for each new proxy")
-	assert.Empty(t, c.APIKey, "APIKey is one-shot and must be cleared")
-	assert.Empty(t, c.DNSProviders["cf"].APIToken, "DNS APIToken is one-shot and must be cleared")
-}
-
 func TestLoadConfigFile_FileExists(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -155,7 +126,7 @@ func TestLoadConfigFile_FileExists(t *testing.T) {
 		"      controlUrl: https://controlplane.tailscale.com\n"
 	require.NoError(t, os.WriteFile(path, []byte(yamlContent), 0o600))
 
-	c := &config{
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: make(map[string]*TailscaleServerConfig),
 		},
@@ -175,7 +146,7 @@ func TestLoadConfigFile_FileNotExists(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
-	c := &config{
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: make(map[string]*TailscaleServerConfig),
 		},
@@ -206,7 +177,7 @@ func TestLoadConfigFile_InvalidYAML(t *testing.T) {
 	path := filepath.Join(dir, "config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("invalid: [unclosed yaml"), 0o600))
 
-	c := &config{
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: make(map[string]*TailscaleServerConfig),
 		},
@@ -218,24 +189,4 @@ func TestLoadConfigFile_InvalidYAML(t *testing.T) {
 	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
 	err := c.loadConfigFile(fileConfig, path)
 	assert.Error(t, err, "should error with invalid YAML content")
-}
-
-// TestClearSecrets_PreservesClientSecret mirrors the regression covered by
-// commit b0dca17 — ClientSecret is needed at runtime for OAuth operations.
-func TestClearSecrets_PreservesClientSecret(t *testing.T) {
-	c := &config{}
-	require.NoError(t, defaults.Set(c))
-
-	c.Tailscale.Providers = map[string]*TailscaleServerConfig{
-		"default": {
-			ClientID:     "id",
-			ClientSecret: secretstring.SecretString("secret"),
-		},
-	}
-
-	c.ClearSecrets()
-
-	assert.Equal(t, "id", c.Tailscale.Providers["default"].ClientID)
-	assert.Equal(t, secretstring.SecretString("secret"), c.Tailscale.Providers["default"].ClientSecret,
-		"ClientSecret must survive ClearSecrets for runtime OAuth operations")
 }

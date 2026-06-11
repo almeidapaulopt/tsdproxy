@@ -50,31 +50,33 @@ type (
 
 	// Proxy struct is a struct that contains all the information needed to run a proxy.
 	Proxy struct {
-		log             zerolog.Logger
-		startedAt       time.Time
-		providerProxy   proxyproviders.ProxyInterface
-		ctx             context.Context
-		tlsProvider     tlsproviders.Provider
-		dnsProvider     dnsproviders.Provider
-		metrics         *metrics.Metrics
-		health          *healthChecker
-		onUpdate        func(event model.ProxyEvent)
-		logBuffer       *LogRingBuffer
-		reResolveConfig func() (*model.Config, error)
-		Config          *model.Config
-		URL             *url.URL
-		ports           map[string]portHandler
-		cancel          context.CancelFunc
-		healthPortName  string
-		statusHistory   []StatusTransition
-		dnsStatus       dnsproviders.DNSStatus
-		tlsStatus       tlsproviders.TLSStatus
-		status          model.ProxyStatus
-		setupWg         sync.WaitGroup
-		mtx             sync.RWMutex
-		opMu            sync.Mutex
-		paused          bool
-		metricsReady    bool
+		log              zerolog.Logger
+		startedAt        time.Time
+		providerProxy    proxyproviders.ProxyInterface
+		ctx              context.Context
+		tlsProvider      tlsproviders.Provider
+		dnsProvider      dnsproviders.Provider
+		URL              *url.URL
+		health           *healthChecker
+		onUpdate         func(event model.ProxyEvent)
+		logBuffer        *LogRingBuffer
+		reResolveConfig  func() (*model.Config, error)
+		Config           *model.Config
+		metrics          *metrics.Metrics
+		ports            map[string]portHandler
+		cancel           context.CancelFunc
+		healthPortName   string
+		statusHistory    []StatusTransition
+		setupWg          sync.WaitGroup
+		tlsStatus        tlsproviders.TLSStatus
+		status           model.ProxyStatus
+		dnsStatus        dnsproviders.DNSStatus
+		mtx              sync.RWMutex
+		opMu             sync.Mutex
+		httpPort         uint16
+		telemetryEnabled bool
+		paused           bool
+		metricsReady     bool
 	}
 )
 
@@ -83,6 +85,8 @@ func NewProxy(log zerolog.Logger,
 	pcfg *model.Config,
 	proxyProvider proxyproviders.Provider,
 	m *metrics.Metrics,
+	telemetryEnabled bool,
+	httpPort uint16,
 ) (*Proxy, error) {
 	//
 	var err error
@@ -112,16 +116,18 @@ func NewProxy(log zerolog.Logger,
 	}
 
 	p := &Proxy{
-		log:           log,
-		Config:        pcfg,
-		ctx:           ctx,
-		cancel:        cancel,
-		providerProxy: pProvider,
-		ports:         make(map[string]portHandler),
-		metrics:       m,
-		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
-		startedAt:     time.Now(),
-		logBuffer:     logBuffer,
+		log:              log,
+		Config:           pcfg,
+		ctx:              ctx,
+		cancel:           cancel,
+		providerProxy:    pProvider,
+		ports:            make(map[string]portHandler),
+		metrics:          m,
+		statusHistory:    make([]StatusTransition, 0, maxStatusHistory),
+		startedAt:        time.Now(),
+		logBuffer:        logBuffer,
+		telemetryEnabled: telemetryEnabled,
+		httpPort:         httpPort,
 	}
 
 	p.initPorts()
@@ -555,6 +561,8 @@ func (proxy *Proxy) initPorts() {
 				proxy.Config.Hostname,
 				k, proxy.logBuffer,
 				proxy.Config.IdentityHeaders,
+				proxy.telemetryEnabled,
+				proxy.httpPort,
 			)
 		} else if v.ProxyProtocol == model.ProtoUDP {
 			ph = newPortUDP(proxy.ctx, v, log)

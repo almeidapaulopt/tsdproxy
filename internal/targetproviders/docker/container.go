@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/web"
 
@@ -30,6 +29,7 @@ var rfc1123Hostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z
 type (
 	container struct {
 		log                    zerolog.Logger
+		defaultBridgeAddress   netip.Addr
 		ports                  map[string]string
 		labels                 map[string]string
 		image                  string
@@ -38,21 +38,21 @@ type (
 		name                   string
 		hostname               string
 		networkMode            ctypes.NetworkMode
-		defaultBridgeAddress   netip.Addr
 		defaultTargetHostname  string
-		ipAddress              []netip.Addr
 		gateways               []netip.Addr
-		autodetect             bool
+		ipAddress              []netip.Addr
+		providerHealthInterval int
+		healthCheckInterval    int
+		healthCheckFailures    int
+		healthCheckCooldown    int
+		providerHealthFailures int
+		providerHealthCooldown int
 		autoRestart            bool
 		providerAutoRestart    bool
 		healthCheckEnabled     bool
 		providerHealthEnabled  bool
-		healthCheckInterval    int
-		healthCheckFailures    int
-		healthCheckCooldown    int
-		providerHealthInterval int
-		providerHealthFailures int
-		providerHealthCooldown int
+		autodetect             bool
+		proxyAccessLogDefault  bool
 	}
 
 	ContainerOption func(*container)
@@ -177,7 +177,6 @@ func (c *container) setContainerNetwork(dcontainer ctypes.InspectResponse) {
 	}
 }
 
-// newProxyConfig method returns a new proxyconfig.Config.
 func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	c.log.Trace().Msg("New ProxyConfig")
 	defer c.log.Trace().Msg("End New ProxyConfig")
@@ -209,7 +208,7 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.Domain = c.getLabelString(LabelDomain, "")
 	pcfg.DNSProvider = c.getLabelString(LabelDNSProvider, "")
 	pcfg.TLSProvider = c.getLabelString(LabelTLSProvider, "")
-	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, config.Config.ProxyAccessLog)
+	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, c.proxyAccessLogDefault)
 	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = c.autoRestart
 	pcfg.HealthCheckEnabled = c.healthCheckEnabled
@@ -555,5 +554,11 @@ func withProviderHealthCheck(enabled bool, interval, failures, cooldown int) Con
 		c.providerHealthInterval = interval
 		c.providerHealthFailures = failures
 		c.providerHealthCooldown = cooldown
+	}
+}
+
+func withProxyAccessLogDefault(defaultVal bool) ContainerOption {
+	return func(c *container) {
+		c.proxyAccessLogDefault = defaultVal
 	}
 }

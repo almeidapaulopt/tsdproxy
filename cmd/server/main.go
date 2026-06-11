@@ -43,28 +43,27 @@ type WebApp struct {
 	Docker         *client.Client
 	ProxyManager   *pm.ProxyManager
 	Dashboard      *dashboard.Dashboard
+	Cfg            *config.Data
 	httpServer     *http.Server
 	tracerProvider *sdktrace.TracerProvider
 }
 
 func InitializeApp() (*WebApp, error) {
-	err := config.InitializeConfig()
+	cfg, err := config.InitializeConfig()
 	if err != nil {
 		return nil, err
 	}
-	config.Config.ClearSecrets()
-	config.Config.LoadTailscaleEnvOverrides()
 
 	// Write HTTP port to data dir for the healthcheck binary to read.
-	portFile := filepath.Join(config.Config.Tailscale.DataDir, ".http-port")
-	if err := os.MkdirAll(config.Config.Tailscale.DataDir, dirPermission); err != nil {
+	portFile := filepath.Join(cfg.Tailscale.DataDir, ".http-port")
+	if err := os.MkdirAll(cfg.Tailscale.DataDir, dirPermission); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	if err := os.WriteFile(portFile, []byte(strconv.FormatUint(uint64(config.Config.HTTP.Port), 10)), filePermission); err != nil {
+	if err := os.WriteFile(portFile, []byte(strconv.FormatUint(uint64(cfg.HTTP.Port), 10)), filePermission); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to write healthcheck port file: %v\n", err)
 	}
 
-	logger := core.NewLog()
+	logger := core.NewLog(cfg)
 
 	core.InitProxyAuth(logger)
 
@@ -77,20 +76,20 @@ func InitializeApp() (*WebApp, error) {
 
 	// Start ProxyManager
 	//
-	proxymanager := pm.NewProxyManager(logger)
+	proxymanager := pm.NewProxyManager(logger, cfg)
 
 	// init Dashboard
 	//
-	dash := dashboard.NewDashboard(httpServer, logger, proxymanager)
+	dash := dashboard.NewDashboard(httpServer, logger, proxymanager, cfg)
 
 	var tracerProvider *sdktrace.TracerProvider
-	if config.Config.Telemetry.Enabled {
-		tp, err := core.InitTracer(context.Background(), config.Config.Telemetry.Endpoint, config.Config.Telemetry.Insecure)
+	if cfg.Telemetry.Enabled {
+		tp, err := core.InitTracer(context.Background(), cfg.Telemetry.Endpoint, cfg.Telemetry.Insecure)
 		if err != nil {
 			logger.Error().Err(err).Msg("failed to initialize tracer")
 		} else {
 			tracerProvider = tp
-			logger.Info().Str("endpoint", config.Config.Telemetry.Endpoint).Msg("OpenTelemetry tracer initialized")
+			logger.Info().Str("endpoint", cfg.Telemetry.Endpoint).Msg("OpenTelemetry tracer initialized")
 		}
 	}
 
@@ -100,6 +99,7 @@ func InitializeApp() (*WebApp, error) {
 		Health:         health,
 		ProxyManager:   proxymanager,
 		Dashboard:      dash,
+		Cfg:            cfg,
 		tracerProvider: tracerProvider,
 	}
 	return webApp, nil
@@ -133,12 +133,12 @@ func (app *WebApp) Start() {
 	// Add Routes
 	//
 	app.Dashboard.AddRoutes()
-	api.New(app.HTTP, app.ProxyManager, app.Log).AddRoutes()
+	api.New(app.HTTP, app.ProxyManager, app.Log, app.Cfg).AddRoutes()
 
 	// Static assets from embedded dist/ (CSS, JS, icons, etc.)
 	app.HTTP.Mux.Handle("/", web.Static)
 
-	adminMW := core.AdminMiddleware()
+	adminMW := core.AdminMiddleware(app.Cfg)
 	app.HTTP.Get("/metrics", adminMW(app.ProxyManager.MetricsHandler()))
 	// Setup proxy for existing containers
 	//
@@ -155,7 +155,7 @@ func (app *WebApp) Start() {
 	go func() {
 		app.Log.Info().Msg("Initializing WebServer")
 
-		addr := fmt.Sprintf("%s:%d", config.Config.HTTP.Hostname, config.Config.HTTP.Port)
+		addr := fmt.Sprintf("%s:%d", app.Cfg.HTTP.Hostname, app.Cfg.HTTP.Port)
 
 		ln, err := net.Listen("tcp", addr)
 		if err != nil {

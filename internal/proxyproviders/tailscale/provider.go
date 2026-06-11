@@ -90,8 +90,8 @@ func (c *Client) IsDomainRequired() bool {
 	return c.shared
 }
 
-func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig) (*Client, error) {
-	datadir := filepath.Join(config.Config.Tailscale.DataDir, name)
+func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig, dataDir string) (*Client, error) {
+	datadir := filepath.Join(dataDir, name)
 
 	concurrency := provider.MaxCertConcurrency
 	if concurrency < 1 {

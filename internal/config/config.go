@@ -47,9 +47,9 @@ func ValidateKeyFilePath(path string) (string, error) {
 }
 
 type (
-	// config stores complete configuration.
+	// Data stores complete configuration.
 	//
-	config struct {
+	Data struct {
 		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
 		Lists                map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
 		TLSProviders         map[string]*TLSProviderConfig          `yaml:"tlsProviders"`
@@ -174,56 +174,55 @@ type (
 	}
 )
 
-// Config  is a global variable to store configuration.
-var Config *config
-
-// GetConfig loads, validates and returns configuration.
-func InitializeConfig() error {
-	Config = &config{}
-	Config.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
-	Config.Docker = make(map[string]*DockerTargetProviderConfig)
-	Config.Lists = make(map[string]*ListTargetProviderConfig)
-	Config.DNSProviders = make(map[string]*DNSProviderConfig)
-	Config.TLSProviders = make(map[string]*TLSProviderConfig)
+// InitializeConfig loads, validates and returns configuration.
+// Returns (*Data, error) on success so callers can inject the
+// config into their constructors.
+func InitializeConfig() (*Data, error) {
+	cfg := &Data{}
+	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
+	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
+	cfg.Lists = make(map[string]*ListTargetProviderConfig)
+	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
+	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
 
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
-	fileConfig := NewConfigFile(log.Logger, *file, Config)
+	fileConfig := NewConfigFile(log.Logger, *file, cfg)
 
 	log.Info().Str("file", *file).Msg("loading configuration")
 
-	if err := Config.loadConfigFile(fileConfig, *file); err != nil {
-		return err
+	if err := cfg.loadConfigFile(fileConfig, *file); err != nil {
+		return nil, err
 	}
 
 	// Load default values.
 	// Make sure to set default values after loading from file
 	// unless defaults of map type are not loaded.
-	if err := defaults.Set(Config); err != nil {
+	if err := defaults.Set(cfg); err != nil {
 		log.Error().Err(err).Msg("error loading defaults")
 	}
 
-	applyDockerDefaults()
+	cfg.applyDockerDefaults()
 
-	if err := Config.loadSecretsFromFiles(); err != nil {
-		return err
+	if err := cfg.loadSecretsFromFiles(); err != nil {
+		return nil, err
 	}
 
 	// Load auth key from env var (TSDPROXY_AUTHKEY) for all providers.
-	Config.loadTailscaleAuthKeyEnvOverrides()
+	cfg.loadTailscaleAuthKeyEnvOverrides()
 
 	// Load env var overrides before validation so that TSDPROXY_TAILSCALE_*_CLIENTID
 	// and TSDPROXY_TAILSCALE_*_CLIENTSECRET are available to the validator (e.g.
 	// services mode requires clientId for the VIP Services API).
-	Config.LoadTailscaleEnvOverrides()
+	cfg.LoadTailscaleEnvOverrides()
 
 	// validate config
-	if err := Config.validate(); err != nil {
-		return err
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return cfg, nil
 }
 
 // applyDockerDefaults adjusts configuration defaults when running inside a
@@ -234,16 +233,16 @@ func InitializeConfig() error {
 // values are impractical: 127.0.0.1 is unreachable via port mapping and
 // port-mapped dashboard requests arrive from the Docker bridge gateway
 // (private IP) without a Tailscale identity.
-func applyDockerDefaults() {
+func (c *Data) applyDockerDefaults() {
 	if !isRunningInDocker() {
 		return
 	}
-	if Config.HTTP.Hostname == "127.0.0.1" {
-		Config.HTTP.Hostname = "0.0.0.0"
+	if c.HTTP.Hostname == "127.0.0.1" {
+		c.HTTP.Hostname = "0.0.0.0"
 		log.Info().Msg("running in Docker: defaulting http.hostname to 0.0.0.0")
 	}
-	if !Config.AdminAllowLocalhost {
-		Config.AdminAllowLocalhost = true
+	if !c.AdminAllowLocalhost {
+		c.AdminAllowLocalhost = true
 		log.Info().Msg("running in Docker: enabling adminAllowLocalhost")
 	}
 }
@@ -254,7 +253,7 @@ func isRunningInDocker() bool {
 	return err == nil
 }
 
-func (c *config) loadConfigFile(fileConfig *File, path string) error {
+func (c *Data) loadConfigFile(fileConfig *File, path string) error {
 	if err := fileConfig.Load(); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -265,7 +264,7 @@ func (c *config) loadConfigFile(fileConfig *File, path string) error {
 			log.Error().Err(err).Msg("error loading defaults")
 		}
 
-		applyDockerDefaults()
+		c.applyDockerDefaults()
 
 		if err := c.generateDefaultProviders(); err != nil {
 			return err
@@ -278,7 +277,7 @@ func (c *config) loadConfigFile(fileConfig *File, path string) error {
 	return nil
 }
 
-func (c *config) loadSecretsFromFiles() error {
+func (c *Data) loadSecretsFromFiles() error {
 	if err := c.loadTailscaleAuthKeys(); err != nil {
 		return err
 	}
@@ -298,7 +297,7 @@ func (c *config) loadSecretsFromFiles() error {
 	return nil
 }
 
-func (c *config) loadTailscaleAuthKeys() error {
+func (c *Data) loadTailscaleAuthKeys() error {
 	for _, d := range c.Tailscale.Providers {
 		if d == nil || (d.ClientSecret != "" && d.ClientID != "") {
 			continue
@@ -316,7 +315,7 @@ func (c *config) loadTailscaleAuthKeys() error {
 	return nil
 }
 
-func (c *config) loadAPIKey() error {
+func (c *Data) loadAPIKey() error {
 	if c.APIKeyFile == "" {
 		return nil
 	}
@@ -335,7 +334,7 @@ func (c *config) loadAPIKey() error {
 	return nil
 }
 
-func (c *config) loadDNSProviderTokens() error {
+func (c *Data) loadDNSProviderTokens() error {
 	for name, d := range c.DNSProviders {
 		if d == nil || d.APITokenFile == "" {
 			continue
@@ -350,7 +349,7 @@ func (c *config) loadDNSProviderTokens() error {
 	return nil
 }
 
-func (c *config) loadTailscaleClientSecrets() error {
+func (c *Data) loadTailscaleClientSecrets() error {
 	for name, d := range c.Tailscale.Providers {
 		if d == nil || d.ClientSecretFile == "" {
 			continue
@@ -377,7 +376,7 @@ func (c *config) loadTailscaleClientSecrets() error {
 //
 //	provider "default"  → TSDPROXY_TAILSCALE_DEFAULT_CLIENTID
 //	provider "my-eu-prod" → TSDPROXY_TAILSCALE_MY-EU-PROD_CLIENTSECRET
-func (c *config) LoadTailscaleEnvOverrides() {
+func (c *Data) LoadTailscaleEnvOverrides() {
 	for name, d := range c.Tailscale.Providers {
 		if d == nil {
 			continue
@@ -393,7 +392,7 @@ func (c *config) LoadTailscaleEnvOverrides() {
 	}
 }
 
-func (c *config) loadTailscaleAuthKeyEnvOverrides() {
+func (c *Data) loadTailscaleAuthKeyEnvOverrides() {
 	authKey := os.Getenv("TSDPROXY_AUTHKEY")
 	if authKey == "" {
 		return
@@ -405,7 +404,7 @@ func (c *config) loadTailscaleAuthKeyEnvOverrides() {
 	}
 }
 
-func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
+func (c *Data) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	resolved, err := ValidateKeyFilePath(authKeyFile)
 	if err != nil {
 		return "", err
@@ -418,16 +417,74 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// ClearSecrets wipes one-time auth secrets from memory after configuration is loaded.
-// ClientSecret and AuthKey are intentionally preserved because they are needed at
-// runtime: ClientSecret for VIP Service API calls, OAuth auth key generation, and
-// device reconciliation; AuthKey as the provider-level fallback for per-proxy
-// ResolveAuthKey each time a new container starts.
-func (c *config) ClearSecrets() {
-	c.APIKey = ""
-	for _, d := range c.DNSProviders {
-		if d != nil {
-			d.APIToken = ""
+// Clone returns a deep copy of the configuration.
+// Mutating fields on the returned copy is safe and will not affect the
+// original or any other clone. Maps, slices, and pointer-typed fields
+// are independently allocated.
+func (c *Data) Clone() *Data {
+	clone := *c
+
+	clone.DNSProviders = make(map[string]*DNSProviderConfig, len(c.DNSProviders))
+	for k, v := range c.DNSProviders {
+		if v == nil {
+			continue
 		}
+		vCopy := *v
+		clone.DNSProviders[k] = &vCopy
 	}
+
+	clone.Lists = make(map[string]*ListTargetProviderConfig, len(c.Lists))
+	for k, v := range c.Lists {
+		if v == nil {
+			continue
+		}
+		vCopy := *v
+		clone.Lists[k] = &vCopy
+	}
+
+	clone.TLSProviders = make(map[string]*TLSProviderConfig, len(c.TLSProviders))
+	for k, v := range c.TLSProviders {
+		if v == nil {
+			continue
+		}
+		vCopy := *v
+		clone.TLSProviders[k] = &vCopy
+	}
+
+	clone.Docker = make(map[string]*DockerTargetProviderConfig, len(c.Docker))
+	for k, v := range c.Docker {
+		if v == nil {
+			continue
+		}
+		vCopy := *v
+		clone.Docker[k] = &vCopy
+	}
+
+	clone.Tailscale.Providers = make(map[string]*TailscaleServerConfig, len(c.Tailscale.Providers))
+	for k, v := range c.Tailscale.Providers {
+		if v == nil {
+			continue
+		}
+		vCopy := *v
+		clone.Tailscale.Providers[k] = &vCopy
+	}
+
+	if c.Admins != nil {
+		clone.Admins = make([]string, len(c.Admins))
+		copy(clone.Admins, c.Admins)
+	}
+
+	clone.Webhooks = make([]WebhookConfig, len(c.Webhooks))
+	for i := range c.Webhooks {
+		wh := c.Webhooks[i]
+		if wh.Headers != nil {
+			wh.Headers = make(map[string]string, len(c.Webhooks[i].Headers))
+			for k, v := range c.Webhooks[i].Headers {
+				wh.Headers[k] = v
+			}
+		}
+		clone.Webhooks[i] = wh
+	}
+
+	return &clone
 }

@@ -48,6 +48,7 @@ type (
 		ctx               context.Context
 		cancel            context.CancelFunc
 		Proxies           ProxyList
+		cfg               *config.Data
 		TargetProviders   TargetProviderList
 		ProxyProviders    ProxyProviderList
 		DNSProviders      DNSProviderList
@@ -71,11 +72,12 @@ var (
 )
 
 // NewProxyManager function creates a new ProxyManager.
-func NewProxyManager(logger zerolog.Logger) *ProxyManager {
+func NewProxyManager(logger zerolog.Logger, cfg *config.Data) *ProxyManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	pm := &ProxyManager{
 		ctx:               ctx,
 		cancel:            cancel,
+		cfg:               cfg,
 		Proxies:           make(ProxyList),
 		TargetProviders:   make(TargetProviderList),
 		ProxyProviders:    make(ProxyProviderList),
@@ -84,10 +86,10 @@ func NewProxyManager(logger zerolog.Logger) *ProxyManager {
 		statusSubscribers: make(map[*statusSubscription]struct{}),
 		log:               logger.With().Str("module", "proxymanager").Logger(),
 		metrics:           metrics.New(),
-		webhookSender:     webhook.NewSender(logger, config.Config.Webhooks),
+		webhookSender:     webhook.NewSender(logger, cfg.Webhooks),
 	}
 
-	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(config.Config.CleanupDNS)
+	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(cfg.CleanupDNS)
 	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
 
 	return pm
@@ -352,8 +354,8 @@ func (pm *ProxyManager) broadcastStatusEvents(event model.ProxyEvent) {
 
 // addTargetProviders method adds TargetProviders from configuration file.
 func (pm *ProxyManager) addTargetProviders() {
-	for name, provider := range config.Config.Docker {
-		p, err := docker.New(pm.log, name, provider)
+	for name, provider := range pm.cfg.Docker {
+		p, err := docker.New(pm.log, name, provider, pm.cfg.ProxyAccessLog)
 		if err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Docker provider")
 			continue
@@ -361,7 +363,7 @@ func (pm *ProxyManager) addTargetProviders() {
 
 		pm.addTargetProvider(p, name)
 	}
-	for name, file := range config.Config.Lists {
+	for name, file := range pm.cfg.Lists {
 		p, err := list.New(pm.log, name, file)
 		if err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Files provider")
@@ -376,8 +378,8 @@ func (pm *ProxyManager) addTargetProviders() {
 func (pm *ProxyManager) addProxyProviders() {
 	pm.log.Debug().Msg("Setting up Tailscale Providers")
 	// add Tailscale Providers
-	for name, provider := range config.Config.Tailscale.Providers {
-		if p, err := tsproxy.New(pm.log, name, provider); err != nil {
+	for name, provider := range pm.cfg.Tailscale.Providers {
+		if p, err := tsproxy.New(pm.log, name, provider, pm.cfg.Tailscale.DataDir); err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Tailscale provider")
 		} else {
 			pm.log.Debug().Str("provider", name).Msg("Created Proxy provider")
@@ -388,7 +390,7 @@ func (pm *ProxyManager) addProxyProviders() {
 
 func (pm *ProxyManager) addDNSProviders() {
 	pm.DNSProviders = make(DNSProviderList)
-	for name, cfg := range config.Config.DNSProviders {
+	for name, cfg := range pm.cfg.DNSProviders {
 		if cfg == nil {
 			continue
 		}
@@ -411,7 +413,7 @@ func (pm *ProxyManager) addDNSProviders() {
 
 func (pm *ProxyManager) addTLSProviders() {
 	pm.TLSProviders = make(TLSProviderList)
-	for name, cfg := range config.Config.TLSProviders {
+	for name, cfg := range pm.cfg.TLSProviders {
 		if cfg == nil {
 			continue
 		}
@@ -431,7 +433,7 @@ func (pm *ProxyManager) addTLSProviders() {
 				CA:          cfg.CA,
 				DNSProvider: dnsProv,
 				CertStorage: cfg.CertStorage,
-				DataDir:     config.Config.Tailscale.DataDir,
+				DataDir:     pm.cfg.Tailscale.DataDir,
 			})
 			if err != nil {
 				pm.log.Error().Err(err).Str("provider", name).Msg("Failed to create ACME TLS provider")
@@ -446,10 +448,10 @@ func (pm *ProxyManager) addTLSProviders() {
 }
 
 func (pm *ProxyManager) resolveDNSProviderForACMELocked() (certmagic.DNSProvider, error) {
-	if config.Config.DefaultDNSProvider != "" {
-		p, ok := pm.DNSProviders[config.Config.DefaultDNSProvider]
+	if pm.cfg.DefaultDNSProvider != "" {
+		p, ok := pm.DNSProviders[pm.cfg.DefaultDNSProvider]
 		if !ok {
-			return nil, fmt.Errorf("default dns provider %q not found", config.Config.DefaultDNSProvider)
+			return nil, fmt.Errorf("default dns provider %q not found", pm.cfg.DefaultDNSProvider)
 		}
 		cf, ok := p.(certmagic.DNSProvider)
 		if !ok {
@@ -483,10 +485,10 @@ func (pm *ProxyManager) resolveDNSProviderLocked(proxyCfg *model.Config) (dnspro
 		}
 		return p, nil
 	}
-	if config.Config.DefaultDNSProvider != "" {
-		p, ok := pm.DNSProviders[config.Config.DefaultDNSProvider]
+	if pm.cfg.DefaultDNSProvider != "" {
+		p, ok := pm.DNSProviders[pm.cfg.DefaultDNSProvider]
 		if !ok {
-			return nil, fmt.Errorf("default dns provider %q not found", config.Config.DefaultDNSProvider)
+			return nil, fmt.Errorf("default dns provider %q not found", pm.cfg.DefaultDNSProvider)
 		}
 		return p, nil
 	}
@@ -503,7 +505,7 @@ func (pm *ProxyManager) resolveTLSProvider(proxyCfg *model.Config) (tlsproviders
 func (pm *ProxyManager) resolveTLSProviderLocked(proxyCfg *model.Config) (tlsproviders.Provider, error) {
 	name := proxyCfg.TLSProvider
 	if name == "" {
-		name = config.Config.DefaultTLSProvider
+		name = pm.cfg.DefaultTLSProvider
 	}
 	if name == "" {
 		return nil, ErrNoTLSProvider
@@ -513,7 +515,7 @@ func (pm *ProxyManager) resolveTLSProviderLocked(proxyCfg *model.Config) (tlspro
 		return tailscaletls.New(nil, 0), nil
 	}
 
-	if cfg, ok := config.Config.TLSProviders[name]; ok && cfg.Provider == model.TLSProviderTailscale {
+	if cfg, ok := pm.cfg.TLSProviders[name]; ok && cfg.Provider == model.TLSProviderTailscale {
 		return tailscaletls.New(nil, 0), nil
 	}
 
@@ -536,9 +538,9 @@ func (pm *ProxyManager) resolveAndSetProviders(p *Proxy, proxyConfig *model.Conf
 	// dnsProvider should still get a per-proxy ACME instance.
 	tlsName := proxyConfig.TLSProvider
 	if tlsName == "" {
-		tlsName = config.Config.DefaultTLSProvider
+		tlsName = pm.cfg.DefaultTLSProvider
 	}
-	if tlsCfg, ok := config.Config.TLSProviders[tlsName]; ok && tlsCfg.Provider == model.TLSProviderACME {
+	if tlsCfg, ok := pm.cfg.TLSProviders[tlsName]; ok && tlsCfg.Provider == model.TLSProviderACME {
 		certmagicDNS, ok := dnsProvider.(certmagic.DNSProvider)
 		if !ok {
 			return fmt.Errorf("dns provider %q does not support ACME DNS-01 challenges", dnsProvider.Name())
@@ -548,7 +550,7 @@ func (pm *ProxyManager) resolveAndSetProviders(p *Proxy, proxyConfig *model.Conf
 			CA:          tlsCfg.CA,
 			DNSProvider: certmagicDNS,
 			CertStorage: tlsCfg.CertStorage,
-			DataDir:     config.Config.Tailscale.DataDir,
+			DataDir:     pm.cfg.Tailscale.DataDir,
 		})
 		if acmeErr != nil {
 			return fmt.Errorf("failed to create per-proxy ACME TLS provider: %w", acmeErr)
@@ -621,7 +623,7 @@ func (pm *ProxyManager) configureTailscaleTLS(p *Proxy, tlsProvider tlsproviders
 	if proxyConfig.ProxyProvider == "" {
 		return nil
 	}
-	if tsCfg := config.Config.Tailscale.Providers[proxyConfig.ProxyProvider]; tsCfg != nil {
+	if tsCfg := pm.cfg.Tailscale.Providers[proxyConfig.ProxyProvider]; tsCfg != nil {
 		tsTLS.SetMaxConcurrency(tsCfg.MaxCertConcurrency)
 	}
 	return nil
@@ -845,7 +847,7 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	// server must be fully stopped before those filesystem operations run.
 	pm.closeAndRemoveProxy(proxyConfig.Hostname, proxyConfig.ProxyProvider)
 
-	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics)
+	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics, pm.cfg.Telemetry.Enabled, pm.cfg.HTTP.Port)
 	if err != nil {
 		return fmt.Errorf("error creating proxy: %w", err)
 	}
@@ -869,8 +871,8 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 			proxyConfig.Domain,
 			proxyConfig.DNSProvider,
 			proxyConfig.TLSProvider,
-			config.Config.DefaultDNSProvider,
-			config.Config.DefaultTLSProvider,
+			pm.cfg.DefaultDNSProvider,
+			pm.cfg.DefaultTLSProvider,
 		); err != nil {
 			pm.log.Error().Err(err).Str("proxy", name).
 				Msg("invalid domain configuration, proxy starting without custom domain")
@@ -940,7 +942,7 @@ func (pm *ProxyManager) getProxyProvider(proxy *model.Config) (proxyproviders.Pr
 		return p, nil
 	}
 
-	if p, ok := pm.ProxyProviders[strings.ToLower(config.Config.DefaultProxyProvider)]; ok {
+	if p, ok := pm.ProxyProviders[strings.ToLower(pm.cfg.DefaultProxyProvider)]; ok {
 		return p, nil
 	}
 

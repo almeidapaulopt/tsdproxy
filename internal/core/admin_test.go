@@ -19,13 +19,6 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
-func saveConfig(t *testing.T) {
-	t.Helper()
-	origConfig := config.Config
-	t.Cleanup(func() { config.Config = origConfig })
-	config.SetTestConfig(t.TempDir(), "")
-}
-
 func saveProxyAuthToken(t *testing.T) {
 	t.Helper()
 	origToken := proxyAuthToken
@@ -89,8 +82,6 @@ func TestExtractBearerToken(t *testing.T) {
 }
 
 func TestValidAPIKey(t *testing.T) {
-	saveConfig(t)
-
 	tests := []struct {
 		name       string
 		apiKey     string
@@ -108,13 +99,13 @@ func TestValidAPIKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			saveConfig(t)
-			config.Config.APIKey = secretstring.SecretString(tt.apiKey)
+			cfg := config.NewTestData(t.TempDir(), "")
+			cfg.APIKey = secretstring.SecretString(tt.apiKey)
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			if tt.authHeader != "" {
 				req.Header.Set("Authorization", tt.authHeader)
 			}
-			if got := ValidAPIKey(req); got != tt.want {
+			if got := ValidAPIKey(req, cfg); got != tt.want {
 				t.Errorf("ValidAPIKey() = %v, want %v", got, tt.want)
 			}
 		})
@@ -122,8 +113,6 @@ func TestValidAPIKey(t *testing.T) {
 }
 
 func TestUserIDIsAdmin(t *testing.T) {
-	saveConfig(t)
-
 	tests := []struct {
 		name                string
 		id                  string
@@ -142,10 +131,10 @@ func TestUserIDIsAdmin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			saveConfig(t)
-			config.Config.Admins = tt.admins
-			config.Config.AdminAllowLocalhost = tt.adminAllowLocalhost
-			if got := UserIDIsAdmin(tt.id); got != tt.want {
+			cfg := config.NewTestData(t.TempDir(), "")
+			cfg.Admins = tt.admins
+			cfg.AdminAllowLocalhost = tt.adminAllowLocalhost
+			if got := UserIDIsAdmin(tt.id, cfg); got != tt.want {
 				t.Errorf("UserIDIsAdmin(%q) = %v, want %v", tt.id, got, tt.want)
 			}
 		})
@@ -153,8 +142,6 @@ func TestUserIDIsAdmin(t *testing.T) {
 }
 
 func TestIsAdmin(t *testing.T) {
-	saveConfig(t)
-
 	tests := []struct {
 		name                string
 		apiKey              string
@@ -179,10 +166,10 @@ func TestIsAdmin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			saveConfig(t)
-			config.Config.Admins = tt.admins
-			config.Config.AdminAllowLocalhost = tt.adminAllowLocalhost
-			config.Config.APIKey = secretstring.SecretString(tt.apiKey)
+			cfg := config.NewTestData(t.TempDir(), "")
+			cfg.Admins = tt.admins
+			cfg.AdminAllowLocalhost = tt.adminAllowLocalhost
+			cfg.APIKey = secretstring.SecretString(tt.apiKey)
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			if tt.requestAPIKey != "" {
@@ -196,7 +183,7 @@ func TestIsAdmin(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			if got := IsAdmin(req); got != tt.want {
+			if got := IsAdmin(req, cfg); got != tt.want {
 				t.Errorf("IsAdmin() = %v, want %v", got, tt.want)
 			}
 		})
@@ -204,8 +191,6 @@ func TestIsAdmin(t *testing.T) {
 }
 
 func TestAdminMiddleware(t *testing.T) {
-	saveConfig(t)
-
 	tests := []struct {
 		name                string
 		apiKey              string
@@ -258,10 +243,10 @@ func TestAdminMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			saveConfig(t)
-			config.Config.Admins = tt.admins
-			config.Config.AdminAllowLocalhost = tt.adminAllowLocalhost
-			config.Config.APIKey = secretstring.SecretString(tt.apiKey)
+			cfg := config.NewTestData(t.TempDir(), "")
+			cfg.Admins = tt.admins
+			cfg.AdminAllowLocalhost = tt.adminAllowLocalhost
+			cfg.APIKey = secretstring.SecretString(tt.apiKey)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -276,7 +261,7 @@ func TestAdminMiddleware(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			handler := AdminMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := AdminMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			handler.ServeHTTP(rec, req)
@@ -289,8 +274,6 @@ func TestAdminMiddleware(t *testing.T) {
 }
 
 func TestViewerMiddleware(t *testing.T) {
-	saveConfig(t)
-
 	tests := []struct {
 		name                string
 		apiKey              string
@@ -310,9 +293,9 @@ func TestViewerMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			saveConfig(t)
-			config.Config.AdminAllowLocalhost = tt.adminAllowLocalhost
-			config.Config.APIKey = secretstring.SecretString(tt.apiKey)
+			cfg := config.NewTestData(t.TempDir(), "")
+			cfg.AdminAllowLocalhost = tt.adminAllowLocalhost
+			cfg.APIKey = secretstring.SecretString(tt.apiKey)
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -327,7 +310,7 @@ func TestViewerMiddleware(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			handler := ViewerMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := ViewerMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			handler.ServeHTTP(rec, req)

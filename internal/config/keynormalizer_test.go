@@ -18,7 +18,8 @@ func silentLogger() zerolog.Logger {
 }
 
 func TestBuildKeyLookup_FindsAllYamlTags(t *testing.T) {
-	lookup := buildKeyLookup(&config{})
+	t.Parallel()
+	lookup := buildKeyLookup(&Data{})
 
 	want := []string{
 		"clientId",
@@ -124,7 +125,7 @@ func TestNormalize_CaseInsensitive(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &config{}
+			cfg := &Data{}
 			cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 			cfg.Docker = make(map[string]*DockerTargetProviderConfig)
 			cfg.Lists = make(map[string]*ListTargetProviderConfig)
@@ -145,7 +146,7 @@ func TestNormalize_CaseInsensitive(t *testing.T) {
 
 func TestNormalize_FuzzySuggestion(t *testing.T) {
 	yamlIn := "tailscale:\n  providers:\n    default:\n      clientdi: transpose-typo\n"
-	cfg := &config{}
+	cfg := &Data{}
 	err := unmarshalNormalized([]byte(yamlIn), cfg)
 	require.Error(t, err)
 	msg := err.Error()
@@ -158,7 +159,7 @@ func TestNormalize_FuzzySuggestion(t *testing.T) {
 
 func TestNormalize_RejectsTrulyUnknown(t *testing.T) {
 	yamlIn := "tailscale:\n  providers:\n    default:\n      totallyMadeUp: 42\n"
-	cfg := &config{}
+	cfg := &Data{}
 	err := unmarshalNormalized([]byte(yamlIn), cfg)
 	require.Error(t, err)
 	msg := err.Error()
@@ -169,7 +170,7 @@ func TestNormalize_RejectsTrulyUnknown(t *testing.T) {
 
 func TestNormalize_ReportedLineAndColumn(t *testing.T) {
 	yamlIn := "tailscale:\n  dataDir: /tmp\n  bogus: 1\n"
-	cfg := &config{}
+	cfg := &Data{}
 	err := unmarshalNormalized([]byte(yamlIn), cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "line 3")
@@ -191,7 +192,7 @@ func TestNormalize_PreservesValidConfig(t *testing.T) {
 		"log:",
 		"  level: info",
 	}, "\n")
-	cfg := &config{}
+	cfg := &Data{}
 	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
 	cfg.Lists = make(map[string]*ListTargetProviderConfig)
@@ -210,19 +211,20 @@ func TestNormalize_PreservesValidConfig(t *testing.T) {
 }
 
 func TestNormalize_EmptyDocument(t *testing.T) {
-	err := unmarshalNormalized([]byte(""), &config{})
+	t.Parallel()
+	err := unmarshalNormalized([]byte(""), &Data{})
 	assert.NoError(t, err)
 
-	err = unmarshalNormalized([]byte("\n\n"), &config{})
+	err = unmarshalNormalized([]byte("\n\n"), &Data{})
 	assert.NoError(t, err)
 
-	err = unmarshalNormalized(nil, &config{})
+	err = unmarshalNormalized(nil, &Data{})
 	assert.NoError(t, err)
 }
 
 func TestNormalize_MapAtRootSupportsUnknownInsideScope(t *testing.T) {
 	yamlIn := "dnsProviders:\n  cf:\n    provider: cloudflare\n    apiTken: wrong-spelling\n"
-	cfg := &config{}
+	cfg := &Data{}
 	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
 	cfg.Lists = make(map[string]*ListTargetProviderConfig)
@@ -237,7 +239,7 @@ func TestNormalize_MapAtRootSupportsUnknownInsideScope(t *testing.T) {
 
 func TestNormalize_DoesNotMutateValidCanonicalKeys(t *testing.T) {
 	yamlIn := "http:\n  hostname: 127.0.0.1\n  port: 9000\n"
-	cfg := &config{}
+	cfg := &Data{}
 	err := unmarshalNormalized([]byte(yamlIn), cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1", cfg.HTTP.Hostname)
@@ -246,7 +248,7 @@ func TestNormalize_DoesNotMutateValidCanonicalKeys(t *testing.T) {
 
 func TestNormalize_NodeKeyRewritesAreVisibleToDecode(t *testing.T) {
 	yamlIn := "log:\n  level: debug\n  JSON: true\n"
-	cfg := &config{}
+	cfg := &Data{}
 	err := unmarshalNormalized([]byte(yamlIn), cfg)
 	require.NoError(t, err)
 	assert.Equal(t, "debug", cfg.Log.Level)
@@ -258,7 +260,7 @@ func TestNormalizeNodeKeys_NilInputs(t *testing.T) {
 	assert.Nil(t, issues)
 
 	var root yaml.Node
-	lookup := buildKeyLookup(&config{})
+	lookup := buildKeyLookup(&Data{})
 	issues = normalizeNodeKeys(&root, lookup, silentLogger())
 	assert.Nil(t, issues, "zero-value node (Kind==0) should produce no issues")
 }

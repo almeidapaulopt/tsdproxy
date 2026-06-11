@@ -35,8 +35,8 @@ func writeFile(t *testing.T, name, content string) string {
 	return path
 }
 
-func newSecretsConfig() *config {
-	return &config{
+func newSecretsConfig() *Data {
+	return &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -409,34 +409,6 @@ func TestLoadSecretsFromFiles_EmptyAPIKeyReturnsError(t *testing.T) {
 
 	if err := c.loadSecretsFromFiles(); err == nil {
 		t.Fatal("expected error for empty API key file")
-	}
-}
-
-func TestClearSecrets_WipesAPIKeyAndDNSTokens(t *testing.T) {
-	t.Parallel()
-
-	c := newSecretsConfig()
-	c.APIKey = "should-be-wiped"
-	c.DNSProviders = map[string]*DNSProviderConfig{
-		"cf": {Provider: "cloudflare", APIToken: "should-be-wiped"},
-	}
-	c.Tailscale.Providers["default"].AuthKey = "preserved-authkey"
-	c.Tailscale.Providers["default"].ClientSecret = "preserved-secret"
-	c.Tailscale.Providers["default"].ClientID = "preserved-id"
-
-	c.ClearSecrets()
-
-	if c.APIKey.Value() != "" {
-		t.Errorf("APIKey should be empty after ClearSecrets, got %q", c.APIKey.Value())
-	}
-	if c.DNSProviders["cf"].APIToken.Value() != "" {
-		t.Errorf("APIToken should be empty after ClearSecrets, got %q", c.DNSProviders["cf"].APIToken.Value())
-	}
-	if c.Tailscale.Providers["default"].AuthKey.Value() != "preserved-authkey" {
-		t.Errorf("AuthKey should survive ClearSecrets, got %q", c.Tailscale.Providers["default"].AuthKey.Value())
-	}
-	if c.Tailscale.Providers["default"].ClientSecret.Value() != "preserved-secret" {
-		t.Errorf("ClientSecret should survive ClearSecrets, got %q", c.Tailscale.Providers["default"].ClientSecret.Value())
 	}
 }
 

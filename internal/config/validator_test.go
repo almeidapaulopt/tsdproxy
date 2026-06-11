@@ -48,7 +48,8 @@ func TestDomainProviderError(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ServicesRequiresHostname(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": {
@@ -65,7 +66,8 @@ func TestValidateProxyProviders_ServicesRequiresHostname(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ServicesRequiresClientID(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": {
@@ -83,7 +85,8 @@ func TestValidateProxyProviders_ServicesRequiresClientID(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ServicesRequiresClientSecret(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": {
@@ -103,7 +106,8 @@ func TestValidateProxyProviders_ServicesRequiresClientSecret(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ServicesAcceptsClientSecretFile(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": { //nolint:gosec // G101: test fixtures, not real credentials
@@ -123,7 +127,8 @@ func TestValidateProxyProviders_ServicesAcceptsClientSecretFile(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ServiceModeWithoutTagsIsValid(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": {
@@ -143,7 +148,8 @@ func TestValidateProxyProviders_ServiceModeWithoutTagsIsValid(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ServicesAndSharedMutualExclusion(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"conflict": {
@@ -161,7 +167,8 @@ func TestValidateProxyProviders_ServicesAndSharedMutualExclusion(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ServicesValid(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": {
@@ -184,7 +191,8 @@ func TestValidateProxyProviders_ServicesValid(t *testing.T) {
 // Services mode already requires clientId+clientSecret, so the autoApproveDevices
 // OAuth check is defense-in-depth. Test that valid services+OAuth+autoApproveDevices passes.
 func TestValidateProxyProviders_AutoApproveDevicesValidWithOAuth(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": {
@@ -206,7 +214,8 @@ func TestValidateProxyProviders_AutoApproveDevicesValidWithOAuth(t *testing.T) {
 
 // Same defense-in-depth rationale as autoApproveDevices.
 func TestValidateProxyProviders_AutoRemoveConflictsValidWithOAuth(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"svc": {
@@ -227,7 +236,8 @@ func TestValidateProxyProviders_AutoRemoveConflictsValidWithOAuth(t *testing.T) 
 // --- reconcileInterval: error without OAuth or preventDuplicates ---
 
 func TestValidateProxyProviders_ReconcileIntervalRequiresOAuthOrPreventDuplicates(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -242,7 +252,8 @@ func TestValidateProxyProviders_ReconcileIntervalRequiresOAuthOrPreventDuplicate
 }
 
 func TestValidateProxyProviders_ReconcileIntervalValidWithOAuth(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -258,7 +269,8 @@ func TestValidateProxyProviders_ReconcileIntervalValidWithOAuth(t *testing.T) {
 }
 
 func TestValidateProxyProviders_ReconcileIntervalValidWithPreventDuplicates(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -275,7 +287,8 @@ func TestValidateProxyProviders_ReconcileIntervalValidWithPreventDuplicates(t *t
 // --- authKey + OAuth both set: warning only ---
 
 func TestValidateProxyProviders_AuthKeyAndOAuthBothSetIsWarning(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -294,7 +307,8 @@ func TestValidateProxyProviders_AuthKeyAndOAuthBothSetIsWarning(t *testing.T) {
 // --- autoApproveDevices/autoRemoveConflicts outside services mode: warning only ---
 
 func TestValidateProxyProviders_AutoApproveDevicesOutsideServicesIsWarning(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -309,7 +323,8 @@ func TestValidateProxyProviders_AutoApproveDevicesOutsideServicesIsWarning(t *te
 }
 
 func TestValidateProxyProviders_AutoRemoveConflictsOutsideServicesIsWarning(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -326,7 +341,8 @@ func TestValidateProxyProviders_AutoRemoveConflictsOutsideServicesIsWarning(t *t
 // --- reconcileInterval without preventDuplicates: warning only ---
 
 func TestValidateProxyProviders_ReconcileIntervalWithoutPreventDuplicatesIsWarning(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {
@@ -408,7 +424,8 @@ func TestDefaultProxyProviderNotFoundError(t *testing.T) {
 // --- hasProxyProvider ---
 
 func TestHasProxyProvider_Exists(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {},
@@ -419,7 +436,8 @@ func TestHasProxyProvider_Exists(t *testing.T) {
 }
 
 func TestHasProxyProvider_CaseInsensitive(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"MyProvider": {},
@@ -432,7 +450,8 @@ func TestHasProxyProvider_CaseInsensitive(t *testing.T) {
 }
 
 func TestHasProxyProvider_NotFound(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {},
@@ -443,7 +462,8 @@ func TestHasProxyProvider_NotFound(t *testing.T) {
 }
 
 func TestHasProxyProvider_EmptyProviders(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{},
 		},
@@ -454,7 +474,8 @@ func TestHasProxyProvider_EmptyProviders(t *testing.T) {
 // --- getDefaultProxyProvider ---
 
 func TestGetDefaultProxyProvider_SingleProvider(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"default": {},
@@ -467,7 +488,8 @@ func TestGetDefaultProxyProvider_SingleProvider(t *testing.T) {
 }
 
 func TestGetDefaultProxyProvider_ReturnsFirstProvider(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
 				"alpha":   {},
@@ -483,7 +505,8 @@ func TestGetDefaultProxyProvider_ReturnsFirstProvider(t *testing.T) {
 }
 
 func TestGetDefaultProxyProvider_NoProviders(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{},
 		},
@@ -495,7 +518,8 @@ func TestGetDefaultProxyProvider_NoProviders(t *testing.T) {
 // --- addDefaultProxyProviderToDockerProviders ---
 
 func TestAddDefaultProxyProviderToDockerProviders_SetsDefault(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DefaultProxyProvider: "default-ts",
 		Docker: map[string]*DockerTargetProviderConfig{
 			"docker1": {},
@@ -509,7 +533,8 @@ func TestAddDefaultProxyProviderToDockerProviders_SetsDefault(t *testing.T) {
 }
 
 func TestAddDefaultProxyProviderToDockerProviders_PreservesExisting(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DefaultProxyProvider: "default-ts",
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
@@ -530,7 +555,8 @@ func TestAddDefaultProxyProviderToDockerProviders_PreservesExisting(t *testing.T
 }
 
 func TestAddDefaultProxyProviderToDockerProviders_UnknownProviderReturnsError(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DefaultProxyProvider: "default-ts",
 		Tailscale: TailscaleProxyProviderConfig{
 			Providers: map[string]*TailscaleServerConfig{
@@ -547,7 +573,8 @@ func TestAddDefaultProxyProviderToDockerProviders_UnknownProviderReturnsError(t 
 }
 
 func TestAddDefaultProxyProviderToDockerProviders_NoDockerProviders(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DefaultProxyProvider: "default-ts",
 		Docker:               map[string]*DockerTargetProviderConfig{},
 	}
@@ -558,7 +585,8 @@ func TestAddDefaultProxyProviderToDockerProviders_NoDockerProviders(t *testing.T
 // --- validateDNSProviders ---
 
 func TestValidateDNSProviders_ValidCloudflare(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DNSProviders: map[string]*DNSProviderConfig{
 			"cf": {Provider: "cloudflare", APIToken: "test-token"},
 		},
@@ -568,7 +596,8 @@ func TestValidateDNSProviders_ValidCloudflare(t *testing.T) {
 }
 
 func TestValidateDNSProviders_ValidMagicDNS(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DNSProviders: map[string]*DNSProviderConfig{
 			"mdns": {Provider: "magicdns"},
 		},
@@ -578,7 +607,8 @@ func TestValidateDNSProviders_ValidMagicDNS(t *testing.T) {
 }
 
 func TestValidateDNSProviders_CloudflareMissingToken(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DNSProviders: map[string]*DNSProviderConfig{
 			"cf": {Provider: "cloudflare"},
 		},
@@ -589,7 +619,8 @@ func TestValidateDNSProviders_CloudflareMissingToken(t *testing.T) {
 }
 
 func TestValidateDNSProviders_UnknownProvider(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DNSProviders: map[string]*DNSProviderConfig{
 			"custom": {Provider: "route53"},
 		},
@@ -600,7 +631,8 @@ func TestValidateDNSProviders_UnknownProvider(t *testing.T) {
 }
 
 func TestValidateDNSProviders_DefaultNotFound(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DefaultDNSProvider: "nonexistent",
 		DNSProviders: map[string]*DNSProviderConfig{
 			"cf": {Provider: "cloudflare", APIToken: "token"},
@@ -612,7 +644,8 @@ func TestValidateDNSProviders_DefaultNotFound(t *testing.T) {
 }
 
 func TestValidateDNSProviders_NilConfig(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DNSProviders: map[string]*DNSProviderConfig{
 			"nil-provider": nil,
 		},
@@ -624,7 +657,8 @@ func TestValidateDNSProviders_NilConfig(t *testing.T) {
 // --- validateTLSProviders ---
 
 func TestValidateTLSProviders_ValidTailscale(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		TLSProviders: map[string]*TLSProviderConfig{
 			"ts": {Provider: "tailscale"},
 		},
@@ -634,7 +668,8 @@ func TestValidateTLSProviders_ValidTailscale(t *testing.T) {
 }
 
 func TestValidateTLSProviders_ACMEWithoutEmail(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		TLSProviders: map[string]*TLSProviderConfig{
 			"acme": {Provider: "acme"},
 		},
@@ -645,7 +680,8 @@ func TestValidateTLSProviders_ACMEWithoutEmail(t *testing.T) {
 }
 
 func TestValidateTLSProviders_ACMEWithEmail(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DefaultDNSProvider: "cf",
 		DNSProviders: map[string]*DNSProviderConfig{
 			"cf": {Provider: "cloudflare", APIToken: "token"},
@@ -659,7 +695,8 @@ func TestValidateTLSProviders_ACMEWithEmail(t *testing.T) {
 }
 
 func TestValidateTLSProviders_ACMEWithoutDNSProvider(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		TLSProviders: map[string]*TLSProviderConfig{
 			"acme": {Provider: "acme", Email: "admin@example.com"},
 		},
@@ -670,7 +707,8 @@ func TestValidateTLSProviders_ACMEWithoutDNSProvider(t *testing.T) {
 }
 
 func TestValidateTLSProviders_ACMEWithCloudflareNoDefault(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DNSProviders: map[string]*DNSProviderConfig{
 			"cf": {Provider: "cloudflare", APIToken: "token"},
 		},
@@ -683,7 +721,8 @@ func TestValidateTLSProviders_ACMEWithCloudflareNoDefault(t *testing.T) {
 }
 
 func TestValidateTLSProviders_UnknownProvider(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		TLSProviders: map[string]*TLSProviderConfig{
 			"custom": {Provider: "zerossl"},
 		},
@@ -694,7 +733,8 @@ func TestValidateTLSProviders_UnknownProvider(t *testing.T) {
 }
 
 func TestValidateTLSProviders_DefaultNotFound(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		DefaultTLSProvider: "nonexistent",
 		TLSProviders: map[string]*TLSProviderConfig{
 			"ts": {Provider: "tailscale"},
@@ -706,7 +746,8 @@ func TestValidateTLSProviders_DefaultNotFound(t *testing.T) {
 }
 
 func TestValidateTLSProviders_NilConfig(t *testing.T) {
-	c := &config{
+	t.Parallel()
+	c := &Data{
 		TLSProviders: map[string]*TLSProviderConfig{
 			"nil-provider": nil,
 		},

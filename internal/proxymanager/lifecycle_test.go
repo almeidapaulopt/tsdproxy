@@ -18,8 +18,7 @@ import (
 // -- NewProxyManager -----------------------------------------------------------
 
 func TestNewProxyManager(t *testing.T) {
-	setupTestConfig(t)
-	pm := NewProxyManager(zerolog.Nop())
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig())
 
 	if pm.Proxies == nil {
 		t.Fatal("expected Proxies map to be initialized")
@@ -48,7 +47,7 @@ func TestNewProxyManager(t *testing.T) {
 
 func TestGetProxies_Empty(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	proxies := pm.GetProxies()
 	if len(proxies) != 0 {
 		t.Fatalf("expected 0 proxies, got %d", len(proxies))
@@ -57,7 +56,7 @@ func TestGetProxies_Empty(t *testing.T) {
 
 func TestGetProxies_ReturnsClone(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.Proxies["test"] = &Proxy{}
 
 	proxies := pm.GetProxies()
@@ -73,7 +72,7 @@ func TestGetProxies_ReturnsClone(t *testing.T) {
 
 func TestGetProxy_Found(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	p := &Proxy{Config: &model.Config{Hostname: "test"}}
 	pm.Proxies["test"] = p
 
@@ -88,7 +87,7 @@ func TestGetProxy_Found(t *testing.T) {
 
 func TestGetProxy_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	_, ok := pm.GetProxy("nonexistent")
 	if ok {
 		t.Fatal("expected proxy not found")
@@ -99,7 +98,7 @@ func TestGetProxy_NotFound(t *testing.T) {
 
 func TestSubscribeStatusEvents_DeliversEvent(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	ch, cancel := pm.SubscribeStatusEvents()
 	defer cancel()
 
@@ -118,7 +117,7 @@ func TestSubscribeStatusEvents_DeliversEvent(t *testing.T) {
 
 func TestSubscribeStatusEvents_MultipleSubscribers(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	ch1, cancel1 := pm.SubscribeStatusEvents()
 	defer cancel1()
 	ch2, cancel2 := pm.SubscribeStatusEvents()
@@ -141,7 +140,7 @@ func TestSubscribeStatusEvents_MultipleSubscribers(t *testing.T) {
 
 func TestSubscribeStatusEvents_CancelStopsDelivery(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	ch, cancel := pm.SubscribeStatusEvents()
 	cancel()
 
@@ -159,7 +158,7 @@ func TestSubscribeStatusEvents_CancelStopsDelivery(t *testing.T) {
 
 func TestSubscribeStatusEvents_DropOnFullBuffer(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	ch, cancel := pm.SubscribeStatusEvents()
 	defer cancel()
 
@@ -185,7 +184,7 @@ func TestSubscribeStatusEvents_DropOnFullBuffer(t *testing.T) {
 
 func TestPauseProxy_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	err := pm.PauseProxy("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent proxy")
@@ -194,7 +193,7 @@ func TestPauseProxy_NotFound(t *testing.T) {
 
 func TestResumeProxy_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	err := pm.ResumeProxy("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent proxy")
@@ -203,7 +202,7 @@ func TestResumeProxy_NotFound(t *testing.T) {
 
 func TestRestartProxy_NotFound(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	err := pm.RestartProxy("nonexistent")
 	if err == nil {
 		t.Fatal("expected error for nonexistent proxy")
@@ -214,7 +213,7 @@ func TestRestartProxy_NotFound(t *testing.T) {
 
 func TestGetTargetLock_SameIDReturnsSameMutex(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	mu1 := pm.getTargetLock("target1")
 	mu2 := pm.getTargetLock("target1")
 	if mu1 != mu2 {
@@ -224,7 +223,7 @@ func TestGetTargetLock_SameIDReturnsSameMutex(t *testing.T) {
 
 func TestGetTargetLock_DifferentIDsReturnDifferentMutexes(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	mu1 := pm.getTargetLock("target1")
 	mu2 := pm.getTargetLock("target2")
 	if mu1 == mu2 {
@@ -234,14 +233,14 @@ func TestGetTargetLock_DifferentIDsReturnDifferentMutexes(t *testing.T) {
 
 // -- removeProxy --------------------------------------------------------------
 
-func TestRemoveProxy_NotFound(_ *testing.T) {
-	pm := newTestProxyManager()
+func TestRemoveProxy_NotFound(t *testing.T) {
+	pm := newTestProxyManager(newTestConfig(t))
 	pm.removeProxy("nonexistent")
 }
 
 func TestRemoveProxy_RemovesExistingProxy(t *testing.T) {
 	t.Parallel()
-	pm := newTestProxyManager()
+	pm := newTestProxyManager(newTestConfig(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	pm.Proxies["test"] = &Proxy{
 		log:           zerolog.Nop(),
@@ -271,10 +270,7 @@ func TestNewProxyManager_Start(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	setupTestConfig(t)
-	config.Config.Webhooks = nil
-
-	pm := NewProxyManager(zerolog.Nop())
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig())
 	pm.Start()
 }
 
@@ -289,8 +285,7 @@ func TestMetricsHandler(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	setupTestConfig(t)
-	pm := NewProxyManager(zerolog.Nop())
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestProvider().GetConfig())
 
 	h := pm.MetricsHandler()
 	if h == nil {

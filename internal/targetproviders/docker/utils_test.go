@@ -11,7 +11,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
@@ -282,8 +281,6 @@ func TestApplyPortOptions(t *testing.T) {
 }
 
 func TestNewProxyConfig_Minimal(t *testing.T) {
-	config.SetTestConfig(t.TempDir(), "")
-
 	c := &container{
 		log:                   zerolog.Nop(),
 		id:                    "test-id-123",
@@ -320,8 +317,6 @@ func TestNewProxyConfig_Minimal(t *testing.T) {
 }
 
 func TestNewProxyConfig_InvalidHostname(t *testing.T) {
-	config.SetTestConfig(t.TempDir(), "")
-
 	c := &container{
 		log:                   zerolog.Nop(),
 		id:                    "test-id",

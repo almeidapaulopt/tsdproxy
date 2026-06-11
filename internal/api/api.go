@@ -21,18 +21,20 @@ type API struct {
 	HTTP *core.HTTPServer
 	PM   *proxymanager.ProxyManager
 	Log  zerolog.Logger
+	Cfg  *config.Data
 }
 
-func New(http *core.HTTPServer, pm *proxymanager.ProxyManager, log zerolog.Logger) *API {
+func New(http *core.HTTPServer, pm *proxymanager.ProxyManager, log zerolog.Logger, cfg *config.Data) *API {
 	return &API{
 		HTTP: http,
 		PM:   pm,
 		Log:  log.With().Str("module", "api").Logger(),
+		Cfg:  cfg,
 	}
 }
 
 func (a *API) AddRoutes() {
-	authMW := core.AdminMiddleware()
+	authMW := core.AdminMiddleware(a.Cfg)
 
 	a.HTTP.Get("/api/v1/proxies", authMW(a.listProxiesHandler()))
 	a.HTTP.Get("/api/v1/proxies/{name}", authMW(a.getProxyHandler()))
@@ -264,7 +266,7 @@ func (a *API) toAPIPorts(p *proxymanager.Proxy) []apiPort {
 
 func (a *API) testWebhookHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if len(config.Config.Webhooks) == 0 {
+		if len(a.Cfg.Webhooks) == 0 {
 			a.writeJSONError(w, "no webhooks configured", http.StatusBadRequest)
 			return
 		}
@@ -272,7 +274,7 @@ func (a *API) testWebhookHandler() http.HandlerFunc {
 		running := model.ProxyStatusRunning
 		stopped := model.ProxyStatusStopped
 
-		sender := webhook.NewSyncSender(a.Log, config.Config.Webhooks)
+		sender := webhook.NewSyncSender(a.Log, a.Cfg.Webhooks)
 		defer sender.Close()
 
 		if err := sender.SendSync(webhook.Event{

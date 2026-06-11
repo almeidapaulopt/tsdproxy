@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -19,15 +18,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
-
-func TestMain(m *testing.M) {
-	config.SetTestConfig(os.TempDir(), "tskey-test")
-	os.Exit(m.Run())
-}
 
 func newTestTCPConfig(t *testing.T, targetAddr string) model.PortConfig {
 	t.Helper()
@@ -292,6 +285,8 @@ func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
 		"test-port",
 		nil, // logBuffer
 		identityHeaders,
+		false,     // telemetryEnabled
+		uint16(0), // httpPort
 	)
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
@@ -341,18 +336,7 @@ func runPortProxyProtoTest(t *testing.T, proxyProtocol string) http.Header {
 
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(
-		context.Background(),
-		pconfig,
-		zerolog.Nop(),
-		false,
-		whoisFunc,
-		nil,
-		"test-proxy",
-		"test-port",
-		nil,
-		false,
-	)
+	p := newPortProxy(context.Background(), pconfig, zerolog.Nop(), false, whoisFunc, nil, "test-proxy", "test-port", nil, false, false, uint16(0))
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -468,6 +452,8 @@ func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
 		"test-port",
 		nil,
 		false, // opted out — strip block must still run
+		false, // telemetryEnabled
+		uint16(0),
 	)
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
@@ -523,18 +509,7 @@ func TestPortProxyStripsSpoofedXForwardedFor(t *testing.T) {
 
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(
-		context.Background(),
-		pconfig,
-		zerolog.Nop(),
-		false,
-		whoisFunc,
-		nil,
-		"test-proxy",
-		"test-port",
-		nil,
-		false,
-	)
+	p := newPortProxy(context.Background(), pconfig, zerolog.Nop(), false, whoisFunc, nil, "test-proxy", "test-port", nil, false, false, uint16(0))
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1006,30 +981,30 @@ func TestResolvePeerIP_LocalhostWithLoopbackXFF(t *testing.T) {
 }
 
 func TestIsManagementTarget_Nil(t *testing.T) {
-	if isManagementTarget(nil) {
+	if isManagementTarget(nil, uint16(8080)) {
 		t.Error("expected false for nil target")
 	}
 }
 
 func TestIsManagementTarget_NonLoopback(t *testing.T) {
 	u, _ := url.Parse("https://example.com:8080")
-	if isManagementTarget(u) {
+	if isManagementTarget(u, uint16(8080)) {
 		t.Error("expected false for non-loopback target")
 	}
 }
 
 func TestIsManagementTarget_LocalhostLoopback(t *testing.T) {
-	config.Config.HTTP.Port = 8080
+	t.Parallel()
 	u, _ := url.Parse("http://localhost:8080")
-	if !isManagementTarget(u) {
+	if !isManagementTarget(u, uint16(8080)) {
 		t.Error("expected true for localhost:8080 target")
 	}
 }
 
 func TestIsManagementTarget_WrongPort(t *testing.T) {
-	config.Config.HTTP.Port = 8080
+	t.Parallel()
 	u, _ := url.Parse("http://127.0.0.1:9090")
-	if isManagementTarget(u) {
+	if isManagementTarget(u, uint16(8080)) {
 		t.Error("expected false for wrong port")
 	}
 }
@@ -1085,7 +1060,7 @@ func TestNewPortProxy_Minimal(t *testing.T) {
 
 	p := newPortProxy(ctx, pconfig, zerolog.Nop(), false, func(next http.Handler) http.Handler {
 		return next
-	}, nil, "testproxy", "80", nil, false)
+	}, nil, "testproxy", "80", nil, false, false, uint16(0))
 	if p == nil {
 		t.Fatal("newPortProxy returned nil")
 	}
@@ -1114,17 +1089,12 @@ func TestHTTPProxy_ContextCanceled_SilentNo502(t *testing.T) {
 	}
 	pconfig.AddTarget(backendURL)
 
+	whoisFunc := func(next http.Handler) http.Handler { return next }
+
 	p := newPortProxy(
-		context.Background(),
-		pconfig,
-		zerolog.Nop(),
-		false,
-		func(next http.Handler) http.Handler { return next },
-		nil,
-		"test-proxy",
-		"test-port",
-		nil,
-		false,
+		context.Background(), pconfig, zerolog.Nop(), false,
+		whoisFunc, nil, "test-proxy", "test-port", nil, false,
+		false, uint16(0),
 	)
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
