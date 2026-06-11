@@ -4,10 +4,13 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/creasty/defaults"
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -135,6 +138,86 @@ func TestClearSecrets_PreservesProviderAuthKey(t *testing.T) {
 		"provider AuthKey must survive ClearSecrets; it is consumed lazily by tsproxy.New → ResolveAuthKey for each new proxy")
 	assert.Empty(t, c.APIKey, "APIKey is one-shot and must be cleared")
 	assert.Empty(t, c.DNSProviders["cf"].APIToken, "DNS APIToken is one-shot and must be cleared")
+}
+
+func TestLoadConfigFile_FileExists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yamlContent := "" +
+		"defaultProxyProvider: default\n" +
+		"dnsProviders:\n" +
+		"  cf:\n" +
+		"    provider: cloudflare\n" +
+		"    apiToken: test-token\n" +
+		"tailscale:\n" +
+		"  providers:\n" +
+		"    default:\n" +
+		"      controlUrl: https://controlplane.tailscale.com\n"
+	require.NoError(t, os.WriteFile(path, []byte(yamlContent), 0o600))
+
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: make(map[string]*TailscaleServerConfig),
+		},
+		Docker:       make(map[string]*DockerTargetProviderConfig),
+		Lists:        make(map[string]*ListTargetProviderConfig),
+		DNSProviders: make(map[string]*DNSProviderConfig),
+		TLSProviders: make(map[string]*TLSProviderConfig),
+	}
+	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
+	err := c.loadConfigFile(fileConfig, path)
+	assert.NoError(t, err)
+	assert.Equal(t, "default", c.DefaultProxyProvider)
+	assert.Equal(t, "cloudflare", c.DNSProviders["cf"].Provider)
+}
+
+func TestLoadConfigFile_FileNotExists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: make(map[string]*TailscaleServerConfig),
+		},
+		Docker:       make(map[string]*DockerTargetProviderConfig),
+		Lists:        make(map[string]*ListTargetProviderConfig),
+		DNSProviders: make(map[string]*DNSProviderConfig),
+		TLSProviders: make(map[string]*TLSProviderConfig),
+	}
+	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
+	err := c.loadConfigFile(fileConfig, path)
+	assert.NoError(t, err)
+
+	// Should have generated default config and saved to file
+	_, err = os.Stat(path)
+	assert.NoError(t, err, "default config file should have been created")
+
+	// Verify default providers were generated
+	_, hasDocker := c.Docker[DockerDefaultName]
+	assert.True(t, hasDocker, "default docker provider should have been generated")
+
+	_, hasTailscale := c.Tailscale.Providers[TailscaleDefaultProviderName]
+	assert.True(t, hasTailscale, "default tailscale provider should have been generated")
+}
+
+func TestLoadConfigFile_InvalidYAML(t *testing.T) {
+	// File exists but has invalid YAML → should propagate the error
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("invalid: [unclosed yaml"), 0o600))
+
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: make(map[string]*TailscaleServerConfig),
+		},
+		Docker:       make(map[string]*DockerTargetProviderConfig),
+		Lists:        make(map[string]*ListTargetProviderConfig),
+		DNSProviders: make(map[string]*DNSProviderConfig),
+		TLSProviders: make(map[string]*TLSProviderConfig),
+	}
+	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
+	err := c.loadConfigFile(fileConfig, path)
+	assert.Error(t, err, "should error with invalid YAML content")
 }
 
 // TestClearSecrets_PreservesClientSecret mirrors the regression covered by

@@ -396,3 +396,321 @@ func TestIsReconcileIntervalPositive_InvalidDuration(t *testing.T) {
 	p := &TailscaleServerConfig{ReconcileInterval: "not-a-duration"}
 	assert.False(t, isReconcileIntervalPositive(p))
 }
+
+// --- Error types ---
+
+func TestDefaultProxyProviderNotFoundError(t *testing.T) {
+	err := &DefaultProxyProviderNotFoundError{ProviderName: "my-provider"}
+	assert.Contains(t, err.Error(), "my-provider")
+	assert.Contains(t, err.Error(), "Default proxy provider")
+}
+
+// --- hasProxyProvider ---
+
+func TestHasProxyProvider_Exists(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"default": {},
+			},
+		},
+	}
+	assert.True(t, c.hasProxyProvider("default"))
+}
+
+func TestHasProxyProvider_CaseInsensitive(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"MyProvider": {},
+			},
+		},
+	}
+	assert.True(t, c.hasProxyProvider("myprovider"))
+	assert.True(t, c.hasProxyProvider("MYPROVIDER"))
+	assert.True(t, c.hasProxyProvider("MyProvider"))
+}
+
+func TestHasProxyProvider_NotFound(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"default": {},
+			},
+		},
+	}
+	assert.False(t, c.hasProxyProvider("nonexistent"))
+}
+
+func TestHasProxyProvider_EmptyProviders(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{},
+		},
+	}
+	assert.False(t, c.hasProxyProvider("default"))
+}
+
+// --- getDefaultProxyProvider ---
+
+func TestGetDefaultProxyProvider_SingleProvider(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"default": {},
+			},
+		},
+	}
+	name, err := c.getDefaultProxyProvider()
+	assert.NoError(t, err)
+	assert.Equal(t, "default", name)
+}
+
+func TestGetDefaultProxyProvider_ReturnsFirstProvider(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"alpha":   {},
+				"beta":    {},
+				"default": {},
+			},
+		},
+	}
+	name, err := c.getDefaultProxyProvider()
+	assert.NoError(t, err)
+	// Map iteration order is non-deterministic, but one of them must be returned.
+	assert.Contains(t, []string{"alpha", "beta", "default"}, name)
+}
+
+func TestGetDefaultProxyProvider_NoProviders(t *testing.T) {
+	c := &config{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{},
+		},
+	}
+	_, err := c.getDefaultProxyProvider()
+	assert.ErrorIs(t, err, ErrNoDefaultProxyProvider)
+}
+
+// --- addDefaultProxyProviderToDockerProviders ---
+
+func TestAddDefaultProxyProviderToDockerProviders_SetsDefault(t *testing.T) {
+	c := &config{
+		DefaultProxyProvider: "default-ts",
+		Docker: map[string]*DockerTargetProviderConfig{
+			"docker1": {},
+			"docker2": {},
+		},
+	}
+	err := c.addDefaultProxyProviderToDockerProviders()
+	assert.NoError(t, err)
+	assert.Equal(t, "default-ts", c.Docker["docker1"].DefaultProxyProvider)
+	assert.Equal(t, "default-ts", c.Docker["docker2"].DefaultProxyProvider)
+}
+
+func TestAddDefaultProxyProviderToDockerProviders_PreservesExisting(t *testing.T) {
+	c := &config{
+		DefaultProxyProvider: "default-ts",
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"default-ts": {},
+				"custom-ts":  {},
+			},
+		},
+		Docker: map[string]*DockerTargetProviderConfig{
+			"docker1": {DefaultProxyProvider: "custom-ts"},
+			"docker2": {},
+		},
+	}
+	err := c.addDefaultProxyProviderToDockerProviders()
+	assert.NoError(t, err)
+	assert.Equal(t, "custom-ts", c.Docker["docker1"].DefaultProxyProvider,
+		"existing provider should not be overwritten")
+	assert.Equal(t, "default-ts", c.Docker["docker2"].DefaultProxyProvider)
+}
+
+func TestAddDefaultProxyProviderToDockerProviders_UnknownProviderReturnsError(t *testing.T) {
+	c := &config{
+		DefaultProxyProvider: "default-ts",
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"default-ts": {},
+			},
+		},
+		Docker: map[string]*DockerTargetProviderConfig{
+			"docker1": {DefaultProxyProvider: "nonexistent-ts"},
+		},
+	}
+	err := c.addDefaultProxyProviderToDockerProviders()
+	assert.Error(t, err)
+	assert.IsType(t, &DefaultProxyProviderNotFoundError{}, err)
+}
+
+func TestAddDefaultProxyProviderToDockerProviders_NoDockerProviders(t *testing.T) {
+	c := &config{
+		DefaultProxyProvider: "default-ts",
+		Docker:               map[string]*DockerTargetProviderConfig{},
+	}
+	err := c.addDefaultProxyProviderToDockerProviders()
+	assert.NoError(t, err)
+}
+
+// --- validateDNSProviders ---
+
+func TestValidateDNSProviders_ValidCloudflare(t *testing.T) {
+	c := &config{
+		DNSProviders: map[string]*DNSProviderConfig{
+			"cf": {Provider: "cloudflare", APIToken: "test-token"},
+		},
+	}
+	err := c.validateDNSProviders()
+	assert.NoError(t, err)
+}
+
+func TestValidateDNSProviders_ValidMagicDNS(t *testing.T) {
+	c := &config{
+		DNSProviders: map[string]*DNSProviderConfig{
+			"mdns": {Provider: "magicdns"},
+		},
+	}
+	err := c.validateDNSProviders()
+	assert.NoError(t, err)
+}
+
+func TestValidateDNSProviders_CloudflareMissingToken(t *testing.T) {
+	c := &config{
+		DNSProviders: map[string]*DNSProviderConfig{
+			"cf": {Provider: "cloudflare"},
+		},
+	}
+	err := c.validateDNSProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "apiToken")
+}
+
+func TestValidateDNSProviders_UnknownProvider(t *testing.T) {
+	c := &config{
+		DNSProviders: map[string]*DNSProviderConfig{
+			"custom": {Provider: "route53"},
+		},
+	}
+	err := c.validateDNSProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown provider")
+}
+
+func TestValidateDNSProviders_DefaultNotFound(t *testing.T) {
+	c := &config{
+		DefaultDNSProvider: "nonexistent",
+		DNSProviders: map[string]*DNSProviderConfig{
+			"cf": {Provider: "cloudflare", APIToken: "token"},
+		},
+	}
+	err := c.validateDNSProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "defaultDNSProvider")
+}
+
+func TestValidateDNSProviders_NilConfig(t *testing.T) {
+	c := &config{
+		DNSProviders: map[string]*DNSProviderConfig{
+			"nil-provider": nil,
+		},
+	}
+	err := c.validateDNSProviders()
+	assert.NoError(t, err, "nil DNS provider config should be skipped")
+}
+
+// --- validateTLSProviders ---
+
+func TestValidateTLSProviders_ValidTailscale(t *testing.T) {
+	c := &config{
+		TLSProviders: map[string]*TLSProviderConfig{
+			"ts": {Provider: "tailscale"},
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.NoError(t, err)
+}
+
+func TestValidateTLSProviders_ACMEWithoutEmail(t *testing.T) {
+	c := &config{
+		TLSProviders: map[string]*TLSProviderConfig{
+			"acme": {Provider: "acme"},
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "email")
+}
+
+func TestValidateTLSProviders_ACMEWithEmail(t *testing.T) {
+	c := &config{
+		DefaultDNSProvider: "cf",
+		DNSProviders: map[string]*DNSProviderConfig{
+			"cf": {Provider: "cloudflare", APIToken: "token"},
+		},
+		TLSProviders: map[string]*TLSProviderConfig{
+			"acme": {Provider: "acme", Email: "admin@example.com"},
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.NoError(t, err)
+}
+
+func TestValidateTLSProviders_ACMEWithoutDNSProvider(t *testing.T) {
+	c := &config{
+		TLSProviders: map[string]*TLSProviderConfig{
+			"acme": {Provider: "acme", Email: "admin@example.com"},
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "DNS provider")
+}
+
+func TestValidateTLSProviders_ACMEWithCloudflareNoDefault(t *testing.T) {
+	c := &config{
+		DNSProviders: map[string]*DNSProviderConfig{
+			"cf": {Provider: "cloudflare", APIToken: "token"},
+		},
+		TLSProviders: map[string]*TLSProviderConfig{
+			"acme": {Provider: "acme", Email: "admin@example.com"},
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.NoError(t, err, "ACME should resolve cloudflare DNS provider even without defaultDNSProvider")
+}
+
+func TestValidateTLSProviders_UnknownProvider(t *testing.T) {
+	c := &config{
+		TLSProviders: map[string]*TLSProviderConfig{
+			"custom": {Provider: "zerossl"},
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown provider")
+}
+
+func TestValidateTLSProviders_DefaultNotFound(t *testing.T) {
+	c := &config{
+		DefaultTLSProvider: "nonexistent",
+		TLSProviders: map[string]*TLSProviderConfig{
+			"ts": {Provider: "tailscale"},
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "defaultTLSProvider")
+}
+
+func TestValidateTLSProviders_NilConfig(t *testing.T) {
+	c := &config{
+		TLSProviders: map[string]*TLSProviderConfig{
+			"nil-provider": nil,
+		},
+	}
+	err := c.validateTLSProviders()
+	assert.NoError(t, err, "nil TLS provider config should be skipped")
+}
