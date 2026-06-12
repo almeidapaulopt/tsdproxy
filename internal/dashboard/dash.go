@@ -63,9 +63,11 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 		lastHealthState: make(map[string]string),
 	}
 
-	go dash.streamProxyUpdates()
-
 	return dash
+}
+
+func (dash *Dashboard) Start() {
+	go dash.streamProxyUpdates()
 }
 
 func (dash *Dashboard) Close() {

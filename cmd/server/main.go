@@ -80,6 +80,7 @@ func InitializeApp() (*WebApp, error) {
 	proxymanager := pm.NewProxyManager(logger, cfg, proxyAuth.Token())
 
 	dash := dashboard.NewDashboard(httpServer, logger, proxymanager, cfg)
+	dash.Start()
 
 	var tracerProvider *sdktrace.TracerProvider
 	if cfg.Telemetry.Enabled {
