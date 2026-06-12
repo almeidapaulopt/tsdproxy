@@ -31,6 +31,7 @@ type (
 		defaultBridgeAddress   netip.Addr
 		ports                  map[string]string
 		labels                 map[string]string
+		assets                 *web.Assets
 		image                  string
 		id                     string
 		targetProviderName     string
@@ -38,20 +39,20 @@ type (
 		hostname               string
 		networkMode            ctypes.NetworkMode
 		defaultTargetHostname  string
-		gateways               []netip.Addr
 		ipAddress              []netip.Addr
-		providerHealthInterval int
+		gateways               []netip.Addr
 		healthCheckInterval    int
 		healthCheckFailures    int
 		healthCheckCooldown    int
 		providerHealthFailures int
 		providerHealthCooldown int
+		providerHealthInterval int
 		autoRestart            bool
-		providerAutoRestart    bool
 		healthCheckEnabled     bool
 		providerHealthEnabled  bool
 		autodetect             bool
 		proxyAccessLogDefault  bool
+		providerAutoRestart    bool
 	}
 
 	ContainerOption func(*container)
@@ -213,7 +214,7 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.Dashboard.Category = c.getLabelString(LabelDashboardCategory, "")
 	pcfg.Dashboard.Icon = c.getLabelString(LabelDashboardIcon, "")
 	if pcfg.Dashboard.Icon == "" {
-		pcfg.Dashboard.Icon = web.GuessIcon(c.image)
+		pcfg.Dashboard.Icon = c.assets.GuessIcon(c.image)
 	}
 
 	pcfg.Ports = c.getPorts(ctx)
@@ -548,5 +549,11 @@ func withProviderHealthCheck(enabled bool, interval, failures, cooldown int) Con
 func withProxyAccessLogDefault(defaultVal bool) ContainerOption {
 	return func(c *container) {
 		c.proxyAccessLogDefault = defaultVal
+	}
+}
+
+func withAssets(assets *web.Assets) ContainerOption {
+	return func(c *container) {
+		c.assets = assets
 	}
 }

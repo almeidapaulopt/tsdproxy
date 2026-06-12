@@ -91,7 +91,7 @@ func InitializeApp() (*WebApp, error) {
 		}
 	}
 
-	proxymanager := pm.NewProxyManager(logger, cfg, proxyAuth.Token(), tracerProvider)
+	proxymanager := pm.NewProxyManager(logger, cfg, proxyAuth.Token(), tracerProvider, assets)
 
 	dash := dashboard.NewDashboard(httpServer, logger, proxymanager, cfg)
 	dash.Start()
@@ -138,7 +138,7 @@ func (app *WebApp) Start() {
 	// Static assets from embedded dist/ (CSS, JS, icons, etc.)
 	app.HTTP.Mux.Handle("/", app.assets.Handler())
 
-	adminMW := core.AdminMiddleware(app.Cfg)
+	adminMW := core.AdminMiddleware(app.Cfg, app.Log)
 	app.HTTP.Get("/metrics", adminMW(app.ProxyManager.MetricsHandler()))
 
 	app.Log.Info().Msg("Setting up proxy proxies")

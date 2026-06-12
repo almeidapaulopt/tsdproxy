@@ -21,6 +21,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker/sshtunnel"
+	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
 const containerInspectTimeout = 30 * time.Second
@@ -33,10 +34,11 @@ type (
 		docker                   APIClient
 		tunnel                   *sshtunnel.Tunnel
 		containers               map[string]*container
-		host                     string
-		defaultTargetHostname    string
-		defaultProxyProvider     string
+		assets                   *web.Assets
 		name                     string
+		defaultProxyProvider     string
+		defaultTargetHostname    string
+		host                     string
 		healthCheckInterval      int
 		healthCheckFailures      int
 		healthCheckCooldown      int
@@ -51,7 +53,7 @@ type (
 var _ targetproviders.TargetProvider = (*Client)(nil)
 
 // New function returns a new Docker TargetProvider
-func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig, proxyAccessLogDefault bool) (*Client, error) {
+func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig, proxyAccessLogDefault bool, assets *web.Assets) (*Client, error) {
 	newlog := log.With().Str("docker", name).Logger()
 	newlog.Trace().Msg("New Docker TargetProvider")
 	defer newlog.Trace().Msg("End New Docker TargetProvider")
@@ -101,6 +103,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		healthCheckCooldown:      provider.HealthCheckCooldown,
 		containers:               make(map[string]*container),
 		proxyAccessLogDefault:    proxyAccessLogDefault,
+		assets:                   assets,
 	}
 
 	c.setDefaultBridgeAddress()
@@ -180,6 +183,7 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 		withProviderAutoRestart(c.autoRestart),
 		withProviderHealthCheck(c.healthCheckEnabled, c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
 		withProxyAccessLogDefault(c.proxyAccessLogDefault),
+		withAssets(c.assets),
 	)
 
 	pcfg, err := ctn.newProxyConfig(ctx)

@@ -34,6 +34,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 	acmetls "github.com/almeidapaulopt/tsdproxy/internal/tlsproviders/acme"
 	tailscaletls "github.com/almeidapaulopt/tsdproxy/internal/tlsproviders/tailscale"
+	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
 type (
@@ -47,22 +48,23 @@ type (
 	ProxyManager struct {
 		log               zerolog.Logger
 		ctx               context.Context
-		cancel            context.CancelFunc
-		Proxies           ProxyList
-		cfg               *config.Data
-		proxyAuthToken    string
+		tracerProvider    trace.TracerProvider
+		dnsLifecycle      *dnsproviders.LifecycleManager
+		statusSubscribers map[*statusSubscription]struct{}
+		assets            *web.Assets
 		TargetProviders   TargetProviderList
 		ProxyProviders    ProxyProviderList
 		DNSProviders      DNSProviderList
 		TLSProviders      TLSProviderList
-		dnsLifecycle      *dnsproviders.LifecycleManager
+		Proxies           ProxyList
 		tlsLifecycle      *tlsproviders.TLSLifecycleManager
-		statusSubscribers map[*statusSubscription]struct{}
+		cfg               *config.Data
 		webhookSender     *webhook.Sender
 		metrics           *metrics.Metrics
-		tracerProvider    trace.TracerProvider
+		cancel            context.CancelFunc
 		targetMu          sync.Map
 		hostMu            sync.Map
+		proxyAuthToken    string
 		mtx               sync.RWMutex
 	}
 )
@@ -75,7 +77,7 @@ var (
 )
 
 // NewProxyManager function creates a new ProxyManager.
-func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken string, tp trace.TracerProvider) *ProxyManager {
+func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken string, tp trace.TracerProvider, assets *web.Assets) *ProxyManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	pm := &ProxyManager{
 		ctx:               ctx,
@@ -92,6 +94,7 @@ func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken str
 		metrics:           metrics.New(nil),
 		tracerProvider:    tp,
 		webhookSender:     webhook.NewSender(logger, cfg.Webhooks),
+		assets:            assets,
 	}
 
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(cfg.CleanupDNS)
@@ -364,7 +367,7 @@ func (pm *ProxyManager) broadcastStatusEvents(event model.ProxyEvent) {
 // addTargetProviders method adds TargetProviders from configuration file.
 func (pm *ProxyManager) addTargetProviders() {
 	for name, provider := range pm.cfg.Docker {
-		p, err := docker.New(pm.log, name, provider, pm.cfg.ProxyAccessLog)
+		p, err := docker.New(pm.log, name, provider, pm.cfg.ProxyAccessLog, pm.assets)
 		if err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Docker provider")
 			continue
