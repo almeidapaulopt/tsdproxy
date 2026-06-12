@@ -6,6 +6,7 @@ package cloudflare
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/core/httpclient"
 )
 
 func testServer(t *testing.T, handler http.HandlerFunc) (*Provider, *httptest.Server) {
@@ -192,4 +195,64 @@ func TestProvider_CreateRecord_StaleRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, gotDelete, "stale record should be deleted")
 	assert.True(t, gotCreate, "new record should be created")
+}
+
+type mockHTTPDoer struct {
+	resp *http.Response
+	err  error
+}
+
+var _ httpclient.Doer = (*mockHTTPDoer)(nil)
+
+func (m *mockHTTPDoer) Do(_ *http.Request) (*http.Response, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.resp, nil
+}
+
+func newProviderWithMock(mock httpclient.Doer) *Provider {
+	p := New("test-token")
+	p.client = mock
+	p.apiBaseURL = "http://mock.local"
+	return p
+}
+
+func TestProvider_CreateRecord_Timeout(t *testing.T) {
+	mock := &mockHTTPDoer{err: context.DeadlineExceeded}
+	p := newProviderWithMock(mock)
+
+	err := p.CreateRecord(context.Background(), "app.example.com", "CNAME", "myapp.tailnet.ts.net")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "context deadline exceeded")
+}
+
+func TestProvider_CreateRecord_502BadGateway(t *testing.T) {
+	mock := &mockHTTPDoer{
+		resp: &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Header:     http.Header{"Content-Type": []string{"text/html"}},
+			Body:       io.NopCloser(strings.NewReader("<html>bad gateway</html>")),
+		},
+	}
+	p := newProviderWithMock(mock)
+
+	err := p.CreateRecord(context.Background(), "app.example.com", "CNAME", "myapp.tailnet.ts.net")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "502")
+}
+
+func TestProvider_CreateRecord_429RateLimit(t *testing.T) {
+	mock := &mockHTTPDoer{
+		resp: &http.Response{
+			StatusCode: http.StatusTooManyRequests,
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       io.NopCloser(strings.NewReader("rate limit exceeded")),
+		},
+	}
+	p := newProviderWithMock(mock)
+
+	err := p.CreateRecord(context.Background(), "app.example.com", "CNAME", "myapp.tailnet.ts.net")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "429")
 }

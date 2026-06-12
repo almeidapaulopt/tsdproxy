@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/httpclient"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
 	"github.com/rs/zerolog"
@@ -1129,6 +1131,111 @@ func TestNewSenderClose(t *testing.T) {
 		}
 		s.Close()
 	})
+}
+
+type callMockDoer struct {
+	fn func(req *http.Request) (*http.Response, error)
+}
+
+var _ httpclient.Doer = (*callMockDoer)(nil)
+
+func (m *callMockDoer) Do(req *http.Request) (*http.Response, error) {
+	return m.fn(req)
+}
+
+func staticMockDoer(resp *http.Response, err error) *callMockDoer {
+	return &callMockDoer{fn: func(_ *http.Request) (*http.Response, error) {
+		return resp, err
+	}}
+}
+
+func TestSendOne_NetworkError(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	mock := &callMockDoer{fn: func(_ *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, errors.New("connection refused")
+	}}
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: mock,
+		ctx:    context.Background(),
+	}
+
+	err := s.sendOne(config.WebhookConfig{URL: "http://127.0.0.1:1/webhook", Type: "generic"}, testEvent())
+	if err == nil {
+		t.Fatal("expected error from network failure")
+	}
+	if !strings.Contains(err.Error(), "error sending webhook") {
+		t.Errorf("error should mention sending, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("error should wrap underlying error, got: %v", err)
+	}
+
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("expected 1 call, got %d", n)
+	}
+}
+
+func TestSendWithRetry_NetworkError_ThenSuccess(t *testing.T) {
+	t.Parallel()
+
+	event := testEvent()
+	var callCount int
+
+	mock := &callMockDoer{
+		fn: func(_ *http.Request) (*http.Response, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, context.DeadlineExceeded
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+	}
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: mock,
+		ctx:    context.Background(),
+	}
+
+	cfg := config.WebhookConfig{URL: "http://example.com/webhook", Type: "generic"}
+
+	err := s.sendWithRetry(cfg, event)
+	if err != nil {
+		t.Fatalf("expected success after retry, got: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 calls (1 fail + 1 success), got %d", callCount)
+	}
+}
+
+func TestSendOne_502GatewayError(t *testing.T) {
+	t.Parallel()
+
+	mock := staticMockDoer(&http.Response{
+		StatusCode: http.StatusBadGateway,
+		Body:       io.NopCloser(strings.NewReader("<html>bad gateway</html>")),
+	}, nil)
+
+	s := &Sender{
+		log:    zerolog.Nop(),
+		client: mock,
+		ctx:    context.Background(),
+	}
+
+	err := s.sendOne(config.WebhookConfig{URL: "http://example.com/webhook", Type: "generic"}, testEvent())
+	if err == nil {
+		t.Fatal("expected error for 502 status")
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("error should contain status code 502, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "bad gateway") {
+		t.Errorf("error should contain response body, got: %v", err)
+	}
 }
 
 func TestSend_QueueFullDropsEvent(t *testing.T) {
