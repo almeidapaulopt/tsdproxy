@@ -295,6 +295,7 @@ func TestNewProxyConfig_Minimal(t *testing.T) {
 		autodetect:            false,
 		autoRestart:           false,
 		healthCheckEnabled:    false,
+		assets:                testAssets,
 	}
 
 	pcfg, err := c.newProxyConfig(context.Background())
@@ -326,6 +327,7 @@ func TestNewProxyConfig_InvalidHostname(t *testing.T) {
 		defaultTargetHostname: "host.docker.internal",
 		ports:                 map[string]string{"80": "8080"},
 		networkMode:           "bridge",
+		assets:                testAssets,
 	}
 
 	_, err := c.newProxyConfig(context.Background())

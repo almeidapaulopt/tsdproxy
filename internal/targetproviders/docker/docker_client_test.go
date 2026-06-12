@@ -132,6 +132,7 @@ func newTestClient(mock *mockAPIClient) *Client {
 		host:                  "unix:///var/run/docker.sock",
 		defaultTargetHostname: "host.docker.internal",
 		containers:            make(map[string]*container),
+		assets:                testAssets,
 	}
 }
 

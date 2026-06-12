@@ -12,7 +12,11 @@ import (
 	ctypes "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/rs/zerolog"
+
+	"github.com/almeidapaulopt/tsdproxy/web"
 )
+
+var testAssets = web.NewAssets()
 
 func newTestContainer(targetHostname string, containerIPs []netip.Addr, ports map[string]string) *container {
 	return &container{
@@ -25,6 +29,7 @@ func newTestContainer(targetHostname string, containerIPs []netip.Addr, ports ma
 		ports:                 ports,
 		networkMode:           ctypes.NetworkMode("bridge"),
 		autodetect:            false,
+		assets:                testAssets,
 	}
 }
 
