@@ -51,46 +51,46 @@ type (
 
 	// Proxy holds the state for a single proxy.
 	Proxy struct {
-		log              zerolog.Logger
-		startedAt        time.Time
-		providerProxy    proxyproviders.ProxyInterface
-		ctx              context.Context
-		tlsProvider      tlsproviders.Provider
-		dnsProvider      dnsproviders.Provider
-		cancel           context.CancelFunc
-		onUpdate         func(event model.ProxyEvent)
-		logBuffer        *LogRingBuffer
-		reResolveConfig  func() (*model.Config, error)
-		Config           *model.Config
-		metrics          *metrics.Metrics
-		ports            map[string]portHandler
-		URL              *url.URL
-		health           *healthChecker
-		proxyAuthToken   string
-		healthPortName   string
-		statusHistory    []StatusTransition
-		setupWg          sync.WaitGroup
-		status           model.ProxyStatus
-		dnsStatus        dnsproviders.DNSStatus
-		tlsStatus        tlsproviders.TLSStatus
-		mtx              sync.RWMutex
-		opMu             sync.Mutex
-		httpPort         uint16
-		tracerProvider   trace.TracerProvider
-		paused           bool
-		metricsReady     bool
+		log             zerolog.Logger
+		startedAt       time.Time
+		providerProxy   proxyproviders.ProxyInterface
+		ctx             context.Context
+		tlsProvider     tlsproviders.Provider
+		dnsProvider     dnsproviders.Provider
+		tracerProvider  trace.TracerProvider
+		health          *healthChecker
+		cancel          context.CancelFunc
+		reResolveConfig func() (*model.Config, error)
+		Config          *model.Config
+		metrics         *metrics.Metrics
+		ports           map[string]portHandler
+		URL             *url.URL
+		onUpdate        func(event model.ProxyEvent)
+		logBuffer       *LogRingBuffer
+		proxyAuthToken  string
+		healthPortName  string
+		statusHistory   []StatusTransition
+		setupWg         sync.WaitGroup
+		dnsStatus       dnsproviders.DNSStatus
+		tlsStatus       tlsproviders.TLSStatus
+		status          model.ProxyStatus
+		mtx             sync.RWMutex
+		opMu            sync.Mutex
+		httpPort        uint16
+		paused          bool
+		metricsReady    bool
 	}
 )
 
 // ProxyParams holds the parameters for creating a new Proxy.
 type ProxyParams struct {
-	Log              zerolog.Logger
-	ProxyProvider    proxyproviders.Provider
-	Config           *model.Config
-	Metrics          *metrics.Metrics
-	ProxyAuthToken   string
-	HTTPPort         uint16
-	TracerProvider   trace.TracerProvider
+	Log            zerolog.Logger
+	ProxyProvider  proxyproviders.Provider
+	TracerProvider trace.TracerProvider
+	Config         *model.Config
+	Metrics        *metrics.Metrics
+	ProxyAuthToken string
+	HTTPPort       uint16
 }
 
 func NewProxy(params ProxyParams) (*Proxy, error) {
@@ -119,19 +119,19 @@ func NewProxy(params ProxyParams) (*Proxy, error) {
 	}
 
 	p := &Proxy{
-		log:              log,
-		Config:           params.Config,
-		ctx:              ctx,
-		cancel:           cancel,
-		providerProxy:    pProvider,
-		ports:            make(map[string]portHandler),
-		metrics:          params.Metrics,
-		statusHistory:    make([]StatusTransition, 0, maxStatusHistory),
-		startedAt:        time.Now(),
-		logBuffer:        logBuffer,
-		tracerProvider:   params.TracerProvider,
-		httpPort:         params.HTTPPort,
-		proxyAuthToken:   params.ProxyAuthToken,
+		log:            log,
+		Config:         params.Config,
+		ctx:            ctx,
+		cancel:         cancel,
+		providerProxy:  pProvider,
+		ports:          make(map[string]portHandler),
+		metrics:        params.Metrics,
+		statusHistory:  make([]StatusTransition, 0, maxStatusHistory),
+		startedAt:      time.Now(),
+		logBuffer:      logBuffer,
+		tracerProvider: params.TracerProvider,
+		httpPort:       params.HTTPPort,
+		proxyAuthToken: params.ProxyAuthToken,
 	}
 
 	p.initPorts()

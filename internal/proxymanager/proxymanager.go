@@ -858,13 +858,13 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	pm.closeAndRemoveProxy(proxyConfig.Hostname, proxyConfig.ProxyProvider)
 
 	p, err := NewProxy(ProxyParams{
-		Log:              pm.log,
-		Config:           proxyConfig,
-		ProxyProvider:    proxyProvider,
-		Metrics:          pm.metrics,
-		TracerProvider:   pm.tracerProvider,
-		HTTPPort:         pm.cfg.HTTP.Port,
-		ProxyAuthToken:   pm.proxyAuthToken,
+		Log:            pm.log,
+		Config:         proxyConfig,
+		ProxyProvider:  proxyProvider,
+		Metrics:        pm.metrics,
+		TracerProvider: pm.tracerProvider,
+		HTTPPort:       pm.cfg.HTTP.Port,
+		ProxyAuthToken: pm.proxyAuthToken,
 	})
 	if err != nil {
 		return fmt.Errorf("error creating proxy: %w", err)
