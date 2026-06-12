@@ -78,14 +78,6 @@ func (a *Assets) IconSVG(name string) string {
 	return svg
 }
 
-// GuessIcon delegates to the default Assets. Must be called after NewAssets.
-func GuessIcon(name string) string {
-	if defaultAssets == nil {
-		return DefaultIcon
-	}
-	return defaultAssets.GuessIcon(name)
-}
-
 // IconSVG delegates to the default Assets. Must be called after NewAssets.
 func IconSVG(name string) string {
 	if defaultAssets == nil {
