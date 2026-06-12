@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"tailscale.com/client/local"
-	"tailscale.com/tsnet"
 )
 
 // NodeRuntime holds the runtime state of a started Tailscale node.
@@ -15,13 +14,13 @@ import (
 // Exposure strategies may use it, but should not mutate node lifecycle state directly.
 type NodeRuntime struct {
 	Ctx         context.Context
-	Server      *tsnet.Server
+	Server      TSNetServer
 	LocalClient *local.Client
 	Cancel      context.CancelFunc
 }
 
 // NewNodeRuntime creates a NodeRuntime from a started tsnet.Server.
-func NewNodeRuntime(ctx context.Context, server *tsnet.Server, lc *local.Client, cancel context.CancelFunc) *NodeRuntime {
+func NewNodeRuntime(ctx context.Context, server TSNetServer, lc *local.Client, cancel context.CancelFunc) *NodeRuntime {
 	return &NodeRuntime{
 		Server:      server,
 		LocalClient: lc,

@@ -15,7 +15,6 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 	"tailscale.com/client/local"
-	"tailscale.com/tsnet"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
@@ -52,7 +51,7 @@ type SharedServerConfig struct {
 type sharedRuntime struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
-	tsServer     *tsnet.Server
+	tsServer     TSNetServer
 	lc           *local.Client
 	listeners    map[int]*portEntry
 	packetRoutes map[int]net.PacketConn
@@ -724,7 +723,7 @@ func (ss *SharedServer) stopRuntime(rt *sharedRuntime) {
 }
 
 // getCertificates is a pure event producer. It sends certDoneCmd when finished.
-func (ss *SharedServer) getCertificates(ctx context.Context, gen int, lc *local.Client, tsServer *tsnet.Server) {
+func (ss *SharedServer) getCertificates(ctx context.Context, gen int, lc *local.Client, tsServer TSNetServer) {
 	defer func() {
 		ss.sendProducer(ctx, certDoneCmd{gen: gen})
 	}()

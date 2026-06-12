@@ -183,7 +183,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 	return rt, nil
 }
 
-func (nl *NodeLifecycle) startWithRetry(ctx context.Context, tsServer *tsnet.Server) error {
+func (nl *NodeLifecycle) startWithRetry(ctx context.Context, tsServer TSNetServer) error {
 	if nl.retry.MaxAttempts <= 0 {
 		return tsServer.Start()
 	}

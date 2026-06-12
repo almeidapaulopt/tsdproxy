@@ -135,7 +135,7 @@ func (e *PerProxyExposure) Start(_ context.Context, runtime *NodeRuntime, cfg *m
 	return nil
 }
 
-func (e *PerProxyExposure) createHTTPSListener(ts *tsnet.Server, cfg model.PortConfig) (net.Listener, error) {
+func (e *PerProxyExposure) createHTTPSListener(ts TSNetServer, cfg model.PortConfig) (net.Listener, error) {
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.ProxyPort))
 	if cfg.Tailscale.Funnel {
 		return ts.ListenFunnel("tcp", addr) //nolint:gosec
@@ -143,12 +143,12 @@ func (e *PerProxyExposure) createHTTPSListener(ts *tsnet.Server, cfg model.PortC
 	return ts.ListenTLS("tcp", addr) //nolint:gosec
 }
 
-func (e *PerProxyExposure) createPlainListener(ts *tsnet.Server, cfg model.PortConfig) (net.Listener, error) {
+func (e *PerProxyExposure) createPlainListener(ts TSNetServer, cfg model.PortConfig) (net.Listener, error) {
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.ProxyPort))
 	return ts.Listen("tcp", addr) //nolint:gosec
 }
 
-func (e *PerProxyExposure) createUDPConn(runtime *NodeRuntime, ts *tsnet.Server, cfg model.PortConfig) (net.PacketConn, error) {
+func (e *PerProxyExposure) createUDPConn(runtime *NodeRuntime, ts TSNetServer, cfg model.PortConfig) (net.PacketConn, error) {
 	ip4, err := e.waitForTailscaleIP(runtime.Ctx, ts)
 	if err != nil {
 		return nil, fmt.Errorf("cannot bind UDP port %d: %w", cfg.ProxyPort, err)
@@ -157,7 +157,7 @@ func (e *PerProxyExposure) createUDPConn(runtime *NodeRuntime, ts *tsnet.Server,
 	return ts.ListenPacket("udp", addr)
 }
 
-func (e *PerProxyExposure) waitForTailscaleIP(ctx context.Context, ts *tsnet.Server) (netip.Addr, error) {
+func (e *PerProxyExposure) waitForTailscaleIP(ctx context.Context, ts TSNetServer) (netip.Addr, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

@@ -53,7 +53,7 @@ type serviceListenerFactory interface {
 }
 
 // tsnetServerFactory adapts *tsnet.Server to satisfy serviceListenerFactory.
-type tsnetServerFactory struct{ server *tsnet.Server }
+type tsnetServerFactory struct{ server TSNetServer }
 
 func (f tsnetServerFactory) ListenService(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
 	return f.server.ListenService(name, mode)
@@ -106,7 +106,7 @@ type servicesRuntime struct {
 	ctx          context.Context
 	factory      serviceListenerFactory
 	bridgeDone   chan struct{}
-	tsServer     *tsnet.Server
+	tsServer     TSNetServer
 	listeners    map[string]*serviceEntry
 	lifecycle    *NodeLifecycle
 	cancel       context.CancelFunc
@@ -404,7 +404,7 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 
 func (ss *ServicesServer) acquireServiceAsync(
 	ctx context.Context, gen int, c acquireServiceCmd,
-	allPorts []string, factory serviceListenerFactory, tsServer *tsnet.Server,
+	allPorts []string, factory serviceListenerFactory, tsServer TSNetServer,
 	listenMu *sync.Mutex,
 ) {
 	sendResult := func(listener *tsnet.ServiceListener, err error) {
@@ -539,7 +539,7 @@ func (ss *ServicesServer) prefetchCertForService(c acquireServiceWorkResultCmd, 
 	go acquireCertForDomain(rt.ctx, lc, fqdn, ss.certSem, ss.log.With().Str("fqdn", fqdn).Logger())
 }
 
-func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsServer *tsnet.Server, serviceName string) error {
+func (ss *ServicesServer) approveServiceDeviceForServer(ctx context.Context, tsServer TSNetServer, serviceName string) error {
 	if tsServer == nil {
 		return nil
 	}
