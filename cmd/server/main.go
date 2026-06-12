@@ -20,7 +20,7 @@ import (
 	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
 
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/api"
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -46,11 +46,12 @@ type WebApp struct {
 	Cfg            *config.Data
 	assets         *web.Assets
 	httpServer     *http.Server
-	tracerProvider *sdktrace.TracerProvider
+	tracerProvider trace.TracerProvider
+	tracerShutdown func(context.Context) error
 }
 
 func InitializeApp() (*WebApp, error) {
-	cfg, err := config.InitializeConfig(zerolog.Nop())
+	cfg, err := config.InitializeConfig(zerolog.New(os.Stderr).With().Timestamp().Logger())
 	if err != nil {
 		return nil, err
 	}
@@ -77,13 +78,15 @@ func InitializeApp() (*WebApp, error) {
 
 	health := core.NewHealthHandler(httpServer, logger)
 
-	var tracerProvider *sdktrace.TracerProvider
+	var tracerProvider trace.TracerProvider
+	var tracerShutdown func(context.Context) error
 	if cfg.Telemetry.Enabled {
 		tp, err := core.InitTracer(context.Background(), cfg.Telemetry.Endpoint, cfg.Telemetry.Insecure)
 		if err != nil {
 			logger.Error().Err(err).Msg("failed to initialize tracer")
 		} else {
 			tracerProvider = tp
+			tracerShutdown = tp.Shutdown
 			logger.Info().Str("endpoint", cfg.Telemetry.Endpoint).Msg("OpenTelemetry tracer initialized")
 		}
 	}
@@ -102,6 +105,7 @@ func InitializeApp() (*WebApp, error) {
 		Cfg:            cfg,
 		assets:         assets,
 		tracerProvider: tracerProvider,
+		tracerShutdown: tracerShutdown,
 	}
 	return webApp, nil
 }
@@ -186,8 +190,8 @@ func (app *WebApp) Stop() {
 	}
 	app.ProxyManager.StopAllProxies()
 
-	if app.tracerProvider != nil {
-		if err := app.tracerProvider.Shutdown(context.Background()); err != nil {
+	if app.tracerShutdown != nil {
+		if err := app.tracerShutdown(context.Background()); err != nil {
 			app.Log.Error().Err(err).Msg("error shutting down tracer provider")
 		}
 	}
