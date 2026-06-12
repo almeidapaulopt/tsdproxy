@@ -99,6 +99,10 @@ func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken str
 
 // Start method starts the ProxyManager.
 func (pm *ProxyManager) Start() {
+	if pm.webhookSender != nil {
+		pm.webhookSender.Start()
+	}
+
 	// Add Providers
 	pm.addProxyProviders()
 	pm.addTargetProviders()
@@ -384,6 +388,7 @@ func (pm *ProxyManager) addProxyProviders() {
 		if p, err := tsproxy.New(pm.log, name, provider, pm.cfg.Tailscale.DataDir); err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Tailscale provider")
 		} else {
+			p.Start()
 			pm.log.Debug().Str("provider", name).Msg("Created Proxy provider")
 			pm.addProxyProvider(p, name)
 		}

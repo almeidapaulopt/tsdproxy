@@ -174,14 +174,14 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 		providerCancel:      providerCancel,
 	}
 
-	// Start periodic device reconciliation goroutine if interval is configured
-	// and the provider is in shared or services mode (per-proxy mode handles
-	// reconciliation at each proxy's startup via NodeLifecycle.Start).
-	if reconcileInterval > 0 && (c.shared || c.services) {
+	return c, nil
+}
+
+// Start begins periodic device reconciliation for shared/services mode providers.
+func (c *Client) Start() {
+	if c.reconcileInterval > 0 && (c.shared || c.services) {
 		go c.runPeriodicReconcile()
 	}
-
-	return c, nil
 }
 
 // runPeriodicReconcile periodically reconciles stale devices at the configured interval.
