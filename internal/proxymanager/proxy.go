@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/trace"
 	"tailscale.com/client/local"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
@@ -75,7 +76,7 @@ type (
 		mtx              sync.RWMutex
 		opMu             sync.Mutex
 		httpPort         uint16
-		telemetryEnabled bool
+		tracerProvider   trace.TracerProvider
 		paused           bool
 		metricsReady     bool
 	}
@@ -89,7 +90,7 @@ type ProxyParams struct {
 	Metrics          *metrics.Metrics
 	ProxyAuthToken   string
 	HTTPPort         uint16
-	TelemetryEnabled bool
+	TracerProvider   trace.TracerProvider
 }
 
 func NewProxy(params ProxyParams) (*Proxy, error) {
@@ -128,7 +129,7 @@ func NewProxy(params ProxyParams) (*Proxy, error) {
 		statusHistory:    make([]StatusTransition, 0, maxStatusHistory),
 		startedAt:        time.Now(),
 		logBuffer:        logBuffer,
-		telemetryEnabled: params.TelemetryEnabled,
+		tracerProvider:   params.TracerProvider,
 		httpPort:         params.HTTPPort,
 		proxyAuthToken:   params.ProxyAuthToken,
 	}
@@ -560,7 +561,7 @@ func (proxy *Proxy) initPorts() {
 				proxy.Config.Hostname,
 				k, proxy.logBuffer,
 				proxy.Config.IdentityHeaders,
-				proxy.telemetryEnabled,
+				proxy.tracerProvider,
 				proxy.httpPort,
 				proxy.proxyAuthToken,
 			)

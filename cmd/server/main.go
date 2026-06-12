@@ -50,7 +50,7 @@ type WebApp struct {
 }
 
 func InitializeApp() (*WebApp, error) {
-	cfg, err := config.InitializeConfig()
+	cfg, err := config.InitializeConfig(zerolog.Nop())
 	if err != nil {
 		return nil, err
 	}
@@ -77,11 +77,6 @@ func InitializeApp() (*WebApp, error) {
 
 	health := core.NewHealthHandler(httpServer, logger)
 
-	proxymanager := pm.NewProxyManager(logger, cfg, proxyAuth.Token())
-
-	dash := dashboard.NewDashboard(httpServer, logger, proxymanager, cfg)
-	dash.Start()
-
 	var tracerProvider *sdktrace.TracerProvider
 	if cfg.Telemetry.Enabled {
 		tp, err := core.InitTracer(context.Background(), cfg.Telemetry.Endpoint, cfg.Telemetry.Insecure)
@@ -92,6 +87,11 @@ func InitializeApp() (*WebApp, error) {
 			logger.Info().Str("endpoint", cfg.Telemetry.Endpoint).Msg("OpenTelemetry tracer initialized")
 		}
 	}
+
+	proxymanager := pm.NewProxyManager(logger, cfg, proxyAuth.Token(), tracerProvider)
+
+	dash := dashboard.NewDashboard(httpServer, logger, proxymanager, cfg)
+	dash.Start()
 
 	webApp := &WebApp{
 		Log:            logger,

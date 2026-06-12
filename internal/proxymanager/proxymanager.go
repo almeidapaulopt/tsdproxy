@@ -16,6 +16,7 @@ import (
 
 	"github.com/caddyserver/certmagic"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/trace"
 	"tailscale.com/client/local"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -59,6 +60,7 @@ type (
 		statusSubscribers map[*statusSubscription]struct{}
 		webhookSender     *webhook.Sender
 		metrics           *metrics.Metrics
+		tracerProvider    trace.TracerProvider
 		targetMu          sync.Map
 		hostMu            sync.Map
 		mtx               sync.RWMutex
@@ -73,7 +75,7 @@ var (
 )
 
 // NewProxyManager function creates a new ProxyManager.
-func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken string) *ProxyManager {
+func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken string, tp trace.TracerProvider) *ProxyManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	pm := &ProxyManager{
 		ctx:               ctx,
@@ -87,7 +89,8 @@ func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken str
 		TLSProviders:      make(TLSProviderList),
 		statusSubscribers: make(map[*statusSubscription]struct{}),
 		log:               logger.With().Str("module", "proxymanager").Logger(),
-		metrics:           metrics.New(),
+		metrics:           metrics.New(nil),
+		tracerProvider:    tp,
 		webhookSender:     webhook.NewSender(logger, cfg.Webhooks),
 	}
 
@@ -859,7 +862,7 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 		Config:           proxyConfig,
 		ProxyProvider:    proxyProvider,
 		Metrics:          pm.metrics,
-		TelemetryEnabled: pm.cfg.Telemetry.Enabled,
+		TracerProvider:   pm.tracerProvider,
 		HTTPPort:         pm.cfg.HTTP.Port,
 		ProxyAuthToken:   pm.proxyAuthToken,
 	})

@@ -285,7 +285,7 @@ func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
 		"test-port",
 		nil, // logBuffer
 		identityHeaders,
-		false,     // telemetryEnabled
+		nil,       // tracerProvider
 		uint16(0), // httpPort
 		"test-token",
 	)
@@ -337,7 +337,7 @@ func runPortProxyProtoTest(t *testing.T, proxyProtocol string) http.Header {
 
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(context.Background(), pconfig, zerolog.Nop(), false, whoisFunc, nil, "test-proxy", "test-port", nil, false, false, uint16(0), "test-token")
+	p := newPortProxy(context.Background(), pconfig, zerolog.Nop(), false, whoisFunc, nil, "test-proxy", "test-port", nil, false, nil, uint16(0), "test-token")
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -453,7 +453,7 @@ func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
 		"test-port",
 		nil,
 		false, // opted out — strip block must still run
-		false, // telemetryEnabled
+		nil,   // tracerProvider
 		uint16(0),
 		"test-token",
 	)
@@ -511,7 +511,7 @@ func TestPortProxyStripsSpoofedXForwardedFor(t *testing.T) {
 
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(context.Background(), pconfig, zerolog.Nop(), false, whoisFunc, nil, "test-proxy", "test-port", nil, false, false, uint16(0), "test-token")
+	p := newPortProxy(context.Background(), pconfig, zerolog.Nop(), false, whoisFunc, nil, "test-proxy", "test-port", nil, false, nil, uint16(0), "test-token")
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1062,7 +1062,7 @@ func TestNewPortProxy_Minimal(t *testing.T) {
 
 	p := newPortProxy(ctx, pconfig, zerolog.Nop(), false, func(next http.Handler) http.Handler {
 		return next
-	}, nil, "testproxy", "80", nil, false, false, uint16(0), "test-token")
+	}, nil, "testproxy", "80", nil, false, nil, uint16(0), "test-token")
 	if p == nil {
 		t.Fatal("newPortProxy returned nil")
 	}
@@ -1096,7 +1096,7 @@ func TestHTTPProxy_ContextCanceled_SilentNo502(t *testing.T) {
 	p := newPortProxy(
 		context.Background(), pconfig, zerolog.Nop(), false,
 		whoisFunc, nil, "test-proxy", "test-port", nil, false,
-		false, uint16(0), "test-token",
+		nil, uint16(0), "test-token",
 	)
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")

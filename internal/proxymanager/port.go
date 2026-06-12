@@ -28,6 +28,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var errRateLimited = errors.New("UDP packet rate limited")
@@ -68,7 +69,7 @@ func newPortProxy(
 	portName string,
 	logBuffer *LogRingBuffer,
 	identityHeaders bool,
-	telemetryEnabled bool,
+	tp trace.TracerProvider,
 	httpPort uint16,
 	proxyAuthToken string,
 ) *port {
@@ -181,8 +182,11 @@ func newPortProxy(
 		handler = m.Middleware(proxyName, portName)(handler)
 	}
 
-	if telemetryEnabled {
-		handler = otelhttp.NewHandler(handler, "proxy", otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents))
+	if tp != nil {
+		handler = otelhttp.NewHandler(handler, "proxy",
+			otelhttp.WithTracerProvider(tp),
+			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
+		)
 	}
 
 	httpServer := &http.Server{
