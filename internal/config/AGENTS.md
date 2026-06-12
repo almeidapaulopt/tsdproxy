@@ -11,7 +11,6 @@ Config loading, validation, secrets, key normalization, fsnotify live-reload, le
 | `generateproviders.go` | Legacy env-based config generation (`generateDefaultProviders`). Creates Docker + Tailscale provider configs from `DOCKER_HOST`, auth key env vars. |
 | `validator.go` | `ValidateConfig()` — `go-playground/validator` + custom validators. Checks: default proxy provider exists, DNS/TLS provider references valid, domain+FQDN rules, Tailscale config consistency. Custom error types: `DefaultProxyProviderNotFoundError`, `DomainProviderError`. |
 | `keynormalizer.go` | YAML key case-insensitivity: `normalizeNodeKeys()` walks YAML AST, rewrites keys to canonical camelCase via reflect-based lookup. Levenshtein distance suggestions for unknown keys. Handles nested structs, maps, slices. |
-| `provider.go` | `Provider` interface + `atomicProvider` for lock-free config access. `NewProvider()`, `NewTestProvider()` for tests. |
 | `testconfig.go` | `NewTestData()` — creates a minimal `*ConfigData` for tests (single Tailscale provider, empty Docker/Lists maps). |
 | `secrets_test.go` | Secret loading tests: file-based auth keys, client secrets, API tokens. `saveEnv`/`writeFile` helpers. |
 | `config_test.go` | Config loading integration tests. |
@@ -21,9 +20,7 @@ Config loading, validation, secrets, key normalization, fsnotify live-reload, le
 
 ## CONFIG ACCESS
 
-Config is injected via `*config.Data` (alias for `*ConfigData`) through constructors. No global singleton — callers receive `*ConfigData` from `InitializeConfig()` and pass it to subsystems.
-
-For live-reload scenarios, use `Provider` interface (`provider.go`) with `NewProvider(cfg)` which wraps `atomic.Pointer[ConfigData]`.
+Config is injected via `*config.Data` (alias for `*ConfigData`) through constructors as a static snapshot. No global singleton — callers receive `*ConfigData` from `InitializeConfig()` and pass it to subsystems. The config object is not mutated after injection; only the list provider and Tailscale state are watched for live updates.
 
 ## INITIALIZATION FLOW
 
@@ -70,4 +67,3 @@ File-based secrets replace their inline counterparts:
 - **Case-sensitive YAML keys** — mitigated by keynormalizer, but raw `yaml.Unmarshal` without normalization will fail on casing mismatches.
 - **`fmt.Fprintf(os.Stderr, ...)` instead of zerolog**: used in `generateDefaultProviders()` because logger may not exist yet.
 - **`File.Watch()` debounces at 100ms** (`//nolint:mnd`) — rapid successive writes may coalesce.
-- **`ConfigData.Clone()` for test isolation** — tests should build fresh `*ConfigData` via `NewTestData()` rather than mutating shared state.
