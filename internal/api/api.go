@@ -127,13 +127,13 @@ func (a *API) getProxyHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			a.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
+			a.HTTP.ErrorResponse(w, r, "missing proxy name", http.StatusBadRequest)
 			return
 		}
 
 		p, ok := a.PM.GetProxy(name)
 		if !ok || !p.Config.Dashboard.Visible {
-			a.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
+			a.HTTP.ErrorResponse(w, r, "proxy not found", http.StatusNotFound)
 			return
 		}
 
@@ -145,13 +145,13 @@ func (a *API) getProxyPortsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			a.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
+			a.HTTP.ErrorResponse(w, r, "missing proxy name", http.StatusBadRequest)
 			return
 		}
 
 		p, ok := a.PM.GetProxy(name)
 		if !ok || !p.Config.Dashboard.Visible {
-			a.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
+			a.HTTP.ErrorResponse(w, r, "proxy not found", http.StatusNotFound)
 			return
 		}
 

@@ -295,7 +295,7 @@ func WhoAmIHandler(srv *HTTPServer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		who := ResolveWhois(r)
 		if who.ID == "" {
-			srv.ErrorResponse(w, r, nil, "no Tailscale identity found", http.StatusUnauthorized)
+			srv.ErrorResponse(w, r, "no Tailscale identity found", http.StatusUnauthorized)
 			return
 		}
 

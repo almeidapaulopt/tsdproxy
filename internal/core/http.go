@@ -9,8 +9,6 @@ import (
 	"net/http"
 
 	"github.com/rs/zerolog"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // Middleware type as before.
@@ -96,17 +94,13 @@ func (a *HTTPServer) JSONResponseCode(w http.ResponseWriter, _ *http.Request, re
 	}
 }
 
-func (a *HTTPServer) ErrorResponse(w http.ResponseWriter, _ *http.Request, span trace.Span, returnError string, code int) {
+func (a *HTTPServer) ErrorResponse(w http.ResponseWriter, _ *http.Request, returnError string, code int) {
 	data := struct {
 		Message string `json:"message"`
 		Code    int    `json:"code"`
 	}{
 		Code:    code,
 		Message: returnError,
-	}
-
-	if span != nil {
-		span.SetStatus(codes.Error, returnError)
 	}
 
 	body, err := json.Marshal(data)

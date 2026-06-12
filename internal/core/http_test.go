@@ -267,7 +267,7 @@ func TestErrorResponse(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	srv.ErrorResponse(rec, req, nil, "something went wrong", http.StatusBadRequest)
+	srv.ErrorResponse(rec, req, "something went wrong", http.StatusBadRequest)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("ErrorResponse() status = %d, want %d", rec.Code, http.StatusBadRequest)
@@ -290,7 +290,7 @@ func TestErrorResponse(t *testing.T) {
 	}
 }
 
-func TestErrorResponse_WithNilSpan(t *testing.T) {
+func TestErrorResponse_InternalServerError(t *testing.T) {
 	t.Parallel()
 
 	srv := NewHTTPServer(zerolog.Nop())
@@ -298,10 +298,10 @@ func TestErrorResponse_WithNilSpan(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	srv.ErrorResponse(rec, req, nil, "test error", http.StatusInternalServerError)
+	srv.ErrorResponse(rec, req, "test error", http.StatusInternalServerError)
 
 	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("ErrorResponse() with nil span status = %d, want %d", rec.Code, http.StatusInternalServerError)
+		t.Errorf("ErrorResponse() status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }
 
