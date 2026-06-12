@@ -30,7 +30,7 @@ type (
 	Client struct {
 		log                      zerolog.Logger
 		defaultBridgeAddress     netip.Addr
-		docker                   *client.Client
+		docker                   APIClient
 		tunnel                   *sshtunnel.Tunnel
 		containers               map[string]*container
 		host                     string
