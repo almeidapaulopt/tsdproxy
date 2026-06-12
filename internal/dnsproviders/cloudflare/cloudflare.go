@@ -20,6 +20,7 @@ import (
 	"github.com/libdns/libdns"
 	"golang.org/x/time/rate"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/httpclient"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 )
@@ -36,7 +37,7 @@ const (
 
 // Provider implements dnsproviders.Provider for Cloudflare DNS.
 type Provider struct {
-	client      *http.Client
+	client      httpclient.Doer
 	limiter     *rate.Limiter
 	zoneCache   sync.Map
 	apiToken    secretstring.SecretString
@@ -80,10 +81,16 @@ type cfDNSRecord struct {
 	TTL     int    `json:"ttl"`
 }
 
-func New(apiToken string) *Provider {
+func New(apiToken string, doer ...httpclient.Doer) *Provider {
+	var client httpclient.Doer
+	if len(doer) > 0 && doer[0] != nil {
+		client = doer[0]
+	} else {
+		client = &http.Client{Timeout: httpClientTimeout}
+	}
 	return &Provider{
 		apiToken:   secretstring.SecretString(apiToken),
-		client:     &http.Client{Timeout: httpClientTimeout},
+		client:     client,
 		apiBaseURL: defaultAPIBaseURL,
 		limiter:    rate.NewLimiter(rateLimitPerSecond, rateLimitBurst),
 	}

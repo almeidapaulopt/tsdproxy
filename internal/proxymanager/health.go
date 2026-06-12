@@ -15,6 +15,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/httpclient"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
@@ -60,7 +61,7 @@ type healthChecker struct {
 	result              atomic.Pointer[HealthResult]
 	cancel              context.CancelFunc
 	onRedetect          func() error
-	httpClient          *http.Client
+	httpClient          httpclient.Doer
 	scheme              string
 	interval            time.Duration
 	cooldown            time.Duration

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/httpclient"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
 	"github.com/rs/zerolog"
@@ -64,7 +65,7 @@ type (
 	Sender struct {
 		log     zerolog.Logger
 		ctx     context.Context
-		client  *http.Client
+		client  httpclient.Doer
 		cancel  context.CancelFunc
 		queue   chan sendJob
 		configs []config.WebhookConfig
@@ -74,11 +75,17 @@ type (
 	}
 )
 
-func NewSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
+func NewSender(log zerolog.Logger, configs []config.WebhookConfig, doer ...httpclient.Doer) *Sender {
+	var client httpclient.Doer
+	if len(doer) > 0 && doer[0] != nil {
+		client = doer[0]
+	} else {
+		client = &http.Client{Timeout: webhookTimeout}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sender{
 		log:     log.With().Str("module", "webhook").Logger(),
-		client:  &http.Client{Timeout: webhookTimeout},
+		client:  client,
 		configs: configs,
 		ctx:     ctx,
 		cancel:  cancel,
@@ -95,10 +102,16 @@ func NewSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
 // It is intended for one-shot use with SendSync (e.g. the test-webhook
 // endpoint) so the request handler does not pay the cost of creating
 // and tearing down 8 idle workers. Close is a no-op for sync senders.
-func NewSyncSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
+func NewSyncSender(log zerolog.Logger, configs []config.WebhookConfig, doer ...httpclient.Doer) *Sender {
+	var client httpclient.Doer
+	if len(doer) > 0 && doer[0] != nil {
+		client = doer[0]
+	} else {
+		client = &http.Client{Timeout: webhookTimeout}
+	}
 	return &Sender{
 		log:     log.With().Str("module", "webhook").Logger(),
-		client:  &http.Client{Timeout: webhookTimeout},
+		client:  client,
 		configs: configs,
 		ctx:     context.Background(),
 	}
