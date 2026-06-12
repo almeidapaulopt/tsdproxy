@@ -877,6 +877,7 @@ func TestSend(t *testing.T) {
 		}
 
 		s := NewSender(zerolog.Nop(), configs)
+		s.Start()
 		s.Send(event)
 		s.Close()
 
@@ -900,6 +901,7 @@ func TestSend(t *testing.T) {
 		}
 
 		s := NewSender(zerolog.Nop(), configs)
+		s.Start()
 		s.Send(event)
 		s.Close()
 
@@ -921,6 +923,7 @@ func TestSend(t *testing.T) {
 		s := NewSender(zerolog.Nop(), []config.WebhookConfig{
 			{URL: server.URL, Type: "generic"},
 		})
+		s.Start()
 		s.Close()
 
 		s.Send(event)
@@ -1084,6 +1087,7 @@ func TestNewSenderClose(t *testing.T) {
 		s := NewSender(zerolog.Nop(), []config.WebhookConfig{
 			{URL: server.URL, Type: "generic"},
 		})
+		s.Start()
 
 		s.Send(Event{ProxyName: "test", Status: "Running"})
 		s.Close()
@@ -1104,6 +1108,7 @@ func TestNewSenderClose(t *testing.T) {
 
 		const goroutines = 32
 		s := NewSender(zerolog.Nop(), nil)
+		s.Start()
 
 		var wg sync.WaitGroup
 		wg.Add(goroutines)
@@ -1123,6 +1128,7 @@ func TestNewSenderClose(t *testing.T) {
 		t.Parallel()
 
 		s := NewSender(zerolog.Nop(), nil)
+		s.Start()
 		if s == nil {
 			t.Fatal("NewSender returned nil")
 		}

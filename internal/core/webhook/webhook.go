@@ -72,6 +72,7 @@ type (
 		wg      sync.WaitGroup
 		closeMu sync.Mutex
 		closed  bool
+		started bool
 	}
 )
 
@@ -91,11 +92,21 @@ func NewSender(log zerolog.Logger, configs []config.WebhookConfig, doer ...httpc
 		cancel:  cancel,
 		queue:   make(chan sendJob, webhookQueueSize),
 	}
+	return s
+}
+
+// Start spawns the worker goroutines that drain the send queue.
+// It must be called after NewSender and before Send. Calling Start on a
+// sync sender (created with NewSyncSender, which has no queue) is a no-op.
+func (s *Sender) Start() {
+	if s.queue == nil {
+		return
+	}
 	s.wg.Add(webhookWorkers)
 	for range webhookWorkers {
 		go s.worker()
 	}
-	return s
+	s.started = true
 }
 
 // NewSyncSender returns a Sender without spawning worker goroutines.
