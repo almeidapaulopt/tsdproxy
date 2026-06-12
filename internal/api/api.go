@@ -34,7 +34,7 @@ func New(http *core.HTTPServer, pm *proxymanager.ProxyManager, log zerolog.Logge
 }
 
 func (a *API) AddRoutes() {
-	authMW := core.AdminMiddleware(a.Cfg)
+	authMW := core.AdminMiddleware(a.Cfg, a.Log)
 
 	a.HTTP.Get("/api/v1/proxies", authMW(a.listProxiesHandler()))
 	a.HTTP.Get("/api/v1/proxies/{name}", authMW(a.getProxyHandler()))

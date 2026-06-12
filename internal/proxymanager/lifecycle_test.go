@@ -13,12 +13,13 @@ import (
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
 // -- NewProxyManager -----------------------------------------------------------
 
 func TestNewProxyManager(t *testing.T) {
-	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil)
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil, web.NewAssets())
 
 	if pm.Proxies == nil {
 		t.Fatal("expected Proxies map to be initialized")
@@ -270,7 +271,7 @@ func TestNewProxyManager_Start(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil)
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil, nil)
 	pm.Start()
 }
 
@@ -285,7 +286,7 @@ func TestMetricsHandler(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil)
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil, nil)
 
 	h := pm.MetricsHandler()
 	if h == nil {

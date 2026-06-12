@@ -254,7 +254,7 @@ func TestAdminMiddleware(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			handler := AdminMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := AdminMiddleware(cfg, zerolog.Nop())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			handler.ServeHTTP(rec, req)
@@ -303,7 +303,7 @@ func TestViewerMiddleware(t *testing.T) {
 				req = req.WithContext(ctx)
 			}
 
-			handler := ViewerMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := ViewerMiddleware(cfg, zerolog.Nop())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			handler.ServeHTTP(rec, req)
@@ -338,7 +338,7 @@ func TestWriteForbidden(t *testing.T) {
 				req.Header.Set("Accept", tt.accept)
 			}
 
-			writeForbidden(rec, req, "access denied")
+			writeForbidden(rec, req, "access denied", zerolog.Nop())
 
 			if rec.Code != http.StatusForbidden {
 				t.Errorf("writeForbidden() status = %d, want %d", rec.Code, http.StatusForbidden)

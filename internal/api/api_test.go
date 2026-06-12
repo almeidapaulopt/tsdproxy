@@ -115,7 +115,7 @@ func setupAPI(t *testing.T) (*API, *proxymanager.ProxyManager) {
 	})
 
 	httpSrv := core.NewHTTPServer(zerolog.Nop())
-	pm := proxymanager.NewProxyManager(zerolog.Nop(), cfg, "test-token", nil)
+	pm := proxymanager.NewProxyManager(zerolog.Nop(), cfg, "test-token", nil, nil)
 
 	api := New(httpSrv, pm, zerolog.Nop(), cfg)
 	api.AddRoutes()

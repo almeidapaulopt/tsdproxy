@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
@@ -68,7 +67,7 @@ func (a *ProxyAuth) validToken(r *http.Request) bool {
 // When cfg.Admins is empty, any authenticated Tailscale user
 // is considered an admin. Use ViewerMiddleware for read-only access
 // that allows all Tailscale users regardless of the admins list.
-func AdminMiddleware(cfg *config.Data) Middleware {
+func AdminMiddleware(cfg *config.Data, log zerolog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if ValidAPIKey(r, cfg) {
@@ -85,7 +84,7 @@ func AdminMiddleware(cfg *config.Data) Middleware {
 					return
 				}
 				if id != "" {
-					writeForbidden(w, r, "admin access required")
+					writeForbidden(w, r, "admin access required", log)
 					return
 				}
 
@@ -94,7 +93,7 @@ func AdminMiddleware(cfg *config.Data) Middleware {
 					return
 				}
 
-				writeForbidden(w, r, "admin access requires a Tailscale connection")
+				writeForbidden(w, r, "admin access requires a Tailscale connection", log)
 				return
 			}
 
@@ -108,7 +107,7 @@ func AdminMiddleware(cfg *config.Data) Middleware {
 				return
 			}
 
-			writeForbidden(w, r, "admin access requires a Tailscale connection")
+			writeForbidden(w, r, "admin access requires a Tailscale connection", log)
 		})
 	}
 }
@@ -116,7 +115,7 @@ func AdminMiddleware(cfg *config.Data) Middleware {
 // ViewerMiddleware authenticates requests to read-only dashboard endpoints.
 // Any authenticated Tailscale user is allowed, regardless of the admins list.
 // Use AdminMiddleware for endpoints that require admin privileges.
-func ViewerMiddleware(cfg *config.Data) Middleware {
+func ViewerMiddleware(cfg *config.Data, log zerolog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if ValidAPIKey(r, cfg) {
@@ -135,7 +134,7 @@ func ViewerMiddleware(cfg *config.Data) Middleware {
 				return
 			}
 
-			writeForbidden(w, r, "dashboard access requires a Tailscale connection")
+			writeForbidden(w, r, "dashboard access requires a Tailscale connection", log)
 		})
 	}
 }
@@ -182,7 +181,7 @@ func extractBearerToken(r *http.Request) string {
 	return ""
 }
 
-func writeForbidden(w http.ResponseWriter, r *http.Request, message string) {
+func writeForbidden(w http.ResponseWriter, r *http.Request, message string, log zerolog.Logger) {
 	accept := r.Header.Get("Accept")
 	if strings.Contains(accept, "text/html") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

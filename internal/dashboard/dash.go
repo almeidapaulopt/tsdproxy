@@ -90,8 +90,8 @@ func (dash *Dashboard) dashboardSubject(r *http.Request) string {
 }
 
 func (dash *Dashboard) AddRoutes() {
-	viewMW := core.ViewerMiddleware(dash.cfg)
-	adminMW := core.AdminMiddleware(dash.cfg)
+	viewMW := core.ViewerMiddleware(dash.cfg, dash.Log)
+	adminMW := core.AdminMiddleware(dash.cfg, dash.Log)
 
 	dash.HTTP.Get("/{$}", viewMW(dash.dashboardHandler()))
 	dash.HTTP.Get("/dashboard/list", viewMW(dash.listFragmentHandler()))
