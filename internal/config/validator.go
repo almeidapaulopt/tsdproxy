@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
@@ -35,7 +35,7 @@ func (e *DomainProviderError) Error() string {
 }
 
 // validate method  Validate configurations.
-func (c *Data) validate() error {
+func (c *Data) validate(log zerolog.Logger) error {
 	log.Info().Msg("Validating configuration...")
 	validate := validator.New()
 
@@ -50,7 +50,7 @@ func (c *Data) validate() error {
 		}
 	}
 
-	if err := c.validateProxyProviders(); err != nil {
+	if err := c.validateProxyProviders(log); err != nil {
 		return err
 	}
 
@@ -142,7 +142,7 @@ func isReconcileIntervalPositive(p *TailscaleServerConfig) bool {
 	return d > 0
 }
 
-func (c *Data) validateProxyProviders() error {
+func (c *Data) validateProxyProviders(log zerolog.Logger) error {
 	if len(c.Tailscale.Providers) == 0 {
 		return errors.New("no tailscale proxy providers configured")
 	}
@@ -159,17 +159,17 @@ func (c *Data) validateProxyProviders() error {
 			}
 			log.Info().Str("provider", name).Str("hostname", p.Hostname).Msg("shared tsnet provider configured")
 		}
-		if err := c.validateServicesProvider(name, p); err != nil {
+		if err := c.validateServicesProvider(name, p, log); err != nil {
 			return err
 		}
-		if err := c.validateProviderOAuthFeatures(name, p); err != nil {
+		if err := c.validateProviderOAuthFeatures(name, p, log); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (c *Data) validateServicesProvider(name string, p *TailscaleServerConfig) error {
+func (c *Data) validateServicesProvider(name string, p *TailscaleServerConfig, log zerolog.Logger) error {
 	if !p.Services {
 		return nil
 	}
@@ -200,7 +200,7 @@ func (c *Data) validateServicesProvider(name string, p *TailscaleServerConfig) e
 	return nil
 }
 
-func (c *Data) validateProviderOAuthFeatures(name string, p *TailscaleServerConfig) error {
+func (c *Data) validateProviderOAuthFeatures(name string, p *TailscaleServerConfig, log zerolog.Logger) error {
 	if isReconcileIntervalPositive(p) {
 		if !hasOAuthCredentials(p) && !p.PreventDuplicates {
 			return fmt.Errorf("tailscale provider %q: reconcileInterval requires OAuth credentials (clientId + clientSecret) or preventDuplicates enabled", name)

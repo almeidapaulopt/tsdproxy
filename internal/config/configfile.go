@@ -18,7 +18,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -55,7 +54,7 @@ func (f *File) Load() error {
 		return err
 	}
 
-	err = unmarshalNormalized(data, f.data)
+	err = unmarshalNormalized(data, f.data, f.log)
 	if err != nil {
 		return err
 	}
@@ -220,7 +219,7 @@ func (f *File) handleEvent(event fsnotify.Event, file string, realFile *string) 
 	}
 }
 
-func unmarshalNormalized(data []byte, out any) error {
+func unmarshalNormalized(data []byte, out any, log zerolog.Logger) error {
 	lookup := buildKeyLookup(out)
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
@@ -229,7 +228,7 @@ func unmarshalNormalized(data []byte, out any) error {
 	if root.Kind == 0 || (root.Kind == yaml.DocumentNode && len(root.Content) == 0) {
 		return nil
 	}
-	issues := normalizeNodeKeys(&root, lookup, log.Logger)
+	issues := normalizeNodeKeys(&root, lookup, log)
 	if len(issues) > 0 {
 		var b strings.Builder
 		for _, iss := range issues {

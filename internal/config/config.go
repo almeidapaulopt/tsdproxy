@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/creasty/defaults"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
@@ -176,8 +176,9 @@ type (
 
 // InitializeConfig loads, validates and returns configuration.
 // Returns (*Data, error) on success so callers can inject the
-// config into their constructors.
-func InitializeConfig() (*Data, error) {
+// config into their constructors. The logger is used for config
+// loading diagnostics (the configured logger doesn't exist yet).
+func InitializeConfig(log zerolog.Logger) (*Data, error) {
 	cfg := &Data{}
 	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
@@ -188,11 +189,11 @@ func InitializeConfig() (*Data, error) {
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
-	fileConfig := NewConfigFile(log.Logger, *file, cfg)
+	fileConfig := NewConfigFile(log, *file, cfg)
 
 	log.Info().Str("file", *file).Msg("loading configuration")
 
-	if err := cfg.loadConfigFile(fileConfig, *file); err != nil {
+	if err := cfg.loadConfigFile(fileConfig, *file, log); err != nil {
 		return nil, err
 	}
 
@@ -203,7 +204,7 @@ func InitializeConfig() (*Data, error) {
 		log.Error().Err(err).Msg("error loading defaults")
 	}
 
-	cfg.applyDockerDefaults()
+	cfg.applyDockerDefaults(log)
 
 	if err := cfg.loadSecretsFromFiles(); err != nil {
 		return nil, err
@@ -217,7 +218,7 @@ func InitializeConfig() (*Data, error) {
 	// services mode requires clientId for the VIP Services API).
 	cfg.LoadTailscaleEnvOverrides()
 
-	if err := cfg.validate(); err != nil {
+	if err := cfg.validate(log); err != nil {
 		return nil, err
 	}
 
@@ -232,7 +233,7 @@ func InitializeConfig() (*Data, error) {
 // values are impractical: 127.0.0.1 is unreachable via port mapping and
 // port-mapped dashboard requests arrive from the Docker bridge gateway
 // (private IP) without a Tailscale identity.
-func (c *Data) applyDockerDefaults() {
+func (c *Data) applyDockerDefaults(log zerolog.Logger) {
 	if !isRunningInDocker() {
 		return
 	}
@@ -252,7 +253,7 @@ func isRunningInDocker() bool {
 	return err == nil
 }
 
-func (c *Data) loadConfigFile(fileConfig *File, path string) error {
+func (c *Data) loadConfigFile(fileConfig *File, path string, log zerolog.Logger) error {
 	if err := fileConfig.Load(); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -263,7 +264,7 @@ func (c *Data) loadConfigFile(fileConfig *File, path string) error {
 			log.Error().Err(err).Msg("error loading defaults")
 		}
 
-		c.applyDockerDefaults()
+		c.applyDockerDefaults(log)
 
 		if err := c.generateDefaultProviders(); err != nil {
 			return err

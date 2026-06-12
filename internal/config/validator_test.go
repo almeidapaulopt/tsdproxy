@@ -6,6 +6,7 @@ package config
 import (
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -60,7 +61,7 @@ func TestValidateProxyProviders_ServicesRequiresHostname(t *testing.T) {
 		},
 	}
 
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "hostname")
 }
@@ -79,7 +80,7 @@ func TestValidateProxyProviders_ServicesRequiresClientID(t *testing.T) {
 		},
 	}
 
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "clientId")
 }
@@ -100,7 +101,7 @@ func TestValidateProxyProviders_ServicesRequiresClientSecret(t *testing.T) {
 		},
 	}
 
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "clientSecret")
 }
@@ -122,7 +123,7 @@ func TestValidateProxyProviders_ServicesAcceptsClientSecretFile(t *testing.T) {
 		},
 	}
 
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -142,7 +143,7 @@ func TestValidateProxyProviders_ServiceModeWithoutTagsIsValid(t *testing.T) {
 		},
 	}
 
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	// Tags are not strictly required — services mode can use interactive login.
 	assert.NoError(t, err)
 }
@@ -161,7 +162,7 @@ func TestValidateProxyProviders_ServicesAndSharedMutualExclusion(t *testing.T) {
 		},
 	}
 
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "shared and services")
 }
@@ -182,7 +183,7 @@ func TestValidateProxyProviders_ServicesValid(t *testing.T) {
 		},
 	}
 
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -206,7 +207,7 @@ func TestValidateProxyProviders_AutoApproveDevicesValidWithOAuth(t *testing.T) {
 			},
 		},
 	}
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -229,7 +230,7 @@ func TestValidateProxyProviders_AutoRemoveConflictsValidWithOAuth(t *testing.T) 
 			},
 		},
 	}
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -246,7 +247,7 @@ func TestValidateProxyProviders_ReconcileIntervalRequiresOAuthOrPreventDuplicate
 			},
 		},
 	}
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "reconcileInterval")
 }
@@ -264,7 +265,7 @@ func TestValidateProxyProviders_ReconcileIntervalValidWithOAuth(t *testing.T) {
 			},
 		},
 	}
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -280,7 +281,7 @@ func TestValidateProxyProviders_ReconcileIntervalValidWithPreventDuplicates(t *t
 			},
 		},
 	}
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -300,7 +301,7 @@ func TestValidateProxyProviders_AuthKeyAndOAuthBothSetIsWarning(t *testing.T) {
 		},
 	}
 	// Warning only — validation should pass.
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -318,7 +319,7 @@ func TestValidateProxyProviders_AutoApproveDevicesOutsideServicesIsWarning(t *te
 		},
 	}
 	// Warning only — validation should pass.
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -334,7 +335,7 @@ func TestValidateProxyProviders_AutoRemoveConflictsOutsideServicesIsWarning(t *t
 		},
 	}
 	// Warning only — validation should pass.
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -355,7 +356,7 @@ func TestValidateProxyProviders_ReconcileIntervalWithoutPreventDuplicatesIsWarni
 		},
 	}
 	// Warning only — validation should pass.
-	err := c.validateProxyProviders()
+	err := c.validateProxyProviders(zerolog.Nop())
 	assert.NoError(t, err)
 }
 

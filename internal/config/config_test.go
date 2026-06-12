@@ -136,7 +136,7 @@ func TestLoadConfigFile_FileExists(t *testing.T) {
 		TLSProviders: make(map[string]*TLSProviderConfig),
 	}
 	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
-	err := c.loadConfigFile(fileConfig, path)
+	err := c.loadConfigFile(fileConfig, path, zerolog.Nop())
 	assert.NoError(t, err)
 	assert.Equal(t, "default", c.DefaultProxyProvider)
 	assert.Equal(t, "cloudflare", c.DNSProviders["cf"].Provider)
@@ -156,7 +156,7 @@ func TestLoadConfigFile_FileNotExists(t *testing.T) {
 		TLSProviders: make(map[string]*TLSProviderConfig),
 	}
 	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
-	err := c.loadConfigFile(fileConfig, path)
+	err := c.loadConfigFile(fileConfig, path, zerolog.Nop())
 	assert.NoError(t, err)
 
 	// Should have generated default config and saved to file
@@ -187,6 +187,6 @@ func TestLoadConfigFile_InvalidYAML(t *testing.T) {
 		TLSProviders: make(map[string]*TLSProviderConfig),
 	}
 	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
-	err := c.loadConfigFile(fileConfig, path)
+	err := c.loadConfigFile(fileConfig, path, zerolog.Nop())
 	assert.Error(t, err, "should error with invalid YAML content")
 }

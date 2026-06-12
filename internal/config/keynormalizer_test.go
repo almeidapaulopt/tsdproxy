@@ -132,7 +132,7 @@ func TestNormalize_CaseInsensitive(t *testing.T) {
 			cfg.DNSProviders = make(map[string]*DNSProviderConfig)
 			cfg.TLSProviders = make(map[string]*TLSProviderConfig)
 
-			err := unmarshalNormalized([]byte(tc.yaml), cfg)
+			err := unmarshalNormalized([]byte(tc.yaml), cfg, zerolog.Nop())
 			require.NoError(t, err, "case variant %q should load successfully", tc.name)
 
 			p, ok := cfg.Tailscale.Providers["default"]
@@ -147,7 +147,7 @@ func TestNormalize_CaseInsensitive(t *testing.T) {
 func TestNormalize_FuzzySuggestion(t *testing.T) {
 	yamlIn := "tailscale:\n  providers:\n    default:\n      clientdi: transpose-typo\n"
 	cfg := &Data{}
-	err := unmarshalNormalized([]byte(yamlIn), cfg)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
 	require.Error(t, err)
 	msg := err.Error()
 	assert.Contains(t, msg, "unknown field")
@@ -160,7 +160,7 @@ func TestNormalize_FuzzySuggestion(t *testing.T) {
 func TestNormalize_RejectsTrulyUnknown(t *testing.T) {
 	yamlIn := "tailscale:\n  providers:\n    default:\n      totallyMadeUp: 42\n"
 	cfg := &Data{}
-	err := unmarshalNormalized([]byte(yamlIn), cfg)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
 	require.Error(t, err)
 	msg := err.Error()
 	assert.Contains(t, msg, "unknown field")
@@ -171,7 +171,7 @@ func TestNormalize_RejectsTrulyUnknown(t *testing.T) {
 func TestNormalize_ReportedLineAndColumn(t *testing.T) {
 	yamlIn := "tailscale:\n  dataDir: /tmp\n  bogus: 1\n"
 	cfg := &Data{}
-	err := unmarshalNormalized([]byte(yamlIn), cfg)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "line 3")
 }
@@ -199,7 +199,7 @@ func TestNormalize_PreservesValidConfig(t *testing.T) {
 	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
 	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
 
-	err := unmarshalNormalized([]byte(yamlIn), cfg)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
 	require.NoError(t, err)
 	assert.Equal(t, "/data", cfg.Tailscale.DataDir)
 	require.Contains(t, cfg.Tailscale.Providers, "default")
@@ -212,13 +212,13 @@ func TestNormalize_PreservesValidConfig(t *testing.T) {
 
 func TestNormalize_EmptyDocument(t *testing.T) {
 	t.Parallel()
-	err := unmarshalNormalized([]byte(""), &Data{})
+	err := unmarshalNormalized([]byte(""), &Data{}, zerolog.Nop())
 	assert.NoError(t, err)
 
-	err = unmarshalNormalized([]byte("\n\n"), &Data{})
+	err = unmarshalNormalized([]byte("\n\n"), &Data{}, zerolog.Nop())
 	assert.NoError(t, err)
 
-	err = unmarshalNormalized(nil, &Data{})
+	err = unmarshalNormalized(nil, &Data{}, zerolog.Nop())
 	assert.NoError(t, err)
 }
 
@@ -231,7 +231,7 @@ func TestNormalize_MapAtRootSupportsUnknownInsideScope(t *testing.T) {
 	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
 	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
 
-	err := unmarshalNormalized([]byte(yamlIn), cfg)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "apiTken")
 	assert.Contains(t, err.Error(), "apiToken", "suggestion should reference the canonical apiToken")
@@ -240,7 +240,7 @@ func TestNormalize_MapAtRootSupportsUnknownInsideScope(t *testing.T) {
 func TestNormalize_DoesNotMutateValidCanonicalKeys(t *testing.T) {
 	yamlIn := "http:\n  hostname: 127.0.0.1\n  port: 9000\n"
 	cfg := &Data{}
-	err := unmarshalNormalized([]byte(yamlIn), cfg)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
 	require.NoError(t, err)
 	assert.Equal(t, "127.0.0.1", cfg.HTTP.Hostname)
 	assert.EqualValues(t, 9000, cfg.HTTP.Port)
@@ -249,7 +249,7 @@ func TestNormalize_DoesNotMutateValidCanonicalKeys(t *testing.T) {
 func TestNormalize_NodeKeyRewritesAreVisibleToDecode(t *testing.T) {
 	yamlIn := "log:\n  level: debug\n  JSON: true\n"
 	cfg := &Data{}
-	err := unmarshalNormalized([]byte(yamlIn), cfg)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
 	require.NoError(t, err)
 	assert.Equal(t, "debug", cfg.Log.Level)
 	assert.True(t, cfg.Log.JSON, "uppercase JSON key should normalize to 'json' and decode to bool true")
