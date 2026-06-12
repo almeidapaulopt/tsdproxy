@@ -19,15 +19,7 @@ import (
 func newTestMetrics(t *testing.T) *Metrics {
 	t.Helper()
 	reg := prometheus.NewRegistry()
-	oldReg := prometheus.DefaultRegisterer
-	oldGath := prometheus.DefaultGatherer
-	prometheus.DefaultRegisterer = reg
-	prometheus.DefaultGatherer = reg
-	t.Cleanup(func() {
-		prometheus.DefaultRegisterer = oldReg
-		prometheus.DefaultGatherer = oldGath
-	})
-	return New()
+	return New(reg)
 }
 
 func TestNew(t *testing.T) {

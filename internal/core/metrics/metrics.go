@@ -25,6 +25,8 @@ type Metrics struct {
 	ProxiesTotal     prometheus.Gauge
 	ProxyStatus      *prometheus.GaugeVec
 	statusMu         sync.Mutex
+	reg              prometheus.Registerer
+	gatherer         prometheus.Gatherer
 }
 
 const (
@@ -32,9 +34,16 @@ const (
 	labelPort  = "port"
 )
 
-// New creates and registers Prometheus metrics with the default registerer.
-func New() *Metrics {
+// New creates and registers Prometheus metrics with the given registerer.
+// If reg is nil, prometheus.DefaultRegisterer is used.
+func New(reg prometheus.Registerer) *Metrics {
+	if reg == nil {
+		reg = prometheus.DefaultRegisterer
+	}
+
 	m := &Metrics{
+		reg:      reg,
+		gatherer: reg.(prometheus.Gatherer), //nolint:errcheck // all standard registerers implement Gatherer
 		RequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "tsdproxy_proxy_requests_total",
@@ -72,7 +81,7 @@ func New() *Metrics {
 		),
 	}
 
-	prometheus.DefaultRegisterer.MustRegister(
+	reg.MustRegister(
 		m.RequestsTotal,
 		m.RequestDuration,
 		m.RequestsInFlight,
@@ -138,7 +147,7 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 
 // Handler returns an http.Handler that serves the Prometheus metrics endpoint.
 func (m *Metrics) Handler() http.Handler {
-	return promhttp.Handler()
+	return promhttp.HandlerFor(m.gatherer, promhttp.HandlerOpts{})
 }
 
 // SetProxyCount sets the total number of active proxies.

@@ -612,7 +612,7 @@ func TestSetStatus_WithMetrics(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	m := metrics.New()
+	m := metrics.New(nil)
 	proxy := &Proxy{
 		log:           zerolog.Nop(),
 		Config:        &model.Config{Hostname: "test"},
@@ -915,7 +915,7 @@ func TestSetMetricsReady_WithMetrics(t *testing.T) {
 		prometheus.DefaultGatherer = oldGatherer
 	})
 
-	m := metrics.New()
+	m := metrics.New(nil)
 	proxy := &Proxy{
 		log:     zerolog.Nop(),
 		Config:  &model.Config{Hostname: "test-proxy"},
