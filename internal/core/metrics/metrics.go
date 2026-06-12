@@ -19,14 +19,14 @@ import (
 
 // Metrics holds Prometheus metrics for per-proxy request instrumentation.
 type Metrics struct {
+	ProxiesTotal     prometheus.Gauge
+	reg              prometheus.Registerer
+	gatherer         prometheus.Gatherer
 	RequestsTotal    *prometheus.CounterVec
 	RequestDuration  *prometheus.HistogramVec
 	RequestsInFlight *prometheus.GaugeVec
-	ProxiesTotal     prometheus.Gauge
 	ProxyStatus      *prometheus.GaugeVec
 	statusMu         sync.Mutex
-	reg              prometheus.Registerer
-	gatherer         prometheus.Gatherer
 }
 
 const (
@@ -41,9 +41,16 @@ func New(reg prometheus.Registerer) *Metrics {
 		reg = prometheus.DefaultRegisterer
 	}
 
+	var gatherer prometheus.Gatherer
+	if g, ok := reg.(prometheus.Gatherer); ok {
+		gatherer = g
+	} else {
+		gatherer = prometheus.DefaultGatherer
+	}
+
 	m := &Metrics{
 		reg:      reg,
-		gatherer: reg.(prometheus.Gatherer), //nolint:errcheck // all standard registerers implement Gatherer
+		gatherer: gatherer,
 		RequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "tsdproxy_proxy_requests_total",
