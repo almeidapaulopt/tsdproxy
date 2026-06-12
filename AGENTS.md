@@ -94,6 +94,9 @@ tsdproxy/
 | `ConfigFile` | Struct | `internal/config/configfile.go` | YAML I/O with fsnotify live-reload |
 | `LifecycleManager` (DNS) | Struct | `internal/dnsproviders/lifecycle.go` | SetupDNS/CleanupDNS with retry + status tracking |
 | `LifecycleManager` (TLS) | Struct | `internal/tlsproviders/lifecycle.go` | Provision/Cleanup with status tracking |
+| `httpclient.Doer` | Interface | `internal/core/httpclient/httpclient.go` | HTTP client abstraction (`Do(req) (*http.Response, error)`). Satisfied by `*http.Client`. Injected into cloudflare, webhook, healthChecker. |
+| `docker.APIClient` | Interface | `internal/targetproviders/docker/docker_client.go` | Docker SDK abstraction (6 methods: ContainerInspect, ServiceInspect, Events, ContainerList, NetworkList, Close). Satisfied by `*client.Client`. |
+| `TSNetServer` | Interface | `internal/proxyproviders/tailscale/tsnet_interface.go` | tsnet.Server abstraction (10 methods: Listen, ListenTLS, ListenFunnel, ListenPacket, TailscaleIPs, CertDomains, Start, Close, LocalClient, ListenService). Satisfied by `*tsnet.Server`. |
 
 ## ARCHITECTURE
 
@@ -155,6 +158,7 @@ Steps 4–5 skipped for host-network containers.
 
 - **SPDX headers required**: Every `.go` file must start with `SPDX-FileCopyrightText` + `SPDX-License-Identifier: MIT` (enforced by `goheader` linter)
 - **Config via dependency injection**: `*config.Data` passed through constructors (not global singleton)
+- **Interface-driven deps**: External dependencies abstracted behind interfaces: `httpclient.Doer` (HTTP), `docker.APIClient` (Docker SDK), `TSNetServer` (tsnet). Injected via variadic constructor params with backward-compatible defaults.
 - **Provider pattern**: Four provider types pluggable via interfaces; register via config-driven switch in `proxymanager.go`
 - **Zero-value defaults**: `github.com/creasty/defaults` for struct defaults; `model/default.go` for constants
 - **Error handling**: Three-tier: `fmt.Errorf("context: %w", err)` wrapping → sentinel `ErrFoo` vars → custom `XxxError` types

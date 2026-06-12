@@ -9,13 +9,14 @@ Foundational infrastructure: HTTP server, middleware chain, logging, health prob
 | `http.go` | `HTTPServer` — mux wrapper with middleware chain. `Use()` adds middleware, `Handle/Get/Post/Put` register routes, `StartServer` binds and serves. JSON/error response helpers. |
 | `log.go` | zerolog setup: `NewLog()` configures level (from config), format (JSON vs console), caller info. `LoggerMiddleware` for HTTP access logging. |
 | `healthcheck.go` | `HealthHandler` — atomic ready/not-ready flag. Registers `GET /health/ready/` and `GET /health/live/`. Readiness set after HTTP server starts. |
-| `version.go` | `GetVersion()` via `sync.Once`. GoReleaser ldflags inject `version` var; local builds get `"dev"` + dirty detection from `debug.ReadBuildInfo()`. |
-| `admin.go` | `InitProxyAuth()` generates 32-byte random token. `AdminMiddleware`/`ViewerMiddleware` for RBAC. `AdminAllowList` for IP-based access. `StripProxyIdentityHeaders` validates/removes `x-tsdproxy-*` headers. |
+| `version.go` | `VersionInfo` struct with `NewVersionInfo()`. GoReleaser ldflags inject `version` var; local builds get `"dev"` + dirty detection. `GetVersion()`/`GetIsDirty()` are backward-compat wrappers. |
+| `admin.go` | `ProxyAuth` struct with `NewProxyAuth(logger)`. `AdminMiddleware`/`ViewerMiddleware` for RBAC. `AdminAllowList` for IP-based access. `StripProxyIdentityHeaders` validates/removes `x-tsdproxy-*` headers. |
 | `sessions.go` | `SessionMiddleware` — UUID session cookie via `gorilla/sessions`. Cookie-based, no server-side store. |
 | `csrf.go` | `CSRFMiddleware` — Go 1.25+ `http.CrossOriginProtection`. |
 | `telemetry.go` | `InitTracer()` — optional OpenTelemetry tracer (config-driven). |
 | `metrics/` | Prometheus-style metrics: proxy count, port count, status gauges. |
-| `webhook/` | Webhook dispatch on proxy events: ntfy, Discord, Slack, Gotify, generic HTTP. Async with retry. |
+| `httpclient/` | `Doer` interface — HTTP client abstraction. Satisfied by `*http.Client`. Injected into cloudflare, webhook, healthChecker for testability. |
+| `webhook/` | Webhook dispatch on proxy events: ntfy, Discord, Slack, Gotify, generic HTTP. Async with retry. `Sender.client` is `httpclient.Doer`. |
 | `secretstring/` | `SecretString` type — prevents logging/serialization of secret values. |
 
 ## MIDDLEWARE CHAIN (applied globally on HTTPServer)
@@ -39,13 +40,13 @@ Shutdown(ctx, 10s timeout) → health.SetNotReady() → server.Shutdown()
 
 ## AUTH FLOW
 
-- `InitProxyAuth()` generates `proxyAuthToken` (package-level var, set once during init)
+- `NewProxyAuth(logger)` generates random token, returns `*ProxyAuth`. Threaded through constructors to proxymanager.
 - `AdminMiddleware` checks session for admin role
 - `ViewerMiddleware` checks session for viewer role
 - `AdminAllowList` restricts admin access by IP (config: `adminAllowLocalhost`, `adminAllowList`)
-- `StripProxyIdentityHeaders` removes `x-tsdproxy-*` identity headers from incoming requests (prevents spoofing)
+- `StripProxyIdentityHeaders` validates/removes `x-tsdproxy-*` identity headers from incoming requests (prevents spoofing)
 
 ## GOTCHAS
 
-- **`proxyAuthToken` is package-level mutable**: set in `InitProxyAuth()`, accessed by middleware. No sync primitive beyond single-goroutine init sequence.
+- **`ProxyAuth` is constructed explicitly**: `NewProxyAuth(logger)` creates the token, passed through constructors to `ProxyManager`. No package-level mutable state.
 - **`fmt.Fprintf(os.Stderr, ...)` in `cmd/server/main.go`**: uses fmt instead of zerolog because logger doesn't exist yet. Acceptable for pre-logger messages.

@@ -19,6 +19,7 @@ Tailscale proxy provider: creates `tsnet.Server` instances in three modes (per-p
 | `provider.go` | `Client` factory. `New()` from config, `ResolveAuthKey()`, `NewProxy()` branches by mode. Stale state/device cleanup on config mismatch. |
 | `auth_manager.go` | `AuthManager` — 5-level auth key resolution chain + OAuth key generation via Tailscale API. |
 | `api_client.go` | `APIClientFactory` — OAuth-scoped Tailscale API client creation for device reconciliation + key generation. |
+| `tsnet_interface.go` | `TSNetServer` interface — tsnet.Server abstraction (10 methods). Satisfied by `*tsnet.Server`. Enables offline testing of listeners, SNI routing, lifecycle. |
 
 ### Per-proxy mode
 
@@ -30,7 +31,7 @@ Tailscale proxy provider: creates `tsnet.Server` instances in three modes (per-p
 
 | File | Role |
 |------|------|
-| `shared_server.go` | `SharedServer` — ref-counted tsnet.Server with event-loop state machine. Commands: acquire, release, close, watchUpdate, certDone, idleTimeout. Auto-stops after 30s idle. |
+| `shared_server.go` | `SharedServer` — ref-counted tsnet.Server (via `TSNetServer` interface) with event-loop state machine. Commands: acquire, release, close, watchUpdate, certDone, idleTimeout. Auto-stops after 30s idle. |
 | `shared_proxy.go` | `SharedProxy` — facade over SharedServer. `Start()` acquires virtual listeners per port, `Close()` releases them. |
 | `port_router.go` | `PortRouter` — SNI (TLS ClientHello peek) or HTTP Host header routing to `VirtualListener`. Zero-copy peek for SNI, byte replay for HTTP. |
 | `virtual_listener.go` | `VirtualListener` — `net.Listener` backed by buffered channel (cap 64). Non-blocking dispatch, drops on full. |
@@ -47,7 +48,7 @@ Tailscale proxy provider: creates `tsnet.Server` instances in three modes (per-p
 | File | Role |
 |------|------|
 | `node_lifecycle.go` | `NodeLifecycle` — full lifecycle: resolve auth → clean stale state → reconcile devices → create tsnet → start with retry → get LocalClient → start StatusWatcher. |
-| `node_runtime.go` | `NodeRuntime` — runtime handle: tsnet.Server + LocalClient + context + cancel + URL/AuthURL. |
+| `node_runtime.go` | `NodeRuntime` — runtime handle: `TSNetServer` + LocalClient + context + cancel + URL/AuthURL. |
 | `node_config.go` | `NodeConfig` — config struct: hostname, datadir, controlURL, tags, mode, ephemeral. |
 | `status_watcher.go` | `StatusWatcher` — polls `local.Client.Status()` every 2s, classifies `BackendState` into `ProxyStatus` events. |
 | `state_manager.go` | `StateManager` — persists `stateMeta` YAML alongside tsnet state. Compares on startup; mismatch → full datadir removal. |
@@ -68,6 +69,7 @@ Tailscale proxy provider: creates `tsnet.Server` instances in three modes (per-p
 | `whois_cache_test.go` | TTL cache + singleflight dedup |
 | `virtual_listener_test.go` | Concurrent dispatch + close safety (goroutine swarm with `atomic` stop flag) |
 | `port_router_test.go` | SNI/HTTP Host routing, zero-copy peek, byte replay |
+| `tsnet_interface_test.go` | `mockTSNetServer` (function-field based, implements `TSNetServer`). Offline listener, error, and value roundtrip tests. |
 
 ### Supporting
 

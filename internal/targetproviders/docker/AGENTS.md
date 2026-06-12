@@ -6,7 +6,8 @@ Docker target provider: watches Docker daemon for containers with `tsdproxy.*` l
 
 | File | Role |
 |------|------|
-| `docker.go` | `Client` (TargetProvider impl). `WatchEvents()` subscribes to Docker Events API (start/die, filtered by `tsdproxy.enable=true`). `startAllProxies()` initial scan. Swarm support. |
+| `docker.go` | `Client` (TargetProvider impl). `WatchEvents()` subscribes to Docker Events API (start/die, filtered by `tsdproxy.enable=true`). `startAllProxies()` initial scan. Swarm support. `Client.docker` field is `APIClient` interface. |
+| `docker_client.go` | `APIClient` interface — Docker SDK abstraction (6 methods). Satisfied by `*client.Client`. Enables unit testing without Docker daemon. |
 | `container.go` | `container` struct. `getPorts()` label parsing, `getTargetURL()` 5-step resolution chain, `newProxyConfig()` builds per-proxy `model.Config`. |
 | `consts.go` | All label constants (`tsdproxy.*` prefix), port option constants, timing constants. |
 | `autodetect.go` | Auto-detect probing: `tryConnectContainer`, `tryInternalPort`, `tryPublishedPort`, `dial`. Used in resolveByProbing step. |
@@ -14,6 +15,7 @@ Docker target provider: watches Docker daemon for containers with `tsdproxy.*` l
 | `legacy.go` | Legacy label support: `tsdproxy.container_port`, `tsdproxy.scheme`, `tsdproxy.tlsvalidate`, `tsdproxy.funnel`. |
 | `errors.go` | Custom error types: `NoValidTargetFoundError`, `ErrNoPortFoundInContainer`. |
 | `container_test.go` | ~564 lines, 25+ tests. `newTestContainer` helper. Uses stdlib `t.Fatalf` (not testify). Tests all 5 resolution strategies. |
+| `docker_client_test.go` | `mockAPIClient` (implements `APIClient`), 18 tests covering container listing, event watching, inspect, swarm, filter config. No Docker daemon needed. |
 
 ## LABEL SCHEMA
 
