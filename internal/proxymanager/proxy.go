@@ -81,52 +81,56 @@ type (
 	}
 )
 
-func NewProxy(log zerolog.Logger,
-	pcfg *model.Config,
-	proxyProvider proxyproviders.Provider,
-	m *metrics.Metrics,
-	telemetryEnabled bool,
-	httpPort uint16,
-	proxyAuthToken string,
-) (*Proxy, error) {
+// ProxyParams holds the parameters for creating a new Proxy.
+type ProxyParams struct {
+	Log              zerolog.Logger
+	ProxyProvider    proxyproviders.Provider
+	Config           *model.Config
+	Metrics          *metrics.Metrics
+	ProxyAuthToken   string
+	HTTPPort         uint16
+	TelemetryEnabled bool
+}
+
+func NewProxy(params ProxyParams) (*Proxy, error) {
 	var err error
 
-	log = log.With().Str("proxyname", pcfg.Hostname).Logger()
-	log.Info().Str("hostname", pcfg.Hostname).Msg("setting up proxy")
+	log := params.Log.With().Str("proxyname", params.Config.Hostname).Logger()
+	log.Info().Str("hostname", params.Config.Hostname).Msg("setting up proxy")
 
-	log.Debug().Str("hostname", pcfg.Hostname).
+	log.Debug().Str("hostname", params.Config.Hostname).
 		Msg("initializing proxy")
 
-	pProvider, err := proxyProvider.NewProxy(pcfg)
+	pProvider, err := params.ProxyProvider.NewProxy(params.Config)
 	if err != nil {
 		return nil, fmt.Errorf("error initializing proxy on proxyProvider: %w", err)
 	}
 
 	log.Debug().
-		Str("hostname", pcfg.Hostname).
+		Str("hostname", params.Config.Hostname).
 		Msg("Proxy server created successfully")
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var logBuffer *LogRingBuffer
-	if pcfg.ProxyAccessLog {
+	if params.Config.ProxyAccessLog {
 		logBuffer = NewLogRingBuffer(log, DefaultLogBufferSize)
 	}
 
 	p := &Proxy{
 		log:              log,
-		Config:           pcfg,
+		Config:           params.Config,
 		ctx:              ctx,
 		cancel:           cancel,
 		providerProxy:    pProvider,
 		ports:            make(map[string]portHandler),
-		metrics:          m,
+		metrics:          params.Metrics,
 		statusHistory:    make([]StatusTransition, 0, maxStatusHistory),
 		startedAt:        time.Now(),
 		logBuffer:        logBuffer,
-		telemetryEnabled: telemetryEnabled,
-		httpPort:         httpPort,
-		proxyAuthToken:   proxyAuthToken,
+		telemetryEnabled: params.TelemetryEnabled,
+		httpPort:         params.HTTPPort,
+		proxyAuthToken:   params.ProxyAuthToken,
 	}
 
 	p.initPorts()

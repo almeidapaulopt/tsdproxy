@@ -849,7 +849,15 @@ func (pm *ProxyManager) newAndStartProxy(name string, proxyConfig *model.Config)
 	// server must be fully stopped before those filesystem operations run.
 	pm.closeAndRemoveProxy(proxyConfig.Hostname, proxyConfig.ProxyProvider)
 
-	p, err := NewProxy(pm.log, proxyConfig, proxyProvider, pm.metrics, pm.cfg.Telemetry.Enabled, pm.cfg.HTTP.Port, pm.proxyAuthToken)
+	p, err := NewProxy(ProxyParams{
+		Log:              pm.log,
+		Config:           proxyConfig,
+		ProxyProvider:    proxyProvider,
+		Metrics:          pm.metrics,
+		TelemetryEnabled: pm.cfg.Telemetry.Enabled,
+		HTTPPort:         pm.cfg.HTTP.Port,
+		ProxyAuthToken:   pm.proxyAuthToken,
+	})
 	if err != nil {
 		return fmt.Errorf("error creating proxy: %w", err)
 	}

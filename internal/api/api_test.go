@@ -56,9 +56,9 @@ func (s *stubProxyInterface) Whois(_ *http.Request) model.Whois  { return model.
 
 func newTestProxy(t *testing.T, name string, visible bool) *proxymanager.Proxy {
 	t.Helper()
-	proxy, err := proxymanager.NewProxy(
-		zerolog.Nop(),
-		&model.Config{
+	proxy, err := proxymanager.NewProxy(proxymanager.ProxyParams{
+		Log: zerolog.Nop(),
+		Config: &model.Config{
 			Hostname: name,
 			Dashboard: model.Dashboard{
 				Label:   name,
@@ -68,12 +68,8 @@ func newTestProxy(t *testing.T, name string, visible bool) *proxymanager.Proxy {
 				Tags: "tag:test",
 			},
 		},
-		&stubProvider{},
-		nil,   // metrics — nil safe for handlers that only read Config
-		false, // telemetryEnabled
-		0,     // httpPort
-		"",    // proxyAuthToken
-	)
+		ProxyProvider: &stubProvider{},
+	})
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
 	}
@@ -82,9 +78,9 @@ func newTestProxy(t *testing.T, name string, visible bool) *proxymanager.Proxy {
 
 func newTestProxyWithPorts(t *testing.T, name string, visible bool, ports model.PortConfigList) *proxymanager.Proxy {
 	t.Helper()
-	proxy, err := proxymanager.NewProxy(
-		zerolog.Nop(),
-		&model.Config{
+	proxy, err := proxymanager.NewProxy(proxymanager.ProxyParams{
+		Log: zerolog.Nop(),
+		Config: &model.Config{
 			Hostname: name,
 			Dashboard: model.Dashboard{
 				Label:   name,
@@ -95,12 +91,8 @@ func newTestProxyWithPorts(t *testing.T, name string, visible bool, ports model.
 			},
 			Ports: ports,
 		},
-		&stubProvider{},
-		nil,
-		false,
-		0,
-		"", // proxyAuthToken
-	)
+		ProxyProvider: &stubProvider{},
+	})
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
 	}
@@ -446,9 +438,9 @@ func TestAPI_GetProxyPortsHandler_Invisible(t *testing.T) {
 func TestAPI_ListProxiesHandler_LabelFallback(t *testing.T) {
 	api, pm := setupAPI(t)
 
-	proxy, err := proxymanager.NewProxy(
-		zerolog.Nop(),
-		&model.Config{
+	proxy, err := proxymanager.NewProxy(proxymanager.ProxyParams{
+		Log: zerolog.Nop(),
+		Config: &model.Config{
 			Hostname: "myproxy",
 			Dashboard: model.Dashboard{
 				Label:   "", // empty label → fallback to name
@@ -458,12 +450,8 @@ func TestAPI_ListProxiesHandler_LabelFallback(t *testing.T) {
 				Tags: "tag:test",
 			},
 		},
-		&stubProvider{},
-		nil,
-		false,
-		0,
-		"", // proxyAuthToken
-	)
+		ProxyProvider: &stubProvider{},
+	})
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
 	}
