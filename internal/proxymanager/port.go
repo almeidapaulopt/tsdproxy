@@ -323,7 +323,13 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 }
 
 func (p *tcpPort) handleConn(clientConn net.Conn) {
-	defer clientConn.Close()
+	var backendConn net.Conn
+	var clientCloseOnce, backendCloseOnce sync.Once
+
+	closeClient := func() { clientCloseOnce.Do(func() { clientConn.Close() }) }
+	closeBackend := func() { backendCloseOnce.Do(func() { backendConn.Close() }) }
+
+	defer closeClient()
 
 	target := p.pconfig.GetFirstTarget()
 	if target == nil || target.Host == "" {
@@ -332,12 +338,29 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}
 
 	dialer := net.Dialer{Timeout: tcpDialTimeout}
-	backendConn, err := dialer.DialContext(p.ctx, "tcp", target.Host)
+	var err error
+	backendConn, err = dialer.DialContext(p.ctx, "tcp", target.Host)
 	if err != nil {
 		p.log.Error().Err(err).Str("target", target.Host).Msg("error dialing backend")
 		return
 	}
-	defer backendConn.Close()
+	defer closeBackend()
+
+	// Unblock io.Copy on shutdown: canceling p.ctx alone does not interrupt
+	// an idle splice, so close both ends when the port is closed. Without this,
+	// tcpPort.close()'s acceptWg.Wait() can hang indefinitely on idle
+	// long-lived connections. sync.Once guards against double-close when
+	// the shutdown goroutine and the normal exit path race.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-p.ctx.Done():
+			closeClient()
+			closeBackend()
+		case <-stop:
+		}
+	}()
 
 	errChan := make(chan error, tcpErrChanBuf)
 	go func() {
@@ -350,8 +373,8 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}()
 
 	<-errChan
-	clientConn.Close()
-	backendConn.Close()
+	closeClient()
+	closeBackend()
 	<-errChan
 }
 
