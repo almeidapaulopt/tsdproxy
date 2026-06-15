@@ -285,6 +285,9 @@ func (c *Client) buildConfig(id string, p proxyConfig) (*model.Config, error) {
 	pcfg.HealthCheckInterval = c.config.HealthCheckInterval
 	pcfg.HealthCheckFailures = c.config.HealthCheckFailures
 	pcfg.HealthCheckCooldown = c.config.HealthCheckCooldown
+	pcfg.RateLimitEnabled = c.config.RateLimitEnabled
+	pcfg.RateLimitRPS = c.config.RateLimitRPS
+	pcfg.RateLimitBurst = c.config.RateLimitBurst
 	pcfg.Ports = c.getPorts(p.Ports)
 	pcfg.Dashboard = p.Dashboard
 	pcfg.Domain = p.Domain
