@@ -84,6 +84,7 @@ type (
 
 // ProxyParams holds the parameters for creating a new Proxy.
 type ProxyParams struct {
+	Ctx            context.Context
 	Log            zerolog.Logger
 	ProxyProvider  proxyproviders.Provider
 	TracerProvider trace.TracerProvider
@@ -111,7 +112,11 @@ func NewProxy(params ProxyParams) (*Proxy, error) {
 		Str("hostname", params.Config.Hostname).
 		Msg("Proxy server created successfully")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	parentCtx := params.Ctx
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	var logBuffer *LogRingBuffer
 	if params.Config.ProxyAccessLog {
