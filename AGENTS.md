@@ -169,8 +169,8 @@ Steps 4–5 skipped for host-network containers.
 - **UI framework**: `templ` for server-rendered HTML; htmx 4 + `hx-sse` for live updates
 - **Import aliases**: Descriptive when packages collide: `cloudflaredns`, `magicdns`, `acmetls`, `tailscaletls`, `tsproxy`
 - **Import ordering**: Three groups via goimports: stdlib → third-party → project-internal (`github.com/almeidapaulopt/tsdproxy`)
-- **nolint convention**: Use specific linter name (`//nolint:gosec`, `//nolint:mnd`) not bare `//nolint`
-- **Magic numbers**: Suppressed with `//nolint:mnd` inline rather than named constants (prolific in `model/port.go`, `tailscale/sni_router.go`)
+- **nolint convention**: Avoid `//nolint` directives unless strictly necessary. When unavoidable, use specific linter name (`//nolint:gosec`, `//nolint:mnd`) with a brief justification — never bare `//nolint`. Prefer fixing the underlying issue (extract function, rename, simplify) over suppressing.
+- **Magic numbers**: Define named constants for default values, bounds, and thresholds. Do NOT use `//nolint:mnd` to suppress — extract a constant instead (e.g. `const defaultRateLimitMaxRPS = 10000`). Existing `//nolint:mnd` in legacy code is a known debt, not a pattern to follow.
 
 ## DASHBOARD STACK
 
