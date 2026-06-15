@@ -46,12 +46,14 @@ Tailscale TLS provider skips global registration. It gets created inline per pro
 TargetProvider.WatchEvents() → eventsChan
   → HandleProxyEvent(event)
       getTargetLock(event.ID)     // per-ID mutex from sync.Map
-      ActionStartProxy  → eventStart()  → newAndStartProxy()
+      ActionStartProxy  → eventStart()  → newProxy() + Start() (outside target lock)
       ActionStopProxy   → eventStop()   → closeAndRemoveProxy()
       ActionRestartProxy → stop then start
 ```
 
-`newAndStartProxy`: resolve auth key → `proxyProvider.NewProxy()` → create `Proxy` → `resolveAndSetProviders()` → `setupDomainForProxy()` (DNS create + TLS provision + hostname assignment) → `proxy.Start()` → register in `pm.Proxies`.
+`newProxy`: resolve auth key → `proxyProvider.NewProxy()` → create `Proxy` → `resolveAndSetProviders()` → `setupDomainForProxy()` (DNS create + TLS provision + hostname assignment) → register in `pm.Proxies`. `Start()` is called by `HandleProxyEvent` after releasing the target lock.
+
+`restartProxyLocked`: `newProxy()` + `Start()` synchronously. Used only by `RestartProxy` (dashboard action) under the target lock.
 
 `closeAndRemoveProxy`: `proxy.Close()` → DNS cleanup → TLS cleanup → delete from map.
 
