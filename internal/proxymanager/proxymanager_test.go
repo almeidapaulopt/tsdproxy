@@ -181,6 +181,7 @@ func TestHandleProxyEvent_Stop(t *testing.T) {
 		cancel:        cancel,
 		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
 	}
+	pm.targetIndex["my-id"] = "my-proxy"
 	event := targetproviders.TargetEvent{
 		TargetProvider: &stubTargetProv{},
 		ID:             "my-id",
@@ -213,6 +214,7 @@ func TestHandleProxyEvent_Restart(t *testing.T) {
 		cancel:        cancel,
 		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
 	}
+	pm.targetIndex["restart-id"] = "restart-app"
 	pm.ProxyProviders["tailscale"] = &stubProxyProv{
 		newProxyRet: &stubProviderProxy{listener: l},
 	}
@@ -272,6 +274,7 @@ func TestEventStop_RemovesProxyByTargetID(t *testing.T) {
 		cancel:        cancelA,
 		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
 	}
+	pm.targetIndex["target-a"] = "a"
 	pm.Proxies["b"] = &Proxy{
 		Config:        &model.Config{TargetID: "target-b", Hostname: "b"},
 		log:           zerolog.Nop(),
@@ -279,6 +282,7 @@ func TestEventStop_RemovesProxyByTargetID(t *testing.T) {
 		cancel:        cancelB,
 		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
 	}
+	pm.targetIndex["target-b"] = "b"
 	pm.eventStop(targetproviders.TargetEvent{
 		TargetProvider: &stubTargetProv{},
 		ID:             "target-a",
@@ -720,30 +724,28 @@ func TestGetTargetProvider_NotFound(t *testing.T) {
 	}
 }
 
-// -- getTargetLock (additional concurrency test) -------------------------------
+// -- targetLocks (additional concurrency test) ---------------------------------
 
-func TestGetTargetLock_LocksExclusively(t *testing.T) {
+func TestTargetLocks_LocksExclusively(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	m := pm.getTargetLock("lock-test")
-	m.Lock()
-	locked := make(chan bool)
+	pm.targetLocks.Lock("lock-test")
+
+	locked := make(chan struct{})
 	go func() {
-		m.Lock()
+		pm.targetLocks.Lock("lock-test")
 		close(locked)
 	}()
+
 	select {
 	case <-locked:
 		t.Fatal("second Lock should block")
 	case <-time.After(10 * time.Millisecond):
 	}
-	m.Unlock()
-	select {
-	case <-locked:
-	case <-time.After(time.Second):
-		t.Fatal("second Lock should have acquired after unlock")
-	}
-	m.Unlock()
+
+	pm.targetLocks.Unlock("lock-test")
+	<-locked
+	pm.targetLocks.Unlock("lock-test")
 }
 
 // -- updateProxyCount / cleanupProxyMetrics ------------------------------------
@@ -779,26 +781,49 @@ func TestCleanupProxyMetrics_NilMetrics(t *testing.T) {
 	pm.cleanupProxyMetrics("test")
 }
 
-// -- getHostLock ---------------------------------------------------------------
+// -- hostLocks -----------------------------------------------------------------
 
-func TestGetHostLock_SameHostname_ReturnsSameMutex(t *testing.T) {
+func TestHostLocks_SameHostname_Serializes(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	m1 := pm.getHostLock("test-host")
-	m2 := pm.getHostLock("test-host")
-	if m1 != m2 {
-		t.Fatal("expected same mutex for same hostname")
+	pm.hostLocks.Lock("test-host")
+
+	locked := make(chan struct{})
+	go func() {
+		pm.hostLocks.Lock("test-host")
+		close(locked)
+	}()
+
+	select {
+	case <-locked:
+		t.Fatal("second Lock should block")
+	case <-time.After(10 * time.Millisecond):
 	}
+
+	pm.hostLocks.Unlock("test-host")
+	<-locked
+	pm.hostLocks.Unlock("test-host")
 }
 
-func TestGetHostLock_DifferentHostnames_DifferentMutexes(t *testing.T) {
+func TestHostLocks_DifferentHostnames_AreIndependent(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	m1 := pm.getHostLock("host-1")
-	m2 := pm.getHostLock("host-2")
-	if m1 == m2 {
-		t.Fatal("expected different mutexes")
+	pm.hostLocks.Lock("host-1")
+
+	locked := make(chan struct{})
+	go func() {
+		pm.hostLocks.Lock("host-2")
+		close(locked)
+	}()
+
+	select {
+	case <-locked:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("different hostname Lock should not block")
 	}
+
+	pm.hostLocks.Unlock("host-1")
+	pm.hostLocks.Unlock("host-2")
 }
 
 // -- StopAllProxies concurrency safety -----------------------------------------

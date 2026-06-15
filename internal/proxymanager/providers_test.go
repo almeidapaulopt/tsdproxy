@@ -4,88 +4,14 @@
 package proxymanager
 
 import (
-	"context"
-	"crypto/tls"
 	"errors"
 	"testing"
-
-	"github.com/caddyserver/certmagic"
-	"github.com/libdns/libdns"
-	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
-	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
-
-type mockDNSProvider struct {
-	name string
-}
-
-var (
-	_ dnsproviders.Provider = (*mockDNSProvider)(nil)
-	_ certmagic.DNSProvider = (*mockDNSProvider)(nil)
-)
-
-func (m *mockDNSProvider) Name() string { return m.name }
-func (m *mockDNSProvider) CreateRecord(_ context.Context, _, _, _ string) error {
-	return nil
-}
-
-func (m *mockDNSProvider) DeleteRecord(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (m *mockDNSProvider) ValidateRecord(_ context.Context, _, _, _ string) (bool, error) {
-	return true, nil
-}
-
-func (m *mockDNSProvider) AppendRecords(_ context.Context, _ string, _ []libdns.Record) ([]libdns.Record, error) {
-	return nil, nil
-}
-
-func (m *mockDNSProvider) DeleteRecords(_ context.Context, _ string, _ []libdns.Record) ([]libdns.Record, error) {
-	return nil, nil
-}
-
-type mockTLSProvider struct {
-	name string
-}
-
-var _ tlsproviders.Provider = (*mockTLSProvider)(nil)
-
-func (m *mockTLSProvider) Name() string { return m.name }
-func (m *mockTLSProvider) Provision(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockTLSProvider) GetCertificate(_ context.Context, _ string) (tls.Certificate, error) {
-	return tls.Certificate{}, nil
-}
-func (m *mockTLSProvider) Cleanup(_ context.Context, _ string) error { return nil }
-
-func newTestProxyManager(cfg *config.Data) *ProxyManager {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &ProxyManager{
-		ctx:               ctx,
-		cancel:            cancel,
-		cfg:               cfg,
-		Proxies:           make(ProxyList),
-		TargetProviders:   make(TargetProviderList),
-		ProxyProviders:    make(ProxyProviderList),
-		DNSProviders:      make(DNSProviderList),
-		TLSProviders:      make(TLSProviderList),
-		statusSubscribers: make(map[*statusSubscription]struct{}),
-		log:               zerolog.Nop().With().Str("module", "proxymanager").Logger(),
-	}
-}
-
-func newTestConfig(t *testing.T) *config.Data {
-	t.Helper()
-	return config.NewTestData(t.TempDir(), "")
-}
 
 func TestResolveAndSetProviders_PerProxyACMEUsesResolvedDNSProvider(t *testing.T) {
 	cfg := newTestConfig(t)
@@ -180,7 +106,7 @@ func TestResolveAndSetProviders_NonACMEDoesNotRecreate(t *testing.T) {
 	}
 }
 
-func TestNewAndStartProxy_DomainRequiredProviderRejectsNoDomain(t *testing.T) {
+func TestRestartProxyLocked_DomainRequiredProviderRejectsNoDomain(t *testing.T) {
 	cfg := newTestConfig(t)
 
 	pm := newTestProxyManager(cfg)
@@ -194,7 +120,7 @@ func TestNewAndStartProxy_DomainRequiredProviderRejectsNoDomain(t *testing.T) {
 		},
 	}
 
-	err := pm.newAndStartProxy("testproxy", proxyConfig)
+	err := pm.restartProxyLocked("testproxy", proxyConfig)
 	if err == nil {
 		t.Fatal("expected error when domain-required provider has no domain set, got nil")
 	}
@@ -203,7 +129,7 @@ func TestNewAndStartProxy_DomainRequiredProviderRejectsNoDomain(t *testing.T) {
 	}
 }
 
-func TestNewAndStartProxy_DomainRequiredProviderAllowsDomain(t *testing.T) {
+func TestRestartProxyLocked_DomainRequiredProviderAllowsDomain(t *testing.T) {
 	cfg := newTestConfig(t)
 
 	pm := newTestProxyManager(cfg)
@@ -218,7 +144,7 @@ func TestNewAndStartProxy_DomainRequiredProviderAllowsDomain(t *testing.T) {
 		},
 	}
 
-	err := pm.newAndStartProxy("testproxy", proxyConfig)
+	err := pm.restartProxyLocked("testproxy", proxyConfig)
 	if err == nil {
 		t.Fatal("expected error from NewProxy stub, got nil")
 	}
@@ -285,7 +211,7 @@ func TestResolveDNSProviderForACME_DefaultFound(t *testing.T) {
 	pm := newTestProxyManager(cfg)
 	pm.DNSProviders["cloudflare"] = &mockDNSProvider{name: "cloudflare"}
 
-	provider, err := pm.resolveDNSProviderForACMELocked()
+	provider, err := pm.resolveDNSProviderForACME()
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -300,7 +226,7 @@ func TestResolveDNSProviderForACME_DefaultNotFound(t *testing.T) {
 
 	pm := newTestProxyManager(cfg)
 
-	_, err := pm.resolveDNSProviderForACMELocked()
+	_, err := pm.resolveDNSProviderForACME()
 	if err == nil {
 		t.Fatal("expected error for missing default DNS provider")
 	}
@@ -320,7 +246,7 @@ func TestResolveDNSProviderForACME_DefaultNotCertmagic(t *testing.T) {
 	pm := newTestProxyManager(cfg)
 	pm.DNSProviders["magicdns"] = nonCertmagic
 
-	_, err := pm.resolveDNSProviderForACMELocked()
+	_, err := pm.resolveDNSProviderForACME()
 	if err == nil {
 		t.Fatal("expected error for non-certmagic DNS provider")
 	}
@@ -341,7 +267,7 @@ func TestResolveDNSProviderForACME_NoDefaultFindsFirst(t *testing.T) {
 	pm.DNSProviders["magicdns"] = nonCertmagic
 	pm.DNSProviders["cloudflare"] = &mockDNSProvider{name: "cloudflare"}
 
-	provider, err := pm.resolveDNSProviderForACMELocked()
+	provider, err := pm.resolveDNSProviderForACME()
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
@@ -361,7 +287,7 @@ func TestResolveDNSProviderForACME_NoCapableProvider(t *testing.T) {
 	pm := newTestProxyManager(cfg)
 	pm.DNSProviders["magicdns"] = nonCertmagic
 
-	_, err := pm.resolveDNSProviderForACMELocked()
+	_, err := pm.resolveDNSProviderForACME()
 	if err == nil {
 		t.Fatal("expected error when no certmagic-capable DNS provider exists")
 	}

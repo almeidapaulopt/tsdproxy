@@ -210,26 +210,49 @@ func TestRestartProxy_NotFound(t *testing.T) {
 	}
 }
 
-// -- getTargetLock -------------------------------------------------------------
+// -- targetLocks ---------------------------------------------------------------
 
-func TestGetTargetLock_SameIDReturnsSameMutex(t *testing.T) {
+func TestTargetLocks_SameIDSerializes(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	mu1 := pm.getTargetLock("target1")
-	mu2 := pm.getTargetLock("target1")
-	if mu1 != mu2 {
-		t.Fatal("expected same mutex for same target ID")
+	pm.targetLocks.Lock("target1")
+
+	locked := make(chan struct{})
+	go func() {
+		pm.targetLocks.Lock("target1")
+		close(locked)
+	}()
+
+	select {
+	case <-locked:
+		t.Fatal("second Lock should block")
+	case <-time.After(10 * time.Millisecond):
 	}
+
+	pm.targetLocks.Unlock("target1")
+	<-locked
+	pm.targetLocks.Unlock("target1")
 }
 
-func TestGetTargetLock_DifferentIDsReturnDifferentMutexes(t *testing.T) {
+func TestTargetLocks_DifferentIDsAreIndependent(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	mu1 := pm.getTargetLock("target1")
-	mu2 := pm.getTargetLock("target2")
-	if mu1 == mu2 {
-		t.Fatal("expected different mutexes for different target IDs")
+	pm.targetLocks.Lock("target1")
+
+	locked := make(chan struct{})
+	go func() {
+		pm.targetLocks.Lock("target2")
+		close(locked)
+	}()
+
+	select {
+	case <-locked:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("different ID Lock should not block")
 	}
+
+	pm.targetLocks.Unlock("target1")
+	pm.targetLocks.Unlock("target2")
 }
 
 // -- removeProxy --------------------------------------------------------------
