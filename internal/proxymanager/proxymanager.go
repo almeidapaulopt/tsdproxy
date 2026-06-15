@@ -270,6 +270,15 @@ func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
 	}
 
 	if proxyToStart != nil {
+		// Re-check that the proxy is still in the map with the same
+		// pointer identity. A concurrent stop event could have removed
+		// and closed it between the target lock release and here.
+		current, exists := pm.GetProxy(proxyToStart.Config.Hostname)
+		if !exists || current != proxyToStart {
+			pm.log.Debug().Str("targetID", event.ID).Msg("proxy removed before Start() could execute")
+			return
+		}
+
 		if startErr := proxyToStart.Start(); startErr != nil {
 			pm.log.Error().Err(startErr).Str("targetID", event.ID).Msg("proxy start failed")
 
@@ -439,10 +448,14 @@ func (pm *ProxyManager) addDNSProviders() {
 				pm.log.Error().Str("provider", name).Msg("Cloudflare DNS provider missing API token")
 				continue
 			}
+			pm.mtx.Lock()
 			pm.DNSProviders[name] = cloudflaredns.New(cfg.APIToken.Value())
+			pm.mtx.Unlock()
 			pm.log.Debug().Str("provider", name).Msg("Created Cloudflare DNS provider")
 		case model.DNSProviderMagicDNS:
+			pm.mtx.Lock()
 			pm.DNSProviders[name] = magicdns.New()
+			pm.mtx.Unlock()
 			pm.log.Debug().Str("provider", name).Msg("Created MagicDNS provider")
 		default:
 			pm.log.Error().Str("provider", name).Str("type", cfg.Provider).Msg("Unknown DNS provider type")
@@ -471,7 +484,9 @@ func (pm *ProxyManager) addTLSProviders() {
 				pm.log.Error().Err(err).Str("provider", name).Msg("Failed to create ACME TLS provider")
 				continue
 			}
+			pm.mtx.Lock()
 			pm.TLSProviders[name] = acmeProvider
+			pm.mtx.Unlock()
 			pm.log.Info().Str("provider", name).Msg("Created ACME TLS provider")
 		default:
 			pm.log.Error().Str("provider", name).Str("type", cfg.Provider).Msg("Unknown TLS provider type")
@@ -886,12 +901,14 @@ func (pm *ProxyManager) configureProxyDomain(p *Proxy, proxyConfig *model.Config
 		pm.cfg.DefaultDNSProvider,
 		pm.cfg.DefaultTLSProvider,
 	); err != nil {
+		p.setupWg.Done()
 		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
 			Msg("invalid domain configuration, proxy starting without custom domain")
 		return
 	}
 
 	if err := pm.resolveAndSetProviders(p, proxyConfig); err != nil {
+		p.setupWg.Done()
 		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
 			Msg("domain provider resolution failed, proxy starting without custom domain")
 		return
@@ -902,13 +919,15 @@ func (pm *ProxyManager) configureProxyDomain(p *Proxy, proxyConfig *model.Config
 	p.mtx.RUnlock()
 
 	if !hasTLSProvider {
+		p.setupWg.Done()
 		return
 	}
 
-	p.setupWg.Add(1)
+	// setupWg.Add(1) was already called in newProxy() before map insertion.
 	go func() {
 		defer p.setupWg.Done()
 		if err := pm.setupDomainForProxy(p, p.Config); err != nil {
+			p.SetDomainError(err.Error())
 			pm.log.Error().Err(err).Str("proxy", p.Config.Hostname).
 				Str("domain", p.Config.Domain).
 				Msg("domain setup failed, proxy running without custom domain")
@@ -978,7 +997,19 @@ func (pm *ProxyManager) newProxy(name string, proxyConfig *model.Config) (*Proxy
 		return tp.ReResolve(targetID)
 	}
 
+	// Add to setupWg BEFORE map insertion so StopAllProxies can't
+	// observe the proxy in the map without the WaitGroup being
+	// incremented. This prevents the setupWg Add/Wait race where
+	// teardownProxy's Wait() returns before configureProxyDomain's Add(1).
+	if proxyConfig.Domain != "" {
+		p.setupWg.Add(1)
+	}
+
 	pm.mtx.Lock()
+	if pm.stopping.Load() {
+		pm.mtx.Unlock()
+		return nil, errors.New("proxy manager is shutting down")
+	}
 	pm.Proxies[proxyConfig.Hostname] = p
 	pm.targetIndex[proxyConfig.TargetID] = proxyConfig.Hostname
 	pm.mtx.Unlock()

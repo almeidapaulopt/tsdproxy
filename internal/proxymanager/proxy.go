@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -53,26 +52,27 @@ type (
 	Proxy struct {
 		log             zerolog.Logger
 		startedAt       time.Time
-		providerProxy   proxyproviders.ProxyInterface
+		tracerProvider  trace.TracerProvider
 		ctx             context.Context
 		tlsProvider     tlsproviders.Provider
 		dnsProvider     dnsproviders.Provider
-		tracerProvider  trace.TracerProvider
+		providerProxy   proxyproviders.ProxyInterface
+		onUpdate        func(event model.ProxyEvent)
 		health          *healthChecker
 		cancel          context.CancelFunc
 		reResolveConfig func() (*model.Config, error)
 		Config          *model.Config
 		metrics         *metrics.Metrics
 		ports           map[string]portHandler
-		URL             *url.URL
-		onUpdate        func(event model.ProxyEvent)
 		logBuffer       *LogRingBuffer
+		domainError     string
 		proxyAuthToken  string
 		healthPortName  string
 		statusHistory   []StatusTransition
+		eventsWg        sync.WaitGroup
 		setupWg         sync.WaitGroup
-		dnsStatus       dnsproviders.DNSStatus
 		tlsStatus       tlsproviders.TLSStatus
+		dnsStatus       dnsproviders.DNSStatus
 		status          model.ProxyStatus
 		mtx             sync.RWMutex
 		opMu            sync.Mutex
@@ -147,20 +147,34 @@ func NewProxy(params ProxyParams) (*Proxy, error) {
 func (proxy *Proxy) Start() error {
 	proxy.opMu.Lock()
 
-	proxy.startHealthChecker()
-
-	go func() {
-		for event := range proxy.providerProxy.WatchEvents() {
-			proxy.setStatus(event.Status)
-		}
-	}()
-
 	// Phase 1: start the proxy provider (quick — starts tsnet server and
 	// the watchStatus goroutine, but does not wait for authentication).
 	if err := proxy.startProvider(); err != nil {
 		proxy.opMu.Unlock()
 		return err
 	}
+
+	// Start health checker and event watcher only after the provider
+	// has successfully started. This avoids launching goroutines on a
+	// proxy whose provider failed to initialize.
+	proxy.startHealthChecker()
+
+	proxy.eventsWg.Add(1)
+	go func() {
+		defer proxy.eventsWg.Done()
+		eventsCh := proxy.providerProxy.WatchEvents()
+		for {
+			select {
+			case event, ok := <-eventsCh:
+				if !ok {
+					return
+				}
+				proxy.setStatus(event.Status)
+			case <-proxy.ctx.Done():
+				return
+			}
+		}
+	}()
 
 	proxy.opMu.Unlock()
 
@@ -176,6 +190,10 @@ func (proxy *Proxy) Close() {
 	proxy.opMu.Lock()
 	defer proxy.opMu.Unlock()
 
+	proxy.mtx.Lock()
+	proxy.paused = false
+	proxy.mtx.Unlock()
+
 	proxy.setStatus(model.ProxyStatusStopping)
 
 	proxy.stopHealthChecker()
@@ -188,6 +206,10 @@ func (proxy *Proxy) Close() {
 	}
 
 	proxy.close()
+
+	// Wait for the event-watching goroutine to exit so no stale
+	// status updates fire after Close() returns.
+	proxy.eventsWg.Wait()
 
 	proxy.setStatus(model.ProxyStatusStopped)
 }
@@ -299,11 +321,16 @@ func (proxy *Proxy) closePorts() {
 	var errs error
 
 	proxy.mtx.Lock()
+	handlers := make([]portHandler, 0, len(proxy.ports))
 	for k, p := range proxy.ports {
-		errs = errors.Join(errs, p.close())
+		handlers = append(handlers, p)
 		delete(proxy.ports, k)
 	}
 	proxy.mtx.Unlock()
+
+	for _, p := range handlers {
+		errs = errors.Join(errs, p.close())
+	}
 
 	if errs != nil && !errors.Is(errs, context.Canceled) && !errors.Is(errs, net.ErrClosed) {
 		proxy.log.Error().Err(errs).Msg("error closing port handlers")
@@ -345,6 +372,21 @@ func (proxy *Proxy) GetTLSStatus() tlsproviders.TLSStatus {
 	proxy.mtx.RLock()
 	defer proxy.mtx.RUnlock()
 	return proxy.tlsStatus
+}
+
+// SetDomainError stores a domain setup error so the dashboard can
+// indicate the proxy is running in a degraded state (without custom domain).
+func (proxy *Proxy) SetDomainError(msg string) {
+	proxy.mtx.Lock()
+	proxy.domainError = msg
+	proxy.mtx.Unlock()
+}
+
+// GetDomainError returns the domain setup error, if any.
+func (proxy *Proxy) GetDomainError() string {
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+	return proxy.domainError
 }
 
 func (proxy *Proxy) SetDNSAndTLSProviders(dns dnsproviders.Provider, tls tlsproviders.Provider) {
@@ -468,6 +510,8 @@ func (proxy *Proxy) stopHealthChecker() {
 	hc := proxy.health
 	proxy.mtx.RUnlock()
 	if hc != nil {
+		// stop() blocks until the health check goroutine has exited,
+		// ensuring no in-flight checks access proxy state after return.
 		hc.stop()
 	}
 }
@@ -568,6 +612,9 @@ func (proxy *Proxy) initPorts() {
 				proxy.Config.IdentityHeaders,
 				proxy.tracerProvider,
 				proxy.httpPort,
+				proxy.Config.RateLimitEnabled,
+				proxy.Config.RateLimitRPS,
+				proxy.Config.RateLimitBurst,
 				proxy.proxyAuthToken,
 			)
 		} else if v.ProxyProtocol == model.ProtoUDP {

@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -42,10 +43,56 @@ const (
 	shutdownTimeout     = 10 * time.Second
 )
 
+const (
+	httpRateLimitClients = 4096 // max tracked IPs
+)
+
 // portHandler is the interface implemented by all port types (HTTP proxy, HTTP redirect, TCP forward).
 type portHandler interface {
 	startWithListener(net.Listener) error
 	close() error
+}
+
+type ipRateLimiter struct {
+	clients map[string]*rate.Limiter
+	rate    rate.Limit
+	burst   int
+	mu      sync.Mutex
+}
+
+func newIPRateLimiter(r rate.Limit, b int) *ipRateLimiter {
+	return &ipRateLimiter{
+		clients: make(map[string]*rate.Limiter),
+		rate:    r,
+		burst:   b,
+	}
+}
+
+func (l *ipRateLimiter) get(clientIP string) *rate.Limiter {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if lim, ok := l.clients[clientIP]; ok {
+		return lim
+	}
+	if len(l.clients) >= httpRateLimitClients {
+		for k := range l.clients {
+			delete(l.clients, k)
+			break
+		}
+	}
+	lim := rate.NewLimiter(l.rate, l.burst)
+	l.clients[clientIP] = lim
+	return lim
+}
+
+func (l *ipRateLimiter) allow(clientIP string) bool {
+	return l.get(clientIP).Allow()
+}
+
+func (l *ipRateLimiter) close() {
+	l.mu.Lock()
+	l.clients = make(map[string]*rate.Limiter)
+	l.mu.Unlock()
 }
 
 type port struct {
@@ -55,7 +102,101 @@ type port struct {
 	cancel     context.CancelFunc
 	httpServer *http.Server
 	transport  *http.Transport
+	limiter    *ipRateLimiter
 	mtx        sync.Mutex
+}
+
+func proxyErrorHandler(log zerolog.Logger, pconfig model.PortConfig) func(w http.ResponseWriter, r *http.Request, err error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		// When the client disconnects (typical for SSE/long-lived
+		// connections) the request context is canceled. Don't write
+		// a 502 in that case — there is nobody to read it, and
+		// EventSource clients would otherwise interpret the body
+		// as a real backend failure. Aborting silently lets the
+		// browser's EventSource auto-reconnect.
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(r.Context().Err(), context.Canceled) {
+			log.Debug().
+				Str("port", pconfig.String()).
+				Str("url", r.URL.String()).
+				Msg("client closed connection")
+			return
+		}
+		log.Error().Err(err).
+			Str("port", pconfig.String()).
+			Str("url", r.URL.String()).
+			Msg("proxy error")
+		w.WriteHeader(http.StatusBadGateway)
+	}
+}
+
+func proxyRewrite(
+	pconfig model.PortConfig,
+	identityHeaders bool,
+	httpPort uint16,
+	proxyAuthToken string,
+) func(r *httputil.ProxyRequest) {
+	return func(r *httputil.ProxyRequest) {
+		target := pconfig.GetFirstTarget()
+		if target != nil {
+			r.SetURL(target)
+		}
+		r.Out.Host = r.In.Host
+
+		// Always remove trusted identity headers to prevent spoofing.
+		// Unauthenticated requests (e.g. Funnel) must not pass
+		// attacker-controlled values through to the upstream.
+		for _, h := range consts.TrustedProxyHeaders {
+			r.Out.Header.Del(h)
+		}
+
+		// Inject authenticated user headers when enabled (default).
+		// Some upstream services (e.g. wetty) consume Remote-User as the
+		// SSH login username, which conflicts with their own auth flag —
+		// the opt-out lets those services run without spurious overrides.
+		if identityHeaders {
+			if user, ok := model.WhoisFromContext(r.In.Context()); ok && user.ID != "" {
+				r.Out.Header.Set(consts.HeaderID, user.ID)
+				r.Out.Header.Set(consts.HeaderUsername, user.Username)
+				r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
+				r.Out.Header.Set(consts.HeaderProfilePicURL, user.ProfilePicURL)
+				r.Out.Header.Set(consts.HeaderRemoteUser, user.Username)
+				r.Out.Header.Set(consts.HeaderXForwardedUser, user.Username)
+				r.Out.Header.Set(consts.HeaderXAuthRequestUser, user.Username)
+				r.Out.Header.Set(consts.HeaderXForwardedEmail, user.Username)
+				r.Out.Header.Set(consts.HeaderXAuthRequestEmail, user.Username)
+				r.Out.Header.Set(consts.HeaderXForwardedPreferredUsername, user.DisplayName)
+
+				// Forward the auth token only to the internal management
+				// server (self-proxy case).  Never expose it to external
+				// backends — a leaked token allows identity spoofing on
+				// the management API.
+				if isManagementTarget(pconfig.GetFirstTarget(), httpPort) {
+					r.Out.Header.Set(consts.HeaderAuthToken, proxyAuthToken)
+				}
+			}
+		}
+
+		r.SetXForwarded()
+
+		// SetXForwarded appends RemoteAddr to the outbound
+		// X-Forwarded-For (stripped by TrustedProxyHeaders above).
+		// Override with the single authoritative client IP to
+		// prevent spoofing.
+		if peerIP := resolvePeerIP(r.In); peerIP != "" {
+			r.Out.Header.Set(consts.HeaderRealIP, peerIP)
+			r.Out.Header.Set(consts.HeaderXForwardedFor, peerIP)
+		}
+
+		// Tailscale (and other TLS-terminating proxy providers) terminate TLS
+		// before the request reaches this handler, so r.In.TLS is always nil.
+		// Go's SetXForwarded incorrectly sets X-Forwarded-Proto to "http".
+		// Override based on the port's configured proxy protocol so upstream
+		// applications (e.g. Portainer CSRF) see the correct scheme.
+		if pconfig.ProxyProtocol == model.ProtoHTTPS {
+			r.Out.Header.Set("X-Forwarded-Proto", model.ProtoHTTPS)
+		}
+	}
 }
 
 func newPortProxy(
@@ -71,6 +212,9 @@ func newPortProxy(
 	identityHeaders bool,
 	tp trace.TracerProvider,
 	httpPort uint16,
+	rateLimitEnabled bool,
+	rateLimitRPS int,
+	rateLimitBurst int,
 	proxyAuthToken string,
 ) *port {
 	log = log.With().Str("port", pconfig.String()).Logger()
@@ -87,92 +231,21 @@ func newPortProxy(
 	}
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,
-		FlushInterval: -1, // flush immediately — required for SSE streaming
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			// When the client disconnects (typical for SSE/long-lived
-			// connections) the request context is canceled. Don't write
-			// a 502 in that case — there is nobody to read it, and
-			// EventSource clients would otherwise interpret the body
-			// as a real backend failure. Aborting silently lets the
-			// browser's EventSource auto-reconnect.
-			if errors.Is(err, context.Canceled) ||
-				errors.Is(r.Context().Err(), context.Canceled) {
-				log.Debug().
-					Str("port", pconfig.String()).
-					Str("url", r.URL.String()).
-					Msg("client closed connection")
-				return
-			}
-			log.Error().Err(err).
-				Str("port", pconfig.String()).
-				Str("url", r.URL.String()).
-				Msg("proxy error")
-			w.WriteHeader(http.StatusBadGateway)
-		},
-		Rewrite: func(r *httputil.ProxyRequest) {
-			target := pconfig.GetFirstTarget()
-			if target != nil {
-				r.SetURL(target)
-			}
-			r.Out.Host = r.In.Host
+		FlushInterval: -1,
+		ErrorHandler:  proxyErrorHandler(log, pconfig),
+		Rewrite:       proxyRewrite(pconfig, identityHeaders, httpPort, proxyAuthToken),
+	}
 
-			// Always remove trusted identity headers to prevent spoofing.
-			// Unauthenticated requests (e.g. Funnel) must not pass
-			// attacker-controlled values through to the upstream.
-			for _, h := range consts.TrustedProxyHeaders {
-				r.Out.Header.Del(h)
-			}
-
-			// Inject authenticated user headers when enabled (default).
-			// Some upstream services (e.g. wetty) consume Remote-User as the
-			// SSH login username, which conflicts with their own auth flag —
-			// the opt-out lets those services run without spurious overrides.
-			if identityHeaders {
-				if user, ok := model.WhoisFromContext(r.In.Context()); ok && user.ID != "" {
-					r.Out.Header.Set(consts.HeaderID, user.ID)
-					r.Out.Header.Set(consts.HeaderUsername, user.Username)
-					r.Out.Header.Set(consts.HeaderDisplayName, user.DisplayName)
-					r.Out.Header.Set(consts.HeaderProfilePicURL, user.ProfilePicURL)
-					r.Out.Header.Set(consts.HeaderRemoteUser, user.Username)
-					r.Out.Header.Set(consts.HeaderXForwardedUser, user.Username)
-					r.Out.Header.Set(consts.HeaderXAuthRequestUser, user.Username)
-					r.Out.Header.Set(consts.HeaderXForwardedEmail, user.Username)
-					r.Out.Header.Set(consts.HeaderXAuthRequestEmail, user.Username)
-					r.Out.Header.Set(consts.HeaderXForwardedPreferredUsername, user.DisplayName)
-
-					// Forward the auth token only to the internal management
-					// server (self-proxy case).  Never expose it to external
-					// backends — a leaked token allows identity spoofing on
-					// the management API.
-					if isManagementTarget(pconfig.GetFirstTarget(), httpPort) {
-						r.Out.Header.Set(consts.HeaderAuthToken, proxyAuthToken)
-					}
-				}
-			}
-
-			r.SetXForwarded()
-
-			// SetXForwarded appends RemoteAddr to the outbound
-			// X-Forwarded-For (stripped by TrustedProxyHeaders above).
-			// Override with the single authoritative client IP to
-			// prevent spoofing.
-			if peerIP := resolvePeerIP(r.In); peerIP != "" {
-				r.Out.Header.Set(consts.HeaderRealIP, peerIP)
-				r.Out.Header.Set(consts.HeaderXForwardedFor, peerIP)
-			}
-
-			// Tailscale (and other TLS-terminating proxy providers) terminate TLS
-			// before the request reaches this handler, so r.In.TLS is always nil.
-			// Go's SetXForwarded incorrectly sets X-Forwarded-Proto to "http".
-			// Override based on the port's configured proxy protocol so upstream
-			// applications (e.g. Portainer CSRF) see the correct scheme.
-			if pconfig.ProxyProtocol == model.ProtoHTTPS {
-				r.Out.Header.Set("X-Forwarded-Proto", model.ProtoHTTPS)
-			}
-		},
+	var limiter *ipRateLimiter
+	if rateLimitEnabled {
+		limiter = newIPRateLimiter(rate.Limit(rateLimitRPS), rateLimitBurst)
 	}
 
 	handler := whoisFunc(reverseProxy)
+
+	if limiter != nil {
+		handler = rateLimitMiddleware(limiter, handler)
+	}
 
 	if accessLog {
 		handler = core.LoggerMiddleware(log, handler, core.WithAccessLogWriter(logBuffer))
@@ -201,6 +274,7 @@ func newPortProxy(
 		cancel:     cancel,
 		httpServer: httpServer,
 		transport:  tr,
+		limiter:    limiter,
 	}
 }
 
@@ -260,9 +334,25 @@ func (p *port) close() error {
 		p.transport.CloseIdleConnections()
 	}
 
+	if p.limiter != nil {
+		p.limiter.close()
+	}
+
 	p.cancel()
 
 	return errs
+}
+
+func rateLimitMiddleware(limiter *ipRateLimiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := resolvePeerIP(r)
+		if ip != "" && !limiter.allow(ip) {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // tcpPort forwards raw TCP connections from the Tailscale listener to the target backend.
@@ -275,6 +365,7 @@ type tcpPort struct {
 	mtx      sync.Mutex
 	wg       sync.WaitGroup // track active connections
 	acceptWg sync.WaitGroup // tracks whether startWithListener has finished
+	started  atomic.Bool    // true once startWithListener has been called
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *tcpPort {
@@ -286,12 +377,13 @@ func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logge
 		cancel:  cancel,
 		pconfig: pconfig,
 	}
-	tp.acceptWg.Add(1)
 
 	return tp
 }
 
 func (p *tcpPort) startWithListener(l net.Listener) error {
+	p.acceptWg.Add(1)
+	p.started.Store(true)
 	defer p.acceptWg.Done()
 	defer p.wg.Wait()
 
@@ -388,7 +480,9 @@ func (p *tcpPort) close() error {
 
 	p.cancel()
 
-	p.acceptWg.Wait()
+	if p.started.Load() {
+		p.acceptWg.Wait()
+	}
 
 	return errs
 }
@@ -664,11 +758,11 @@ func resolvePeerIP(r *http.Request) string {
 // isManagementTarget reports whether a proxy target points to tsdproxy's own
 // management HTTP server (the self-proxy case where tsdproxy proxies to itself).
 //
-// Heuristic: loopback IP + management port. This accepts any loopback address,
-// not just the address the server actually binds to. In practice this is safe
-// because tsdproxy binds to that port exclusively, but if http.hostname is set
-// to a specific non-loopback IP and a co-located service happens to listen on
-// 127.0.0.1:<same-port>, that service would receive the per-process auth token.
+// Heuristic: loopback IP + management port + empty/root path. This accepts any
+// loopback address, not just the address the server actually binds to. The path
+// check ensures only the root management server (no path prefix) is matched,
+// preventing a co-located service at 127.0.0.1:<same-port>/some-path from
+// receiving the per-process auth token.
 func isManagementTarget(target *url.URL, httpPort uint16) bool {
 	if target == nil {
 		return false
@@ -681,5 +775,6 @@ func isManagementTarget(target *url.URL, httpPort uint16) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback() &&
-		target.Port() == strconv.FormatUint(uint64(httpPort), 10)
+		target.Port() == strconv.FormatUint(uint64(httpPort), 10) &&
+		(target.Path == "" || target.Path == "/")
 }

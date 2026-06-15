@@ -60,6 +60,7 @@ type healthChecker struct {
 	transport           *http.Transport
 	result              atomic.Pointer[HealthResult]
 	cancel              context.CancelFunc
+	done                chan struct{}
 	onRedetect          func() error
 	httpClient          httpclient.Doer
 	scheme              string
@@ -114,6 +115,7 @@ func newHealthChecker(
 		scheme:        scheme,
 		ctx:           ctx,
 		cancel:        cancel,
+
 		interval:      interval,
 		failThreshold: failThreshold,
 		cooldown:      cooldown,
@@ -147,17 +149,22 @@ func (hc *healthChecker) getTarget() string {
 }
 
 func (hc *healthChecker) start() {
+	hc.done = make(chan struct{})
 	go hc.run()
 }
 
 func (hc *healthChecker) stop() {
 	hc.cancel()
+	if hc.done != nil {
+		<-hc.done
+	}
 	if hc.transport != nil {
 		hc.transport.CloseIdleConnections()
 	}
 }
 
 func (hc *healthChecker) run() {
+	defer close(hc.done)
 	hc.check()
 
 	ticker := time.NewTicker(hc.interval)
