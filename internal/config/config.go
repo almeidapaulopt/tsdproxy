@@ -112,6 +112,9 @@ type (
 		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
 		SSHInsecureSkipHostCheck bool   `validate:"boolean" default:"false" yaml:"sshInsecureSkipHostCheck"`
 		TryDockerInternalNetwork bool   `validate:"boolean" default:"false" yaml:"tryDockerInternalNetwork"`
+		RateLimitEnabled         bool   `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
+		RateLimitRPS             int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst           int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
 	}
 
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration
@@ -152,12 +155,15 @@ type (
 	ListTargetProviderConfig struct {
 		Filename              string `validate:"required,file" yaml:"filename"`
 		DefaultProxyProvider  string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
-		DefaultProxyAccessLog bool   `default:"true" validate:"boolean" yaml:"defaultProxyAccessLog"`
-		AutoRestart           bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
-		HealthCheckEnabled    bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
 		HealthCheckInterval   int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
 		HealthCheckFailures   int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
 		HealthCheckCooldown   int    `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		RateLimitRPS          int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst        int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
+		DefaultProxyAccessLog bool   `default:"true" validate:"boolean" yaml:"defaultProxyAccessLog"`
+		AutoRestart           bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		HealthCheckEnabled    bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		RateLimitEnabled      bool   `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
 	}
 
 	DNSProviderConfig struct {

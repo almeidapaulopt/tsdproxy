@@ -26,6 +26,17 @@ const (
 	// Dashboard defaults
 	DefaultDashboardVisible = true
 	DefaultDashboardIcon    = "tsdproxy"
+
+	// Rate limit defaults
+	DefaultRateLimitEnabled = true
+	DefaultRateLimitRPS     = 100
+	DefaultRateLimitBurst   = 200
+
+	// Rate limit bounds (min/max for label validation)
+	RateLimitMinRPS   = 1
+	RateLimitMaxRPS   = 10000
+	RateLimitMinBurst = 1
+	RateLimitMaxBurst = 100000
 )
 
 type Preferences struct {

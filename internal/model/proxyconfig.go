@@ -25,15 +25,18 @@ type (
 		Domain              string    `validate:"omitempty,fqdn" yaml:"domain"`
 		DNSProvider         string    `validate:"omitempty" yaml:"dnsProvider"`
 		TLSProvider         string    `validate:"omitempty" yaml:"tlsProvider"`
-		Dashboard           Dashboard `validate:"dive"`
 		Tailscale           Tailscale `validate:"dive"`
+		Dashboard           Dashboard `validate:"dive"`
+		HealthCheckInterval int       `default:"30" validate:"numeric,min=1"`
+		HealthCheckFailures int       `default:"3" validate:"numeric,min=1"`
+		HealthCheckCooldown int       `default:"0" validate:"numeric,min=0"`
+		RateLimitRPS        int       `default:"100" validate:"numeric,min=1"`
+		RateLimitBurst      int       `default:"200" validate:"numeric,min=1"`
 		ProxyAccessLog      bool      `default:"true" validate:"boolean"`
 		IdentityHeaders     bool      `default:"true" validate:"boolean"`
 		AutoRestart         bool      `default:"true" validate:"boolean"`
 		HealthCheckEnabled  bool      `default:"true" validate:"boolean"`
-		HealthCheckInterval int       `default:"30" validate:"numeric,min=1"`
-		HealthCheckFailures int       `default:"3" validate:"numeric,min=1"`
-		HealthCheckCooldown int       `default:"0" validate:"numeric,min=0"`
+		RateLimitEnabled    bool      `default:"true" validate:"boolean"`
 	}
 
 	// Tailscale struct stores the configuration for tailscale ProxyProvider
