@@ -27,32 +27,38 @@ var rfc1123Hostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z
 
 type (
 	container struct {
-		log                    zerolog.Logger
-		defaultBridgeAddress   netip.Addr
-		ports                  map[string]string
-		labels                 map[string]string
-		assets                 *web.Assets
-		image                  string
-		id                     string
-		targetProviderName     string
-		name                   string
-		hostname               string
-		networkMode            ctypes.NetworkMode
-		defaultTargetHostname  string
-		ipAddress              []netip.Addr
-		gateways               []netip.Addr
-		healthCheckInterval    int
-		healthCheckFailures    int
-		healthCheckCooldown    int
-		providerHealthFailures int
-		providerHealthCooldown int
-		providerHealthInterval int
-		autoRestart            bool
-		healthCheckEnabled     bool
-		providerHealthEnabled  bool
-		autodetect             bool
-		proxyAccessLogDefault  bool
-		providerAutoRestart    bool
+		log                      zerolog.Logger
+		defaultBridgeAddress     netip.Addr
+		ports                    map[string]string
+		labels                   map[string]string
+		assets                   *web.Assets
+		image                    string
+		id                       string
+		targetProviderName       string
+		name                     string
+		hostname                 string
+		networkMode              ctypes.NetworkMode
+		defaultTargetHostname    string
+		ipAddress                []netip.Addr
+		gateways                 []netip.Addr
+		healthCheckCooldown      int
+		providerRateLimitRPS     int
+		healthCheckInterval      int
+		providerHealthFailures   int
+		providerHealthCooldown   int
+		providerHealthInterval   int
+		rateLimitBurst           int
+		rateLimitRPS             int
+		providerRateLimitBurst   int
+		healthCheckFailures      int
+		proxyAccessLogDefault    bool
+		providerAutoRestart      bool
+		providerRateLimitEnabled bool
+		autodetect               bool
+		providerHealthEnabled    bool
+		rateLimitEnabled         bool
+		healthCheckEnabled       bool
+		autoRestart              bool
 	}
 
 	ContainerOption func(*container)
@@ -86,6 +92,10 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	c.healthCheckInterval = c.getLabelInt(LabelHealthCheckInterval, c.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
 	c.healthCheckFailures = c.getLabelInt(LabelHealthCheckFailures, c.providerHealthFailures, 1, healthCheckMaxFailures)
 	c.healthCheckCooldown = c.getLabelInt(LabelHealthCheckCooldown, c.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
+
+	c.rateLimitEnabled = c.getLabelBool(LabelRateLimitEnabled, c.providerRateLimitEnabled)
+	c.rateLimitRPS = c.getLabelInt(LabelRateLimitRPS, c.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
+	c.rateLimitBurst = c.getLabelInt(LabelRateLimitBurst, c.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
 
 	c.setContainerPorts(dcontainer, dservice)
 	c.setContainerNetwork(dcontainer)
@@ -208,6 +218,9 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.HealthCheckInterval = c.healthCheckInterval
 	pcfg.HealthCheckFailures = c.healthCheckFailures
 	pcfg.HealthCheckCooldown = c.healthCheckCooldown
+	pcfg.RateLimitEnabled = c.rateLimitEnabled
+	pcfg.RateLimitRPS = c.rateLimitRPS
+	pcfg.RateLimitBurst = c.rateLimitBurst
 	pcfg.Dashboard.Visible = c.getLabelBool(LabelDashboardVisible, model.DefaultDashboardVisible)
 	pcfg.Dashboard.Label = c.getLabelString(LabelDashboardLabel, pcfg.Hostname)
 
@@ -543,6 +556,14 @@ func withProviderHealthCheck(enabled bool, interval, failures, cooldown int) Con
 		c.providerHealthInterval = interval
 		c.providerHealthFailures = failures
 		c.providerHealthCooldown = cooldown
+	}
+}
+
+func withProviderRateLimit(enabled bool, rps, burst int) ContainerOption {
+	return func(c *container) {
+		c.providerRateLimitEnabled = enabled
+		c.providerRateLimitRPS = rps
+		c.providerRateLimitBurst = burst
 	}
 }
 

@@ -47,6 +47,9 @@ type (
 		tryDockerInternalNetwork bool
 		autoRestart              bool
 		proxyAccessLogDefault    bool
+		rateLimitEnabled         bool
+		rateLimitRPS             int
+		rateLimitBurst           int
 	}
 )
 
@@ -104,6 +107,9 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		containers:               make(map[string]*container),
 		proxyAccessLogDefault:    proxyAccessLogDefault,
 		assets:                   assets,
+		rateLimitEnabled:         provider.RateLimitEnabled,
+		rateLimitRPS:             provider.RateLimitRPS,
+		rateLimitBurst:           provider.RateLimitBurst,
 	}
 
 	c.setDefaultBridgeAddress()
@@ -182,6 +188,7 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 		withTargetProviderName(c.name),
 		withProviderAutoRestart(c.autoRestart),
 		withProviderHealthCheck(c.healthCheckEnabled, c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
+		withProviderRateLimit(c.rateLimitEnabled, c.rateLimitRPS, c.rateLimitBurst),
 		withProxyAccessLogDefault(c.proxyAccessLogDefault),
 		withAssets(c.assets),
 	)

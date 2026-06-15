@@ -33,6 +33,9 @@ const (
 	LabelHealthCheckInterval = LabelPrefix + "health_check_interval"
 	LabelHealthCheckFailures = LabelPrefix + "health_check_failures"
 	LabelHealthCheckCooldown = LabelPrefix + "health_check_cooldown"
+	LabelRateLimitEnabled    = LabelPrefix + "ratelimit.enabled"
+	LabelRateLimitRPS        = LabelPrefix + "ratelimit.rps"
+	LabelRateLimitBurst      = LabelPrefix + "ratelimit.burst"
 	// Legacy
 	LabelContainerPort = LabelPrefix + "container_port"
 	LabelScheme        = LabelPrefix + "scheme"
