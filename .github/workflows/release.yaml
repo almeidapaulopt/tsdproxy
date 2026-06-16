@@ -268,7 +268,7 @@ jobs:
 
       - name: Restore executable permissions
         run: |
-          chmod +x docker-binaries/*/tsdproxyd docker-binaries/*/healthcheck
+          find docker-binaries \( -name tsdproxyd -o -name healthcheck \) -exec chmod +x {} +
 
       - name: Docker metadata
         id: meta
