@@ -5,7 +5,7 @@
     "": {
       "name": "web",
       "dependencies": {
-        "htmx.org": "4.0.0-beta3",
+        "htmx.org": "4.0.0-beta4",
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.0",
@@ -582,7 +582,7 @@
 
     "hasown": ["hasown@2.0.3", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-ej4AhfhfL2Q2zpMmLo7U1Uv9+PyhIZpgQLGT1F9miIGmiCJIoCgSmczFdrc97mWT4kVY72KA+WnnhJ5pghSvSg=="],
 
-    "htmx.org": ["htmx.org@4.0.0-beta3", "", { "bin": { "upgrade-check": "dist/scripts/upgrade-check.js" } }, "sha512-FCs8/Umq4hy2TTdrzdOn7uQDCn6JaM+0AE4lyYuk4djBzA3Ug2y67LxaifpQElKAcvX7MgUsYv9zkX4UqIRhcw=="],
+    "htmx.org": ["htmx.org@4.0.0-beta4", "", { "bin": { "upgrade-check": "dist/scripts/upgrade-check.js" } }, "sha512-gnz4FUkbWSGc+OK0MUq7KCyWDElaIJoQegwkdfL9Os8xwKugHvAvFJY5AL8n1vhTVDks3mugfOK5BWfZWKDqAw=="],
 
     "ico-endec": ["ico-endec@0.1.6", "", {}, "sha512-ZdLU38ZoED3g1j3iEyzcQj+wAkY2xfWNkymszfJPoxucIUhK7NayQ+/C4Kv0nDFMIsbtbEHldv3V8PU494/ueQ=="],
 
