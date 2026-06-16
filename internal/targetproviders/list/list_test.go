@@ -6,6 +6,7 @@ package list
 import (
 	"context"
 	"net/url"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -380,7 +381,11 @@ func TestClient_WatchEvents_EmitsStartEvents(t *testing.T) {
 		"app1": {},
 		"app2": {},
 	})
-	c.file = &config.File{}
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "proxies.yaml")
+	writeProxyConfigFile(t, filename, configProxyList{})
+	c.file = config.NewConfigFile(zerolog.Nop(), filename, &configProxyList{})
+	t.Cleanup(func() { c.Close() })
 
 	eventsChan := make(chan targetproviders.TargetEvent, 10)
 	ctx, cancel := context.WithCancel(context.Background())

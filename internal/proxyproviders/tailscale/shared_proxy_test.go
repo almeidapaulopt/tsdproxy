@@ -144,6 +144,7 @@ func TestSharedProxyGetURLReturnsEmptyWhenServerNotReady(t *testing.T) {
 		Hostname: "test-server",
 		Log:      zerolog.Nop(),
 	})
+	defer ss.Close()
 
 	p := &SharedProxy{
 		shared: ss,

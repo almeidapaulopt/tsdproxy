@@ -211,6 +211,7 @@ func TestFile_Watch_FileModifyTriggersCallback(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("name: initial\n"), 0o600))
 
 	f := NewConfigFile(zerolog.Nop(), path, &testConfigData{})
+	t.Cleanup(func() { f.Close() })
 
 	triggered := make(chan fsnotify.Event, 1)
 	f.OnChange(func(e fsnotify.Event) { triggered <- e })

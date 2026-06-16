@@ -194,6 +194,13 @@ func TestNewSharedProxy_RequiresDomain(t *testing.T) {
 		providerCancel: cancel,
 		log:            zerolog.Nop(),
 	}
+	t.Cleanup(func() {
+		c.sharedMu.Lock()
+		if c.sharedServer != nil {
+			c.sharedServer.Close()
+		}
+		c.sharedMu.Unlock()
+	})
 	cfg := &model.Config{
 		Hostname: "my-proxy",
 	}
@@ -236,6 +243,13 @@ func TestNewProxy_ModeDispatch(t *testing.T) {
 			providerCancel: cancel,
 			log:            zerolog.Nop(),
 		}
+		t.Cleanup(func() {
+			c.sharedMu.Lock()
+			if c.sharedServer != nil {
+				c.sharedServer.Close()
+			}
+			c.sharedMu.Unlock()
+		})
 		cfg := &model.Config{Hostname: "test"}
 		_, err := c.NewProxy(cfg)
 		require.Error(t, err)
