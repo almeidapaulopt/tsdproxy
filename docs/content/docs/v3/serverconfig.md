@@ -83,6 +83,7 @@ apiKeyFile: "" # Path to a file containing the API key (optional)
 admins: [] # Tailscale UserProfile.IDs authorized for admin actions (optional)
             # Example: admins: ["12345" # alice@github, "67890" # bob@example.com]
 adminAllowLocalhost: false # Permit localhost to bypass admin allowlist (for bootstrapping)
+shutdownDrainSeconds: 0 # Seconds to keep listeners open after health goes not-ready before shutdown (0=disabled, max 300)
 ```
 
 ### Configuration Sections
@@ -540,6 +541,29 @@ so that port-mapped access (`-p 8080:8080`) works without manual configuration.
 ##### port
 
 The port for the HTTP server. Defaults to `8080`.
+
+##### shutdownDrainSeconds
+
+Seconds to keep the HTTP listeners open after the health endpoint starts
+returning not-ready (`/health/ready/` → 503) but before shutting down the
+server. This gives upstream load balancers time to see the failing health
+probe and stop routing traffic to this instance. Defaults to `0` (disabled —
+shutdown proceeds immediately). Range: 0–300 seconds.
+
+The shutdown sequence is:
+
+1. Health endpoint set to not-ready (`/health/ready/` returns 503)
+2. Wait `shutdownDrainSeconds` for load balancer convergence
+3. Graceful HTTP server shutdown
+4. Proxy teardown
+
+```yaml {filename="/config/tsdproxy.yaml"}
+shutdownDrainSeconds: 30
+```
+
+> [!TIP]
+> Set this when running TSDProxy behind a load balancer (e.g. Docker Swarm
+> or a reverse proxy health-checking `/health/ready/`).
 
 #### log Section
 

@@ -120,12 +120,12 @@ func main() {
 	}
 
 	app.Start()
-	defer app.Stop()
 
-	// Wait for interrupt signal to gracefully shutdown the server.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
+
+	app.Stop(quit)
 }
 
 func (app *WebApp) Start() {
@@ -172,10 +172,22 @@ func (app *WebApp) Start() {
 	}()
 }
 
-func (app *WebApp) Stop() {
+func (app *WebApp) Stop(force <-chan os.Signal) {
 	app.Log.Info().Msg("Shutdown server")
 
 	app.Health.SetNotReady()
+
+	if app.Cfg.ShutdownDrainSeconds > 0 {
+		drainDelay := time.Duration(app.Cfg.ShutdownDrainSeconds) * time.Second
+		app.Log.Info().
+			Dur("delay", drainDelay).
+			Msg("Draining: health probe failing, listeners staying open for LB convergence")
+		select {
+		case <-time.After(drainDelay):
+		case sig := <-force:
+			app.Log.Info().Str("signal", sig.String()).Msg("Drain interrupted by signal, proceeding with shutdown")
+		}
+	}
 
 	if app.httpServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
