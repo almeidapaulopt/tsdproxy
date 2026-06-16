@@ -173,7 +173,7 @@ jobs:
       - name: Prepare Docker binaries
         run: |
           set -euo pipefail
-          for plat in amd64:amd64 arm64:arm64 arm_6:arm/v6 arm_7:arm/v7; do
+          for plat in amd64:amd64 arm64:arm64 armv6:arm/v6 armv7:arm/v7; do
             src="${plat%%:*}"
             dst="${plat##*:}"
             mkdir -p "docker-binaries/linux/${dst}"
