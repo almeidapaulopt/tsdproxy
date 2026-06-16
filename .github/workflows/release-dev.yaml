@@ -17,12 +17,34 @@ jobs:
 
   prepare:
     runs-on: ubuntu-latest
+    outputs:
+      tailscale_version: ${{ steps.meta.outputs.tailscale_version }}
+      git_commit: ${{ steps.meta.outputs.git_commit }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Compute metadata
+        id: meta
+        run: |
+          TS_VER=$(grep '^	tailscale.com ' go.mod | awk '{print $2}')
+          echo "tailscale_version=$TS_VER" >> "$GITHUB_OUTPUT"
+          echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
+          cache: false
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Save Go module cache
+        uses: actions/cache/save@v4
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -35,7 +57,9 @@ jobs:
 
       - name: Generate templ
         run: |
-          go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
+          TEMPL_VER=$(go list -m github.com/a-h/templ | awk '{print $2}')
+          curl -sSL "https://github.com/a-h/templ/releases/download/${TEMPL_VER}/templ_Linux_x86_64.tar.gz" \
+            | tar xz -C /usr/local/bin templ
           go generate ./...
 
       - name: Upload prepared assets
@@ -59,27 +83,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
+          cache: false
+
+      - name: Restore Go module cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          fail-on-cache-miss: false
 
       - name: Download prepared assets
         uses: actions/download-artifact@v8
         with:
           name: prepared
 
-      - name: Compute metadata
-        id: meta
-        run: |
-          TS_VER=$(grep '^	tailscale.com ' go.mod | awk '{print $2}')
-          echo "tailscale_version=$TS_VER" >> "$GITHUB_OUTPUT"
-          echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Build binaries
         env:
-          TS_VER: ${{ steps.meta.outputs.tailscale_version }}
-          COMMIT: ${{ steps.meta.outputs.git_commit }}
+          TS_VER: ${{ needs.prepare.outputs.tailscale_version }}
+          COMMIT: ${{ needs.prepare.outputs.git_commit }}
         run: |
           set -euo pipefail
           out="docker-binaries/${{ matrix.docker_platform }}"
@@ -150,6 +177,8 @@ jobs:
           tags: |
             almeidapaulopt/tsdproxy:dev
             ghcr.io/almeidapaulopt/tsdproxy:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - uses: sigstore/cosign-installer@v4.1.2
 

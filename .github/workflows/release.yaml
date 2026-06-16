@@ -87,6 +87,16 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
+          cache: false
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Save Go module cache
+        uses: actions/cache/save@v4
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -99,7 +109,9 @@ jobs:
 
       - name: Generate templ
         run: |
-          go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
+          TEMPL_VER=$(go list -m github.com/a-h/templ | awk '{print $2}')
+          curl -sSL "https://github.com/a-h/templ/releases/download/${TEMPL_VER}/templ_Linux_x86_64.tar.gz" \
+            | tar xz -C /usr/local/bin templ
           go generate ./...
 
       - name: Upload prepared assets
@@ -127,10 +139,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
+          cache: false
+
+      - name: Restore Go module cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/go/pkg/mod
+          key: gomod-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          fail-on-cache-miss: false
 
       - name: Download prepared assets
         uses: actions/download-artifact@v8
@@ -298,6 +320,8 @@ jobs:
           push: ${{ inputs.dry_run != true }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - uses: sigstore/cosign-installer@v4.1.2
         if: inputs.dry_run != true
