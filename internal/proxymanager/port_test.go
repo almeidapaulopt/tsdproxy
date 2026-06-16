@@ -640,6 +640,7 @@ func TestUDPPort_StartWithPacketConn_NoTarget(t *testing.T) {
 	ctx := context.Background()
 	pconfig := model.PortConfig{ProxyProtocol: "udp"}
 	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	defer up.close()
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -734,6 +735,7 @@ func TestUDPPort_GetOrCreateBackendConn_Existing(t *testing.T) {
 		t.Fatal("expected same connection for existing client")
 	}
 
+	closeAllClients(clientMap, &mapMtx)
 	up.close()
 	frontPC.Close()
 }
@@ -777,6 +779,7 @@ func TestUDPPort_GetOrCreateBackendConn_MaxClientsEvicts(t *testing.T) {
 		t.Fatalf("expected at most %d entries after eviction, got %d", udpMaxClients, len(clientMap))
 	}
 
+	closeAllClients(clientMap, &mapMtx)
 	up.close()
 	frontPC.Close()
 }
@@ -818,6 +821,7 @@ func TestUDPPort_RelayBackendToClient_ClosesOnIdleTimeout(t *testing.T) {
 		t.Fatal("expected non-nil conn")
 	}
 
+	closeAllClients(clientMap, &mapMtx)
 	up.close()
 	frontPC.Close()
 }
@@ -1196,4 +1200,74 @@ func TestTCPPort_CancelledContext(t *testing.T) {
 	}
 
 	ln.Close()
+}
+
+// ---------------------------------------------------------------------------
+// Bug-demonstrating tests — these SHOULD FAIL with the current code.
+// ---------------------------------------------------------------------------
+
+// TestUDPPort_CloseBeforeStart_GoroutineStompsConn demonstrates BUG-1:
+// udpPort.close() can return before startWithPacketConn has been scheduled,
+// because the WaitGroup counter is 0 at that point (wg.Add(1) hasn't been
+// called yet). The goroutine then runs AFTER close() returned, stomping
+// p.conn and p.clientMap with fresh values over already-closed state.
+//
+// tcpPort already solved this with a `started atomic.Bool` guard that
+// prevents wg.Wait() from being called on a zero counter. udpPort is
+// missing the same guard.
+//
+// This test calls close() first, then startWithPacketConn, to deterministically
+// simulate the race where Proxy.Close() fires before the UDP goroutine gets
+// scheduled (Proxy.Start launches `go udp.startWithPacketConn(pc)` at
+// proxy.go:851, and startListeners runs outside opMu so Close can race).
+//
+// After the fix, startWithPacketConn should detect the already-canceled
+// context and NOT set p.conn.
+func TestUDPPort_CloseBeforeStart_GoroutineStompsConn(t *testing.T) {
+	t.Parallel()
+
+	backendAddr, _ := startUDPEchoBackend(t)
+	pconfig := NewTestUDPConfig(t, backendAddr.String())
+	up := newPortUDP(context.Background(), pconfig, zerolog.Nop())
+
+	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create frontend PacketConn: %v", err)
+	}
+	t.Cleanup(func() { frontPC.Close() })
+
+	// Close BEFORE startWithPacketConn — deterministically simulates the race
+	// where Proxy.Close() fires before the UDP goroutine gets scheduled.
+	// close() calls p.cancel() and p.wg.Wait(). Since the goroutine hasn't
+	// done wg.Add(1) yet, Wait() returns immediately (counter=0).
+	up.close()
+
+	// Now launch startWithPacketConn. With the bug, this runs even though
+	// close() has already returned, violating the WaitGroup contract
+	// ("Add with positive delta at counter=0 must happen before Wait").
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = up.startWithPacketConn(frontPC)
+	}()
+
+	select {
+	case <-done:
+		// The goroutine completed — it ran AFTER close() returned.
+	case <-time.After(5 * time.Second):
+		t.Fatal("startWithPacketConn hung — possible deadlock")
+	}
+
+	// With the bug: the goroutine set p.conn to frontPC (stomping the nil
+	// left by close()). With the fix: startWithPacketConn should detect
+	// the already-canceled context and return early without setting p.conn.
+	up.mtx.Lock()
+	connAfterClose := up.conn
+	up.mtx.Unlock()
+
+	if connAfterClose != nil {
+		t.Error("BUG: p.conn was set to non-nil after close() returned — " +
+			"startWithPacketConn ran untracked, stomping closed state. " +
+			"Missing `started` atomic.Bool guard (see tcpPort pattern at port.go:386)")
+	}
 }

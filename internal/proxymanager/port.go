@@ -489,12 +489,16 @@ func (p *tcpPort) close() error {
 
 // udpPort forwards UDP packets from the Tailscale PacketConn to the target backend.
 type udpPort struct {
-	log     zerolog.Logger
-	ctx     context.Context
-	conn    net.PacketConn
-	cancel  context.CancelFunc
-	pconfig model.PortConfig
-	mtx     sync.Mutex
+	log          zerolog.Logger
+	ctx          context.Context
+	conn         net.PacketConn
+	cancel       context.CancelFunc
+	clientMap    map[string]*clientEntry
+	pconfig      model.PortConfig
+	wg           sync.WaitGroup
+	mtx          sync.Mutex
+	clientMapMtx sync.Mutex
+	started      atomic.Bool
 }
 
 func newPortUDP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *udpPort {
@@ -513,19 +517,38 @@ func (p *udpPort) startWithListener(_ net.Listener) error {
 }
 
 func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
+	target := p.pconfig.GetFirstTarget()
+	if target == nil || target.Host == "" {
+		p.started.Store(true)
+		return errors.New("no target configured for UDP port")
+	}
+
+	if err := p.ctx.Err(); err != nil {
+		p.started.Store(true)
+		pc.Close()
+		return fmt.Errorf("udp port closed before start: %w", err)
+	}
+
+	// Add(1) MUST precede started.Store(true) so that close() — which gates
+	// wg.Wait() on started.Load() — can never observe started==true while the
+	// WaitGroup counter is still 0. Storing first opens a window where close()
+	// returns without waiting for this goroutine (leaking the relay + conn) and
+	// trips the race detector's "WaitGroup misuse" check. Mirrors tcpPort.
+	p.wg.Add(1)
+	p.started.Store(true)
+	defer p.wg.Done()
+
 	p.mtx.Lock()
 	p.conn = pc
+	p.clientMap = make(map[string]*clientEntry)
 	p.mtx.Unlock()
 
+	p.wg.Add(1)
 	go func() {
+		defer p.wg.Done()
 		<-p.ctx.Done()
 		pc.Close()
 	}()
-
-	target := p.pconfig.GetFirstTarget()
-	if target == nil || target.Host == "" {
-		return errors.New("no target configured for UDP port")
-	}
 
 	p.relayPackets(pc)
 	return nil
@@ -549,10 +572,7 @@ type clientEntry struct {
 func (p *udpPort) relayPackets(pc net.PacketConn) {
 	buf := make([]byte, udpBufSize)
 
-	clientMap := make(map[string]*clientEntry)
-	var mapMtx sync.Mutex
-
-	defer closeAllClients(clientMap, &mapMtx)
+	defer closeAllClients(p.clientMap, &p.clientMapMtx)
 
 	for {
 		n, clientAddr, err := pc.ReadFrom(buf)
@@ -564,7 +584,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 			return
 		}
 
-		backend, err := p.getOrCreateBackendConn(clientAddr, clientMap, &mapMtx, pc)
+		backend, err := p.getOrCreateBackendConn(clientAddr, p.clientMap, &p.clientMapMtx, pc)
 		if err != nil {
 			if errors.Is(err, errRateLimited) {
 				continue
@@ -653,7 +673,11 @@ func (p *udpPort) getOrCreateBackendConn(
 
 	entry.conn = conn
 
-	go p.relayBackendToClient(entry, pc, clientAddr, mapMtx, clientMap)
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.relayBackendToClient(entry, pc, clientAddr, mapMtx, clientMap)
+	}()
 
 	return conn, nil
 }
@@ -719,9 +743,19 @@ func (p *udpPort) close() error {
 	if p.conn != nil {
 		errs = errors.Join(errs, p.conn.Close())
 	}
+	clientMap := p.clientMap
+	clientMapMtx := &p.clientMapMtx
 	p.mtx.Unlock()
 
+	if clientMap != nil {
+		closeAllClients(clientMap, clientMapMtx)
+	}
+
 	p.cancel()
+
+	if p.started.Load() {
+		p.wg.Wait()
+	}
 
 	return errs
 }

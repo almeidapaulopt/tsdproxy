@@ -111,10 +111,10 @@ func newHealthChecker(
 	}
 
 	hc := &healthChecker{
-		log:           log.With().Str("component", "health").Logger(),
-		scheme:        scheme,
-		ctx:           ctx,
-		cancel:        cancel,
+		log:    log.With().Str("component", "health").Logger(),
+		scheme: scheme,
+		ctx:    ctx,
+		cancel: cancel,
 
 		interval:      interval,
 		failThreshold: failThreshold,

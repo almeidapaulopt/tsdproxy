@@ -143,9 +143,9 @@ func TestHandleProxyEvent_Start(t *testing.T) {
 	}
 	pm.HandleProxyEvent(event)
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	p, ok := pm.Proxies["test-app"]
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 	if !ok {
 		t.Fatal("expected proxy after ActionStartProxy")
 	}
@@ -163,11 +163,11 @@ func TestHandleProxyEvent_Start_AddTargetError(t *testing.T) {
 	}
 	pm.HandleProxyEvent(event)
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	if len(pm.Proxies) != 0 {
 		t.Fatal("expected no proxy after AddTarget error")
 	}
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 }
 
 func TestHandleProxyEvent_Stop(t *testing.T) {
@@ -189,9 +189,9 @@ func TestHandleProxyEvent_Stop(t *testing.T) {
 	}
 	pm.HandleProxyEvent(event)
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	_, ok := pm.Proxies["my-proxy"]
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 	if ok {
 		t.Fatal("expected proxy removed after ActionStopProxy")
 	}
@@ -234,9 +234,9 @@ func TestHandleProxyEvent_Restart(t *testing.T) {
 	}
 	pm.HandleProxyEvent(event)
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	p, ok := pm.Proxies["restart-app"]
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 	if !ok {
 		t.Fatal("expected proxy after ActionRestartProxy")
 	}
@@ -253,11 +253,11 @@ func TestHandleProxyEvent_UnknownAction(t *testing.T) {
 	}
 	pm.HandleProxyEvent(event)
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	if len(pm.Proxies) != 0 {
 		t.Fatal("expected no proxy for unknown action")
 	}
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 }
 
 // -- eventStop -----------------------------------------------------------------
@@ -288,10 +288,10 @@ func TestEventStop_RemovesProxyByTargetID(t *testing.T) {
 		ID:             "target-a",
 	})
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	_, okA := pm.Proxies["a"]
 	_, okB := pm.Proxies["b"]
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 	if okA {
 		t.Fatal("expected proxy 'a' removed")
 	}
@@ -318,9 +318,9 @@ func TestEventStop_NonExistentTarget(t *testing.T) {
 		ID: "nonexistent",
 	})
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	_, ok := pm.Proxies["a"]
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 	if !ok {
 		t.Fatal("proxy 'a' should still exist")
 	}
@@ -341,9 +341,9 @@ func TestCloseAndRemoveProxy_Exists(t *testing.T) {
 	}
 	pm.closeAndRemoveProxy("test")
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	_, ok := pm.Proxies["test"]
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 	if ok {
 		t.Fatal("expected proxy removed")
 	}
@@ -367,9 +367,9 @@ func TestCloseAndRemoveProxy_ProviderChangeWarning(t *testing.T) {
 	}
 	pm.closeAndRemoveProxy("test", "new-provider")
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	_, ok := pm.Proxies["test"]
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 	if ok {
 		t.Fatal("expected proxy removed")
 	}
@@ -403,11 +403,11 @@ func TestStopAllProxies_WithProxies(t *testing.T) {
 	}
 	pm.StopAllProxies()
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	if len(pm.Proxies) != 0 {
 		t.Fatal("expected all proxies removed")
 	}
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 }
 
 // -- getProxyProvider ----------------------------------------------------------
@@ -601,7 +601,7 @@ func TestResolveTLSProviderLocked_ByProxyConfig(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
 	pm.TLSProviders["my-tls"] = &stubTLSProv{name: "my-tls"}
-	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "my-tls"})
+	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "my-tls"}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -613,7 +613,7 @@ func TestResolveTLSProviderLocked_ByProxyConfig(t *testing.T) {
 func TestResolveTLSProviderLocked_TailscaleName(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "tailscale"})
+	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "tailscale"}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -630,7 +630,7 @@ func TestResolveTLSProviderLocked_TailscaleInConfig(t *testing.T) {
 	}
 
 	pm := newTestProxyManager(cfg)
-	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "ts"})
+	p, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "ts"}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -642,7 +642,7 @@ func TestResolveTLSProviderLocked_TailscaleInConfig(t *testing.T) {
 func TestResolveTLSProviderLocked_NotFound(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	_, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "missing"})
+	_, err := pm.resolveTLSProviderLocked(&model.Config{TLSProvider: "missing"}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -654,7 +654,7 @@ func TestResolveTLSProviderLocked_NoneConfigured(t *testing.T) {
 	cfg.DefaultTLSProvider = ""
 
 	pm := newTestProxyManager(cfg)
-	_, err := pm.resolveTLSProviderLocked(&model.Config{})
+	_, err := pm.resolveTLSProviderLocked(&model.Config{}, nil)
 	if !errors.Is(err, ErrNoTLSProvider) {
 		t.Fatalf("expected ErrNoTLSProvider, got %v", err)
 	}
@@ -667,7 +667,7 @@ func TestResolveTLSProviderLocked_UsesDefault(t *testing.T) {
 
 	pm := newTestProxyManager(cfg)
 	pm.TLSProviders["my-default"] = &stubTLSProv{name: "my-default"}
-	p, err := pm.resolveTLSProviderLocked(&model.Config{})
+	p, err := pm.resolveTLSProviderLocked(&model.Config{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -838,7 +838,7 @@ func TestStopAllProxies_ConcurrentSafe(t *testing.T) {
 			defer wg.Done()
 			ctx, cancel := context.WithCancel(context.Background())
 			name := string(rune('a' + n)) //nolint:gosec
-			pm.mtx.Lock()
+			pm.proxyMu.Lock()
 			pm.Proxies[name] = &Proxy{
 				Config:        &model.Config{Hostname: name},
 				log:           zerolog.Nop(),
@@ -846,18 +846,18 @@ func TestStopAllProxies_ConcurrentSafe(t *testing.T) {
 				cancel:        cancel,
 				statusHistory: make([]StatusTransition, 0, maxStatusHistory),
 			}
-			pm.mtx.Unlock()
+			pm.proxyMu.Unlock()
 		}(i)
 	}
 	wg.Wait()
 
 	pm.StopAllProxies()
 
-	pm.mtx.RLock()
+	pm.proxyMu.RLock()
 	if len(pm.Proxies) != 0 {
 		t.Fatalf("expected 0 proxies after StopAllProxies")
 	}
-	pm.mtx.RUnlock()
+	pm.proxyMu.RUnlock()
 }
 
 // -- addProxyProvider ----------------------------------------------------------
@@ -1003,7 +1003,13 @@ func TestWaitForProxyURL_URLBecomesAvailableAfterPoll(t *testing.T) {
 		providerProxy: proxy,
 		ctx:           ctx,
 		cancel:        cancel,
+		urlReady:      make(chan struct{}),
 	}
+
+	go func() {
+		time.Sleep(1100 * time.Millisecond)
+		close(p.urlReady)
+	}()
 
 	host, err := pm.waitForProxyURL(p)
 	assert.NoError(t, err)
@@ -1206,4 +1212,201 @@ type errorDNSProvider struct{ mockDNSProvider }
 
 func (e *errorDNSProvider) DeleteRecord(_ context.Context, _, _ string) error {
 	return errors.New("dns cleanup failed")
+}
+
+// ---------------------------------------------------------------------------
+// Bug-demonstrating tests — these SHOULD FAIL with the current code.
+// ---------------------------------------------------------------------------
+
+// signalingProxyProv wraps stubProxyProv and closes a channel when
+// ResolveAuthKey is called. This lets tests synchronize with newProxy's
+// progress — proving the goroutine has passed the early stopping checks.
+type signalingProxyProv struct {
+	resolveCalled chan struct{}
+	stubProxyProv
+}
+
+func (s *signalingProxyProv) ResolveAuthKey(cfg *model.Config) (string, error) {
+	select {
+	case <-s.resolveCalled:
+	default:
+		close(s.resolveCalled)
+	}
+	return s.stubProxyProv.ResolveAuthKey(cfg)
+}
+
+// TestNewProxy_RegisterProxyFailure_LeaksProviderProxy demonstrates BUG-2:
+// when registerProxy fails (e.g. ProxyManager is shutting down), newProxy
+// must call p.Close() to release the providerProxy (tsnet.Server) that
+// buildProxy created. Without the fix, the proxy is never inserted into
+// pm.Proxies and teardownProxy is never called — the tsnet.Server is leaked.
+//
+// This test calls newProxy end-to-end and deterministically triggers a
+// registerProxy failure by exploiting the proxyMu lock as a gate:
+//  1. Hold proxyMu so newProxy's goroutine blocks inside closeAndRemoveProxy
+//  2. Wait for ResolveAuthKey signal — proves goroutine passed stopping checks
+//  3. Set stopping=true while still holding proxyMu
+//  4. Release proxyMu — goroutine proceeds to registerProxy which sees
+//     stopping=true and returns an error
+//  5. Assert providerProxy.Close() was called (the fix)
+func TestNewProxy_RegisterProxyFailure_LeaksProviderProxy(t *testing.T) {
+	t.Parallel()
+
+	pm := newTestProxyManager(newTestConfig(t))
+
+	providerProxy := &stubProviderProxy{}
+	resolveCalled := make(chan struct{})
+	pm.ProxyProviders["tailscale"] = &signalingProxyProv{
+		stubProxyProv: stubProxyProv{
+			newProxyRet: providerProxy,
+			resolvedKey: "test-key",
+		},
+		resolveCalled: resolveCalled,
+	}
+
+	proxyConfig := &model.Config{
+		Hostname:      "test-leak",
+		TargetID:      "test-leak-id",
+		ProxyProvider: "tailscale",
+		Domain:        "app.example.com",
+		Ports: map[string]model.PortConfig{
+			"80": {ProxyProtocol: model.ProtoTCP},
+		},
+	}
+
+	// Hold proxyMu so newProxy blocks at closeAndRemoveProxy's proxyMu.Lock(),
+	// giving us a deterministic window to set stopping between the early
+	// stopping checks and registerProxy's stopping check.
+	pm.proxyMu.Lock()
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := pm.newProxy("test-leak", proxyConfig)
+		errCh <- err
+	}()
+
+	// Wait until goroutine has called ResolveAuthKey — proves it passed
+	// both early stopping checks (newProxy lines 948, 957).
+	<-resolveCalled
+
+	// Set stopping while holding proxyMu. The goroutine is blocked at
+	// closeAndRemoveProxy's proxyMu.Lock() and will see stopping=true when
+	// it reaches registerProxy (mutex provides happens-before guarantee).
+	pm.stopping.Store(true)
+	pm.proxyMu.Unlock()
+
+	// Goroutine proceeds: closeAndRemoveProxy (no-op), buildProxy (creates
+	// providerProxy), registerProxy (stopping=true → error), p.Close() (fix).
+	err := <-errCh
+	assert.Error(t, err)
+
+	// After the fix, newProxy calls p.Close() on registerProxy failure,
+	// which calls providerProxy.Close().
+	providerProxy.mtx.Lock()
+	closed := providerProxy.closed
+	providerProxy.mtx.Unlock()
+
+	assert.True(t, closed,
+		"BUG: providerProxy.Close() was never called after registerProxy "+
+			"failure — tsnet.Server struct leaked (newProxy missing p.Close() "+
+			"on error path)")
+}
+
+// TestTeardownProxy_TLSProviderClosedBeforeProxy demonstrates BUG-3:
+// teardownProxy calls closeTLSProvider (certmagic cache.Stop()) BEFORE
+// p.Close() (which closes listeners). Between these two calls, the TLS
+// listener is still accepting connections but the certmagic cache is
+// stopped, so in-flight TLS handshakes calling GetCertificate hit a
+// stopped cache.
+//
+// After the fix, the order should be swapped: p.Close() first (close
+// listeners), then closeTLSProvider (stop cache).
+func TestTeardownProxy_TLSProviderClosedBeforeProxy(t *testing.T) {
+	t.Parallel()
+
+	pm := newTestProxyManager(newTestConfig(t))
+
+	var sequence []string
+	var seqMu sync.Mutex
+
+	tlsProv := &closeTrackingTLSProv{
+		mockTLSProvider: mockTLSProvider{name: "test-tls"},
+		log:             &sequence,
+		mu:              &seqMu,
+	}
+
+	providerProxy := &closeTrackingProviderProxy{
+		stubProviderProxy: stubProviderProxy{},
+		log:               &sequence,
+		mu:                &seqMu,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &Proxy{
+		log:           zerolog.Nop(),
+		Config:        &model.Config{Hostname: "test"},
+		ctx:           ctx,
+		cancel:        cancel,
+		providerProxy: providerProxy,
+		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
+	}
+	p.SetDNSAndTLSProviders(nil, tlsProv)
+
+	pm.teardownProxy(p)
+
+	seqMu.Lock()
+	defer seqMu.Unlock()
+
+	tlsPos, proxyPos := -1, -1
+	for i, s := range sequence {
+		switch s {
+		case "tls-close":
+			tlsPos = i
+		case "proxy-close":
+			proxyPos = i
+		}
+	}
+
+	if tlsPos == -1 {
+		t.Fatal("TLS provider Close() was never called during teardown")
+	}
+	if proxyPos == -1 {
+		t.Fatal("providerProxy Close() was never called during teardown")
+	}
+
+	if tlsPos < proxyPos {
+		t.Errorf("BUG: TLS cache stopped (step %d) before listeners closed (step %d) — "+
+			"TLS handshakes can hit stopped certmagic cache. Swap closeTLSProvider and p.Close() "+
+			"in teardownProxy", tlsPos, proxyPos)
+	}
+}
+
+// closeTrackingTLSProv wraps mockTLSProvider and implements tlsproviders.Closer,
+// recording the call order for teardownProxy sequence verification.
+type closeTrackingTLSProv struct {
+	log *[]string
+	mu  *sync.Mutex
+	mockTLSProvider
+}
+
+func (t *closeTrackingTLSProv) Close() error {
+	t.mu.Lock()
+	*t.log = append(*t.log, "tls-close")
+	t.mu.Unlock()
+	return nil
+}
+
+// closeTrackingProviderProxy wraps stubProviderProxy, recording when Close()
+// is called for teardownProxy sequence verification.
+type closeTrackingProviderProxy struct {
+	log *[]string
+	mu  *sync.Mutex
+	stubProviderProxy
+}
+
+func (c *closeTrackingProviderProxy) Close() error {
+	c.mu.Lock()
+	*c.log = append(*c.log, "proxy-close")
+	c.mu.Unlock()
+	return c.stubProviderProxy.Close()
 }
