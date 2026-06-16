@@ -266,6 +266,10 @@ jobs:
           name: docker-binaries
           path: docker-binaries
 
+      - name: Restore executable permissions
+        run: |
+          chmod +x docker-binaries/*/tsdproxyd docker-binaries/*/healthcheck
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6

@@ -135,6 +135,10 @@ jobs:
           merge-multiple: true
           path: docker-binaries
 
+      - name: Restore executable permissions
+        run: |
+          chmod +x docker-binaries/*/tsdproxyd docker-binaries/*/healthcheck
+
       - name: Build and push
         id: push
         uses: docker/build-push-action@v7

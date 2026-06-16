@@ -7,8 +7,8 @@ RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || 
 FROM scratch
 ARG TARGETPLATFORM
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY ${TARGETPLATFORM}/tsdproxyd /tsdproxyd
-COPY ${TARGETPLATFORM}/healthcheck /healthcheck
+COPY --chmod=0755 ${TARGETPLATFORM}/tsdproxyd /tsdproxyd
+COPY --chmod=0755 ${TARGETPLATFORM}/healthcheck /healthcheck
 ENTRYPOINT ["/tsdproxyd"]
 EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=2s CMD [ "/healthcheck" ]
