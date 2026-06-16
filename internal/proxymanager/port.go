@@ -153,65 +153,68 @@ func proxyRewrite(
 	}
 }
 
-func newPortProxy(
-	ctx context.Context,
-	pconfig model.PortConfig,
-	log zerolog.Logger,
-	accessLog bool,
-	whoisFunc func(next http.Handler) http.Handler,
-	m *metrics.Metrics,
-	proxyName string,
-	portName string,
-	logBuffer *LogRingBuffer,
-	identityHeaders bool,
-	tp trace.TracerProvider,
-	httpPort uint16,
-	rateLimitEnabled bool,
-	rateLimitRPS int,
-	rateLimitBurst int,
-	proxyAuthToken string,
-) *port {
-	log = log.With().Str("port", pconfig.String()).Logger()
+// portProxyParams holds all parameters for creating a new HTTP/HTTPS port proxy.
+type portProxyParams struct {
+	Log              zerolog.Logger
+	Ctx              context.Context
+	TracerProvider   trace.TracerProvider
+	Metrics          *metrics.Metrics
+	WhoisMiddleware  func(next http.Handler) http.Handler
+	LogBuffer        *LogRingBuffer
+	ProxyName        string
+	PortName         string
+	ProxyAuthToken   string
+	PortConfig       model.PortConfig
+	RateLimitRPS     int
+	RateLimitBurst   int
+	HTTPPort         uint16
+	AccessLog        bool
+	IdentityHeaders  bool
+	RateLimitEnabled bool
+}
 
-	ctxPort, cancel := context.WithCancel(ctx)
+func newPortProxy(p portProxyParams) *port {
+	log := p.Log.With().Str("port", p.PortConfig.String()).Logger()
 
-	if !pconfig.TLSValidate {
-		log.Warn().Str("port", pconfig.String()).Msg("TLS validation disabled for this port")
+	ctxPort, cancel := context.WithCancel(p.Ctx)
+
+	if !p.PortConfig.TLSValidate {
+		log.Warn().Str("port", p.PortConfig.String()).Msg("TLS validation disabled for this port")
 	}
 	tr := &http.Transport{
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: !pconfig.TLSValidate}, //nolint:gosec // G402: config-driven TLS validation toggle
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: !p.PortConfig.TLSValidate}, //nolint:gosec // G402: config-driven TLS validation toggle
 		MaxIdleConnsPerHost: maxIdleConnsPerHost,
 		IdleConnTimeout:     idleConnTimeout,
 	}
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,
 		FlushInterval: -1,
-		ErrorHandler:  proxyErrorHandler(log, pconfig),
-		Rewrite:       proxyRewrite(pconfig, identityHeaders, httpPort, proxyAuthToken),
+		ErrorHandler:  proxyErrorHandler(log, p.PortConfig),
+		Rewrite:       proxyRewrite(p.PortConfig, p.IdentityHeaders, p.HTTPPort, p.ProxyAuthToken),
 	}
 
 	var limiter *ipRateLimiter
-	if rateLimitEnabled {
-		limiter = newIPRateLimiter(rate.Limit(rateLimitRPS), rateLimitBurst)
+	if p.RateLimitEnabled {
+		limiter = newIPRateLimiter(rate.Limit(p.RateLimitRPS), p.RateLimitBurst)
 	}
 
-	handler := whoisFunc(reverseProxy)
+	handler := p.WhoisMiddleware(reverseProxy)
 
 	if limiter != nil {
 		handler = rateLimitMiddleware(limiter, handler)
 	}
 
-	if accessLog {
-		handler = core.LoggerMiddleware(log, handler, core.WithAccessLogWriter(logBuffer))
+	if p.AccessLog {
+		handler = core.LoggerMiddleware(log, handler, core.WithAccessLogWriter(p.LogBuffer))
 	}
 
-	if m != nil {
-		handler = m.Middleware(proxyName, portName)(handler)
+	if p.Metrics != nil {
+		handler = p.Metrics.Middleware(p.ProxyName, p.PortName)(handler)
 	}
 
-	if tp != nil {
+	if p.TracerProvider != nil {
 		handler = otelhttp.NewHandler(handler, "proxy",
-			otelhttp.WithTracerProvider(tp),
+			otelhttp.WithTracerProvider(p.TracerProvider),
 			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 		)
 	}

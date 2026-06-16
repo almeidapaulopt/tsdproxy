@@ -20,21 +20,24 @@ func (proxy *Proxy) initPorts() {
 		if v.IsRedirect {
 			ph = newPortRedirect(proxy.ctx, v, log)
 		} else if v.ProxyProtocol == model.ProtoHTTP || v.ProxyProtocol == model.ProtoHTTPS {
-			ph = newPortProxy(
-				proxy.ctx, v, log,
-				proxy.Config.ProxyAccessLog,
-				proxy.ProviderUserMiddleware,
-				proxy.metrics,
-				proxy.Config.Hostname,
-				k, proxy.logBuffer,
-				proxy.Config.IdentityHeaders,
-				proxy.tracerProvider,
-				proxy.httpPort,
-				proxy.Config.RateLimitEnabled,
-				proxy.Config.RateLimitRPS,
-				proxy.Config.RateLimitBurst,
-				proxy.proxyAuthToken,
-			)
+			ph = newPortProxy(portProxyParams{
+				Ctx:              proxy.ctx,
+				PortConfig:       v,
+				Log:              log,
+				WhoisMiddleware:  proxy.ProviderUserMiddleware,
+				Metrics:          proxy.metrics,
+				ProxyName:        proxy.Config.Hostname,
+				PortName:         k,
+				LogBuffer:        proxy.logBuffer,
+				TracerProvider:   proxy.tracerProvider,
+				HTTPPort:         proxy.httpPort,
+				ProxyAuthToken:   proxy.proxyAuthToken,
+				AccessLog:        proxy.Config.ProxyAccessLog,
+				IdentityHeaders:  proxy.Config.IdentityHeaders,
+				RateLimitEnabled: proxy.Config.RateLimitEnabled,
+				RateLimitRPS:     proxy.Config.RateLimitRPS,
+				RateLimitBurst:   proxy.Config.RateLimitBurst,
+			})
 		} else if v.ProxyProtocol == model.ProtoUDP {
 			ph = newPortUDP(proxy.ctx, v, log)
 		} else {

@@ -274,22 +274,19 @@ func runPortProxyHeaderTest(t *testing.T, identityHeaders bool) http.Header {
 		})
 	}
 
-	p := newPortProxy(
-		context.Background(),
-		pconfig,
-		zerolog.Nop(),
-		false, // accessLog
-		whoisFunc,
-		nil, // metrics
-		"test-proxy",
-		"test-port",
-		nil, // logBuffer
-		identityHeaders,
-		nil,       // tracerProvider
-		uint16(0), // httpPort
-		true, 100, 200,
-		"test-token",
-	)
+	p := newPortProxy(portProxyParams{
+		Ctx:              context.Background(),
+		PortConfig:       pconfig,
+		Log:              zerolog.Nop(),
+		WhoisMiddleware:  whoisFunc,
+		ProxyName:        "test-proxy",
+		PortName:         "test-port",
+		IdentityHeaders:  identityHeaders,
+		RateLimitEnabled: true,
+		RateLimitRPS:     100,
+		RateLimitBurst:   200,
+		ProxyAuthToken:   "test-token",
+	})
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -338,12 +335,18 @@ func runPortProxyProtoTest(t *testing.T, proxyProtocol string) http.Header {
 
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(
-		context.Background(), pconfig, zerolog.Nop(), false,
-		whoisFunc, nil, "test-proxy", "test-port",
-		nil, false, nil, uint16(0),
-		true, 100, 200, "test-token",
-	)
+	p := newPortProxy(portProxyParams{
+		Ctx:              context.Background(),
+		PortConfig:       pconfig,
+		Log:              zerolog.Nop(),
+		WhoisMiddleware:  whoisFunc,
+		ProxyName:        "test-proxy",
+		PortName:         "test-port",
+		RateLimitEnabled: true,
+		RateLimitRPS:     100,
+		RateLimitBurst:   200,
+		ProxyAuthToken:   "test-token",
+	})
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -448,22 +451,19 @@ func TestPortProxyAlwaysStripsClientIdentityHeaders(t *testing.T) {
 	// identity headers would be the client.
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(
-		context.Background(),
-		pconfig,
-		zerolog.Nop(),
-		false,
-		whoisFunc,
-		nil,
-		"test-proxy",
-		"test-port",
-		nil,
-		false, // opted out — strip block must still run
-		nil,   // tracerProvider
-		uint16(0),
-		true, 100, 200,
-		"test-token",
-	)
+	p := newPortProxy(portProxyParams{
+		Ctx:              context.Background(),
+		PortConfig:       pconfig,
+		Log:              zerolog.Nop(),
+		WhoisMiddleware:  whoisFunc,
+		ProxyName:        "test-proxy",
+		PortName:         "test-port",
+		IdentityHeaders:  false, // opted out — strip block must still run
+		RateLimitEnabled: true,
+		RateLimitRPS:     100,
+		RateLimitBurst:   200,
+		ProxyAuthToken:   "test-token",
+	})
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -518,12 +518,18 @@ func TestPortProxyStripsSpoofedXForwardedFor(t *testing.T) {
 
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(
-		context.Background(), pconfig, zerolog.Nop(), false,
-		whoisFunc, nil, "test-proxy", "test-port",
-		nil, false, nil, uint16(0),
-		true, 100, 200, "test-token",
-	)
+	p := newPortProxy(portProxyParams{
+		Ctx:              context.Background(),
+		PortConfig:       pconfig,
+		Log:              zerolog.Nop(),
+		WhoisMiddleware:  whoisFunc,
+		ProxyName:        "test-proxy",
+		PortName:         "test-port",
+		RateLimitEnabled: true,
+		RateLimitRPS:     100,
+		RateLimitBurst:   200,
+		ProxyAuthToken:   "test-token",
+	})
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1076,9 +1082,18 @@ func TestNewPortProxy_Minimal(t *testing.T) {
 	targetURL, _ := url.Parse("http://backend:8080")
 	pconfig.AddTarget(targetURL)
 
-	p := newPortProxy(ctx, pconfig, zerolog.Nop(), false, func(next http.Handler) http.Handler {
-		return next
-	}, nil, "testproxy", "80", nil, false, nil, uint16(0), true, 100, 200, "test-token")
+	p := newPortProxy(portProxyParams{
+		Ctx:              ctx,
+		PortConfig:       pconfig,
+		Log:              zerolog.Nop(),
+		WhoisMiddleware:  func(next http.Handler) http.Handler { return next },
+		ProxyName:        "testproxy",
+		PortName:         "80",
+		RateLimitEnabled: true,
+		RateLimitRPS:     100,
+		RateLimitBurst:   200,
+		ProxyAuthToken:   "test-token",
+	})
 	if p == nil {
 		t.Fatal("newPortProxy returned nil")
 	}
@@ -1109,11 +1124,18 @@ func TestHTTPProxy_ContextCanceled_SilentNo502(t *testing.T) {
 
 	whoisFunc := func(next http.Handler) http.Handler { return next }
 
-	p := newPortProxy(
-		context.Background(), pconfig, zerolog.Nop(), false,
-		whoisFunc, nil, "test-proxy", "test-port", nil, false,
-		nil, uint16(0), true, 100, 200, "test-token",
-	)
+	p := newPortProxy(portProxyParams{
+		Ctx:              context.Background(),
+		PortConfig:       pconfig,
+		Log:              zerolog.Nop(),
+		WhoisMiddleware:  whoisFunc,
+		ProxyName:        "test-proxy",
+		PortName:         "test-port",
+		RateLimitEnabled: true,
+		RateLimitRPS:     100,
+		RateLimitBurst:   200,
+		ProxyAuthToken:   "test-token",
+	})
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
