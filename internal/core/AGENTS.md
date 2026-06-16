@@ -9,7 +9,7 @@ Foundational infrastructure: HTTP server, middleware chain, logging, health prob
 | `http.go` | `HTTPServer` — mux wrapper with middleware chain. `Use()` adds middleware, `Handle/Get/Post/Put` register routes, `StartServer` binds and serves. JSON/error response helpers. |
 | `log.go` | zerolog setup: `NewLog()` configures level (from config), format (JSON vs console), caller info. `LoggerMiddleware` for HTTP access logging. |
 | `healthcheck.go` | `HealthHandler` — atomic ready/not-ready flag. Registers `GET /health/ready/` and `GET /health/live/`. Readiness set after HTTP server starts. |
-| `version.go` | `VersionInfo` struct with `NewVersionInfo()`. GoReleaser ldflags inject `version` var; local builds get `"dev"` + dirty detection. `GetVersion()`/`GetIsDirty()` are backward-compat wrappers. |
+| `version.go` | `VersionInfo` struct with `NewVersionInfo()`. Build ldflags inject `version` var; local builds get `"dev"` + dirty detection. `GetVersion()`/`GetIsDirty()` are backward-compat wrappers. |
 | `admin.go` | `ProxyAuth` struct with `NewProxyAuth(logger)`. `AdminMiddleware`/`ViewerMiddleware` for RBAC. `AdminAllowList` for IP-based access. `StripProxyIdentityHeaders` validates/removes `x-tsdproxy-*` headers. |
 | `sessions.go` | `SessionMiddleware` — UUID session cookie via `gorilla/sessions`. Cookie-based, no server-side store. |
 | `csrf.go` | `CSRFMiddleware` — Go 1.25+ `http.CrossOriginProtection`. |

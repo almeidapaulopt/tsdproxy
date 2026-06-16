@@ -1,5 +1,4 @@
-# .github/workflows/release.yml
-name: goreleaser devel
+name: dev release
 
 on:
   push:
@@ -10,80 +9,61 @@ on:
       - dev/**
 
 permissions:
-  contents: write
+  contents: read
   packages: write
-  issues: write
   id-token: write
 
 jobs:
-  goreleaser:
+  docker:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v6
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: "go.mod"
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
 
-      - uses: sigstore/cosign-installer@v4.1.2
-
-      - name: dockerhub-login
+      - name: DockerHub login
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: ghcr-login
+
+      - name: GHCR login
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get Tailscale version
-        run: echo "TAILSCALE_VERSION=$(go list -m tailscale.com | awk '{print $2}')" >> $GITHUB_ENV
-
-      - name: Set dev tag
-        run: echo "LATEST_TAG=dev" >> $GITHUB_ENV
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --snapshot -f .goreleaser-dev.yaml --skip validate --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          TAILSCALE_VERSION: ${{ env.TAILSCALE_VERSION }}
-
-      - name: Push dev images and create manifests
+      - name: Compute metadata
+        id: meta
         run: |
-          set -euo pipefail
-          DOCKER_IMAGE="almeidapaulopt/tsdproxy"
-          GHCR_IMAGE="ghcr.io/almeidapaulopt/tsdproxy"
-          SUFFIXES=("amd64" "arm64" "armv6" "armv7")
+          TS_VER=$(grep '^	tailscale.com ' go.mod | awk '{print $2}')
+          echo "tailscale_version=$TS_VER" >> "$GITHUB_OUTPUT"
+          echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-          for image in "${DOCKER_IMAGE}" "${GHCR_IMAGE}"; do
-            echo "=== Pushing per-arch images for ${image} ==="
-            PER_ARCH=()
-            for suffix in "${SUFFIXES[@]}"; do
-              img="${image}:dev-${suffix}"
-              docker push "${img}"
-              PER_ARCH+=("${img}")
-            done
+      - uses: sigstore/cosign-installer@v4
 
-            echo "=== Creating multi-arch manifest :dev for ${image} ==="
-            docker manifest rm "${image}:dev" 2>/dev/null || true
-            docker manifest create "${image}:dev" "${PER_ARCH[@]}"
-            docker manifest push "${image}:dev"
-          done
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v6,linux/arm/v7
+          push: true
+          tags: |
+            almeidapaulopt/tsdproxy:dev
+            ghcr.io/almeidapaulopt/tsdproxy:dev
+          build-args: |
+            VERSION=dev
+            TAILSCALE_VERSION=${{ steps.meta.outputs.tailscale_version }}
+            GIT_COMMIT=${{ steps.meta.outputs.git_commit }}
+
+      - name: Sign images with cosign
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          digest="${{ steps.push.outputs.digest }}"
+          cosign sign --yes "almeidapaulopt/tsdproxy@${digest}"
+          cosign sign --yes "ghcr.io/almeidapaulopt/tsdproxy@${digest}"

@@ -53,7 +53,7 @@ tsdproxy/
 | Change config format | `internal/config/config.go` | Struct definitions; `configfile.go` for I/O |
 | Add HTTP routes | `internal/dashboard/dash.go` | `AddRoutes()` method |
 | Change logging | `internal/core/log.go` | zerolog setup + HTTP middleware |
-| Change release process | `.goreleaser.yaml` | Multi-arch Docker, version embedding |
+| Change release process | `.github/workflows/release.yaml` | Multi-arch Docker, version embedding |
 | Tailscale auth flow | `internal/proxyproviders/tailscale/provider.go` | OAuth vs AuthKey resolution |
 | Shared Tailscale mode | `internal/proxyproviders/tailscale/shared_server.go` | Ref-counted tsnet.Server, SNI routing |
 | DNS record management | `internal/dnsproviders/` | LifecycleManager wraps create/delete/validate with retry |
@@ -210,18 +210,18 @@ make dev_docker             # Run dev container
 make docs                   # Hugo docs server (localhost:1313)
 
 # Release (CI)
-# Tags v1.* → .goreleaser.yaml (stable, DockerHub + GHCR + Homebrew + AUR + cosign)
-# Push to main → .goreleaser-dev.yaml (dev snapshot, draft, Docker images only)
+# Tags v1.* → .github/workflows/release.yaml (stable, DockerHub + GHCR + Homebrew + AUR + cosign)
+# Push to main → .github/workflows/release-dev.yaml (dev snapshot, Docker images only)
 ```
 
 ## NOTES
 
-- **Version embedding**: GoReleaser ldflags inject `internal/core.version`. Makefile ldflags match GoReleaser — `make build` shows real version when `VERSION` is set
-- **Tailscale version injection**: GoReleaser overwrites `tailscale.com/version.*` vars via ldflags to stamp Tailscale with TSDProxy context
+- **Version embedding**: CI ldflags inject `internal/core.version`. Makefile ldflags match — `make build` shows real version when `VERSION` is set
+- **Tailscale version injection**: CI overwrites `tailscale.com/version.*` vars via ldflags to stamp Tailscale with TSDProxy context
 - **Config live-reload**: `internal/config/configfile.go` uses fsnotify to watch config file changes
 - **Health check**: Separate `healthcheck` binary pings `http://127.0.0.1:8080/health/ready/` — Docker HEALTHCHECK
 - **Docker labels**: All container labels start with `tsdproxy.` (see `internal/targetproviders/docker/consts.go`)
 - **docs/ is separate Go module**: `github.com/imfing/hextra-starter-template` — `go test ./...` at root ignores it
-- **Three Dockerfiles**: `Dockerfile` (local build), `Dockerfile.goreleaser` (CI pre-built binaries), `dev/Dockerfile.dev` (hot-reload dev)
+- **Three Dockerfiles**: `Dockerfile` (local multi-stage build from source), `Dockerfile.ci` (CI release images from pre-built binaries), `dev/Dockerfile.dev` (hot-reload dev)
 - **Icon pipeline**: `web/scripts/download-icons.js` downloads SVGs from GitHub with SHA256 verification, cached by content-hash
 - **Per-target serialization**: ProxyManager uses per-ID mutex (`sync.Map` of `*sync.Mutex`) so start/stop for same container can't interleave

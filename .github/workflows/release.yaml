@@ -1,10 +1,15 @@
-# .github/workflows/release.yml
-name: goreleaser
+name: release
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — build everything, publish nothing"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -13,63 +18,459 @@ permissions:
   id-token: write
 
 jobs:
-  goreleaser:
+
+  meta:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      major: ${{ steps.meta.outputs.major }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+      make_latest: ${{ steps.meta.outputs.make_latest }}
+      update_pm: ${{ steps.meta.outputs.update_pm }}
+      tailscale_version: ${{ steps.meta.outputs.tailscale_version }}
+      git_commit: ${{ steps.meta.outputs.git_commit }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Compute release metadata
+        id: meta
+        run: |
+          if [ "${GITHUB_REF#refs/tags/}" != "${GITHUB_REF}" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v$(git describe --tags --always --dirty 2>/dev/null || echo '0.0.0-test')"
+          fi
+          VERSION="${TAG#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+
+          if echo "$TAG" | grep -qE '-(alpha|beta|rc|pre|dev)'; then
+            IS_PRERELEASE=true
+          else
+            IS_PRERELEASE=false
+          fi
+
+          # Auto-detect stable major from release branches: the highest vN
+          # branch on the remote is the current stable stream.
+          # When v3 branch is created, v3 tags automatically become "latest".
+          STABLE_MAJOR=$(git ls-remote --heads origin \
+            | sed -n 's|.*refs/heads/v\([0-9][0-9]*\)$|\1|p' \
+            | sort -n | tail -1)
+
+          echo "Detected stable major: ${STABLE_MAJOR:-none}" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$MAJOR" = "${STABLE_MAJOR:-0}" ] && [ "$IS_PRERELEASE" = "false" ]; then
+            MAKE_LATEST=true
+            UPDATE_PM=true
+          else
+            MAKE_LATEST=false
+            UPDATE_PM=false
+          fi
+
+          TS_VER=$(grep '^	tailscale.com ' go.mod | awk '{print $2}')
+
+          echo "version=$VERSION"        >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR"            >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$MAKE_LATEST"     >> "$GITHUB_OUTPUT"
+          echo "update_pm=$UPDATE_PM"         >> "$GITHUB_OUTPUT"
+          echo "tailscale_version=$TS_VER"    >> "$GITHUB_OUTPUT"
+          echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - uses: sigstore/cosign-installer@v4.1.2
-      - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0
-      - name: dockerhub-login
-        if: startsWith(github.ref, 'refs/tags/v')
+
+      - name: Build frontend
+        run: |
+          bun i --cwd ./web
+          bun run --cwd web build
+
+      - name: Generate templ
+        run: |
+          go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
+          go generate ./...
+
+      - name: Cross-compile binaries
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          TS_VER: ${{ needs.meta.outputs.tailscale_version }}
+          COMMIT: ${{ needs.meta.outputs.git_commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          SERVER_LDFLAGS="-s -w \
+            -X github.com/almeidapaulopt/tsdproxy/internal/core.version=${VERSION} \
+            -X tailscale.com/version.Short=${TS_VER} \
+            -X tailscale.com/version.Long=${TS_VER}-TSDProxy \
+            -X tailscale.com/version.GitCommit=${COMMIT} \
+            -X tailscale.com/version.shortStamp=${TS_VER} \
+            -X tailscale.com/version.longStamp=${TS_VER}-TSDProxy \
+            -X tailscale.com/version.gitCommitStamp=${COMMIT}"
+
+          build_target() {
+            local goos="$1" goarch="$2" goarm="$3"
+            local ext="" arm_suffix=""
+            [ "$goos" = "windows" ] && ext=".exe"
+            [ -n "$goarm" ] && arm_suffix="v${goarm}"
+            local dir="dist/${goos}_${goarch}${arm_suffix}"
+            mkdir -p "$dir"
+
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" \
+              go build -ldflags "$SERVER_LDFLAGS" -o "$dir/tsdproxyd${ext}" ./cmd/server/main.go
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" \
+              go build -ldflags "-s -w" -o "$dir/healthcheck${ext}" ./cmd/healthcheck/main.go
+          }
+
+          build_target linux   amd64 ""
+          build_target linux   arm64 ""
+          build_target linux   arm   6
+          build_target linux   arm   7
+          build_target windows amd64 ""
+          build_target windows arm64 ""
+          build_target darwin  amd64 ""
+          build_target darwin  arm64 ""
+
+      - name: Create archives
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          for dir in */; do
+            platform="${dir%/}"
+            cp ../README.md ../LICENSE "$dir"
+            if [[ "$platform" == windows_* ]]; then
+              (cd "$platform" && zip -r -X "../tsdproxy_${VERSION}_${platform}.zip" .)
+            else
+              tar czf "tsdproxy_${VERSION}_${platform}.tar.gz" -C "$platform" .
+            fi
+          done
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum tsdproxy_* | tee checksums.txt
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          format: spdx-json
+          output-file: ${{ github.workspace }}/dist/sbom.spdx.json
+
+      - name: Prepare Docker binaries
+        run: |
+          set -euo pipefail
+          for plat in amd64:amd64 arm64:arm64 arm_6:arm/v6 arm_7:arm/v7; do
+            src="${plat%%:*}"
+            dst="${plat##*:}"
+            mkdir -p "docker-binaries/linux/${dst}"
+            cp "dist/linux_${src}/tsdproxyd" "dist/linux_${src}/healthcheck" "docker-binaries/linux/${dst}/"
+          done
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: |
+            dist/tsdproxy_*
+            dist/checksums.txt
+            dist/sbom.spdx.json
+          if-no-files-found: error
+
+      - name: Upload Docker binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-binaries
+          path: docker-binaries/
+          if-no-files-found: error
+
+  docker:
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - name: DockerHub login
+        if: inputs.dry_run != true
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: ghcr-login
-        if: startsWith(github.ref, 'refs/tags/v')
+
+      - name: GHCR login
+        if: inputs.dry_run != true
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get Tailscale version
-        run: echo "TAILSCALE_VERSION=$(go list -m tailscale.com | awk '{print $2}')" >> $GITHUB_ENV
+      - name: Download Docker binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: docker-binaries
+          path: docker-binaries
 
-      - name: Configure release stream
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            almeidapaulopt/tsdproxy
+            ghcr.io/almeidapaulopt/tsdproxy
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ needs.meta.outputs.make_latest == 'true' }}
+          labels: |
+            io.artifacthub.package.maintainers={"name":"Paulo Almeida","email":"almeidapaulopt@gmail.com"}
+            io.artifacthub.package.license=MIT
+            org.opencontainers.image.title=tsdproxy
+            org.opencontainers.image.description=TSDProxy
+            org.opencontainers.image.url=https://github.com/almeidapaulopt/tsdproxy
+
+      - name: Build${{ inputs.dry_run == true && ' (dry-run, not pushed)' || '' }}
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: ./docker-binaries
+          file: ./Dockerfile.ci
+          platforms: linux/amd64,linux/arm64,linux/arm/v6,linux/arm/v7
+          push: ${{ inputs.dry_run != true }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - uses: sigstore/cosign-installer@v4
+        if: inputs.dry_run != true
+
+      - name: Sign images with cosign
+        if: inputs.dry_run != true
+        env:
+          COSIGN_EXPERIMENTAL: "1"
         run: |
-          MAJOR=$(echo "${GITHUB_REF#refs/tags/v}" | cut -d. -f1)
-          HIGHEST=$(git tag -l 'v[0-9]*' | sed 's/v//' | cut -d. -f1 | sort -n | tail -1)
-          if [ "$MAJOR" -ge "${HIGHEST:-0}" ]; then
-            echo "LATEST_TAG=latest" >> $GITHUB_ENV
+          digest="${{ steps.push.outputs.digest }}"
+          cosign sign --yes "almeidapaulopt/tsdproxy@${digest}"
+          cosign sign --yes "ghcr.io/almeidapaulopt/tsdproxy@${digest}"
+
+  github-release:
+    needs: [meta, build]
+    if: inputs.dry_run != true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Generate changelog
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..HEAD"
           else
-            echo "DISABLE_PACKAGE_MANAGERS=true" >> $GITHUB_ENV
+            RANGE="HEAD"
           fi
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7
+          {
+            echo "## Changes"
+            echo ""
+            echo "### New Features"
+            git log "$RANGE" --oneline --no-decorate --grep='^feat' | sed 's/^[a-f0-9]* /- /' || true
+            echo ""
+            echo "### Security Updates"
+            git log "$RANGE" --oneline --no-decorate --grep='^sec' | sed 's/^[a-f0-9]* /- /' || true
+            echo ""
+            echo "### Bug Fixes"
+            git log "$RANGE" --oneline --no-decorate --grep='^fix' | sed 's/^[a-f0-9]* /- /' || true
+            echo ""
+            echo "### Dependency Updates"
+            git log "$RANGE" --oneline --no-decorate --grep='^.*\(deps\)\!:' | sed 's/^[a-f0-9]* /- /' || true
+            echo ""
+            echo "### Documentation"
+            git log "$RANGE" --oneline --no-decorate --grep='^docs' | sed 's/^[a-f0-9]* /- /' || true
+            echo ""
+            echo "### Other Changes"
+            git log "$RANGE" --oneline --no-decorate \
+              --invert-grep \
+              --grep='^feat' --grep='^fix' --grep='^sec' --grep='^docs' --grep='^chore' --grep='^test' \
+              | sed 's/^[a-f0-9]* /- /' || true
+          } > dist/CHANGELOG.md
+
+      - name: Create release
+        uses: softprops/action-gh-release@v3
         with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+          name: TSDProxy v${{ needs.meta.outputs.version }}
+          body_path: dist/CHANGELOG.md
+          prerelease: ${{ needs.meta.outputs.is_prerelease == 'true' }}
+          make_latest: ${{ needs.meta.outputs.make_latest }}
+          discussion_category_name: General
+          files: |
+            dist/tsdproxy_*
+            dist/checksums.txt
+            dist/sbom.spdx.json
+          target_commitish: ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAILSCALE_VERSION: ${{ env.TAILSCALE_VERSION }}
+
+  homebrew:
+    needs: [meta, github-release]
+    if: inputs.dry_run != true && needs.meta.outputs.update_pm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Compute SHA256 for darwin archives
+        id: sha
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          echo "amd64=$(sha256sum "dist/tsdproxy_${VERSION}_darwin_amd64.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(sha256sum "dist/tsdproxy_${VERSION}_darwin_arm64.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew tap
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          SHA_AMD64: ${{ steps.sha.outputs.amd64 }}
+          SHA_ARM64: ${{ steps.sha.outputs.arm64 }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO_DIR="homebrew-tap"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/almeidapaulopt/homebrew-tap.git" "$REPO_DIR"
+
+          cat > "$REPO_DIR/Casks/tsdproxy.rb" <<RUBY
+          cask "tsdproxy" do
+            arch arm: "arm64", intel: "amd64"
+
+            version "${VERSION}"
+            sha256 arm: "${SHA_ARM64}", intel: "${SHA_AMD64}"
+
+            url "https://github.com/almeidapaulopt/tsdproxy/releases/download/v#{version}/tsdproxy_#{version}_darwin_#{arch}.tar.gz",
+                verified: "github.com/almeidapaulopt/tsdproxy/"
+            name "TSDProxy"
+            desc "Tailscale Docker reverse proxy — expose containers with one label"
+            homepage "https://github.com/almeidapaulopt/tsdproxy"
+
+            binary "tsdproxyd"
+
+            post_install do
+              if OS.mac?
+                system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tsdproxyd"]
+              end
+            end
+          end
+          RUBY
+
+          cd "$REPO_DIR"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/tsdproxy.rb
+          git commit -m "tsdproxy ${VERSION}"
+          git push
+
+  aur:
+    needs: [meta, github-release]
+    if: inputs.dry_run != true && needs.meta.outputs.update_pm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Compute SHA256 for linux archives
+        id: sha
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          echo "amd64=$(sha256sum "dist/tsdproxy_${VERSION}_linux_amd64.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "arm64=$(sha256sum "dist/tsdproxy_${VERSION}_linux_arm64.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "armv6=$(sha256sum "dist/tsdproxy_${VERSION}_linux_armv6.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "armv7=$(sha256sum "dist/tsdproxy_${VERSION}_linux_armv7.tar.gz" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Update AUR package
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+          SHA_AMD64: ${{ steps.sha.outputs.amd64 }}
+          SHA_ARM64: ${{ steps.sha.outputs.arm64 }}
+          SHA_ARMV6: ${{ steps.sha.outputs.armv6 }}
+          SHA_ARMV7: ${{ steps.sha.outputs.armv7 }}
           AUR_KEY: ${{ secrets.AUR_KEY }}
-          LATEST_TAG: ${{ env.LATEST_TAG }}
-          DISABLE_PACKAGE_MANAGERS: ${{ env.DISABLE_PACKAGE_MANAGERS }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+          echo "${AUR_KEY}" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur_key"
+
+          git clone "ssh://aur@aur.archlinux.org/tsdproxy-bin.git" aur-repo
+
+          cat > aur-repo/PKGBUILD <<PKGBUILD
+          pkgname=tsdproxy-bin
+          pkgver=${VERSION}
+          pkgrel=1
+          pkgdesc="Tailscale Docker reverse proxy — expose containers with one label"
+          arch=('x86_64' 'aarch64' 'armv6h' 'armv7h')
+          url="https://github.com/almeidapaulopt/tsdproxy"
+          license=('MIT')
+          provides=('tsdproxy')
+          conflicts=('tsdproxy')
+
+          source_x86_64=("\${pkgname}-\${pkgver}-linux-amd64.tar.gz::\${url}/releases/download/v\${pkgver}/tsdproxy_\${pkgver}_linux_amd64.tar.gz")
+          source_aarch64=("\${pkgname}-\${pkgver}-linux-arm64.tar.gz::\${url}/releases/download/v\${pkgver}/tsdproxy_\${pkgver}_linux_arm64.tar.gz")
+          source_armv6h=("\${pkgname}-\${pkgver}-linux-armv6.tar.gz::\${url}/releases/download/v\${pkgver}/tsdproxy_\${pkgver}_linux_armv6.tar.gz")
+          source_armv7h=("\${pkgname}-\${pkgver}-linux-armv7.tar.gz::\${url}/releases/download/v\${pkgver}/tsdproxy_\${pkgver}_linux_armv7.tar.gz")
+
+          sha256sums_x86_64=('${SHA_AMD64}')
+          sha256sums_aarch64=('${SHA_ARM64}')
+          sha256sums_armv6h=('${SHA_ARMV6}')
+          sha256sums_armv7h=('${SHA_ARMV7}')
+
+          package() {
+              install -Dm755 "tsdproxyd" "\${pkgdir}/usr/bin/tsdproxyd"
+              install -Dm644 "LICENSE" "\${pkgdir}/usr/share/licenses/\${pkgname}/LICENSE"
+          }
+          PKGBUILD
+
+          cd aur-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          docker run --rm -v "$PWD:/build" archlinux:latest bash -c \
+            "cd /build && pacman -Sy --noconfirm pacman-contrib && makepkg --printsrcinfo > .SRCINFO"
+          git add PKGBUILD .SRCINFO
+          git commit -m "tsdproxy-bin ${VERSION}"
+          git push

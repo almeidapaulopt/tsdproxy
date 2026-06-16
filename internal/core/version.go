@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// version is set by GoReleaser via ldflags: -X github.com/almeidapaulopt/tsdproxy/internal/core.version=v1.2.3
+// version is set at build time via ldflags: -X github.com/almeidapaulopt/tsdproxy/internal/core.version=v1.2.3
 var version string
 
 const (

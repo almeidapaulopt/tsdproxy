@@ -1,15 +1,14 @@
-FROM alpine:latest AS certs
+# SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+# SPDX-License-Identifier: MIT
+
+FROM --platform=$BUILDPLATFORM alpine:latest AS certs
 RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
 
 FROM scratch
-
 ARG TARGETPLATFORM
-
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-
-COPY $TARGETPLATFORM/tsdproxyd /
-COPY $TARGETPLATFORM/healthcheck /
-
+COPY ${TARGETPLATFORM}/tsdproxyd /tsdproxyd
+COPY ${TARGETPLATFORM}/healthcheck /healthcheck
 ENTRYPOINT ["/tsdproxyd"]
 EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=2s CMD [ "/healthcheck" ]
