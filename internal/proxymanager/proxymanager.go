@@ -9,32 +9,20 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/caddyserver/certmagic"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
-	"tailscale.com/client/local"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/core/webhook"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
-	cloudflaredns "github.com/almeidapaulopt/tsdproxy/internal/dnsproviders/cloudflare"
-	magicdns "github.com/almeidapaulopt/tsdproxy/internal/dnsproviders/magicdns"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
-	tsproxy "github.com/almeidapaulopt/tsdproxy/internal/proxyproviders/tailscale"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders"
-	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker"
-	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/list"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
-	acmetls "github.com/almeidapaulopt/tsdproxy/internal/tlsproviders/acme"
-	tailscaletls "github.com/almeidapaulopt/tsdproxy/internal/tlsproviders/tailscale"
 	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
@@ -84,6 +72,7 @@ type (
 		providerMu        sync.RWMutex
 		subMu             sync.RWMutex
 		stopping          atomic.Bool
+		eventsWg          sync.WaitGroup
 	}
 )
 
@@ -125,7 +114,7 @@ func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken str
 }
 
 // Start method starts the ProxyManager.
-func (pm *ProxyManager) Start() {
+func (pm *ProxyManager) Start() error {
 	if pm.webhookSender != nil {
 		pm.webhookSender.Start()
 	}
@@ -138,14 +127,14 @@ func (pm *ProxyManager) Start() {
 
 	// Do not start without providers
 	if len(pm.ProxyProviders) == 0 {
-		pm.log.Error().Msg("No Proxy Providers found")
-		return
+		return errors.New("no proxy providers found")
 	}
 
 	if len(pm.TargetProviders) == 0 {
-		pm.log.Error().Msg("No Target Providers found")
-		return
+		return errors.New("no target providers found")
 	}
+
+	return nil
 }
 
 // StopAllProxies method shuts down all proxies.
@@ -154,6 +143,7 @@ func (pm *ProxyManager) StopAllProxies() {
 
 	pm.stopping.Store(true)
 	pm.cancel()
+	pm.eventsWg.Wait()
 
 	pm.proxyMu.RLock()
 	ids := make([]string, 0, len(pm.Proxies))
@@ -175,155 +165,6 @@ func (pm *ProxyManager) StopAllProxies() {
 	if pm.webhookSender != nil {
 		pm.webhookSender.Close()
 	}
-}
-
-// WatchEvents method watches for events from all target providers.
-func (pm *ProxyManager) WatchEvents() {
-	for _, provider := range pm.TargetProviders {
-		go func(provider targetproviders.TargetProvider) {
-			backoff := time.Second
-
-			for {
-				select {
-				case <-pm.ctx.Done():
-					return
-				default:
-				}
-
-				ctx, cancel := context.WithCancel(pm.ctx)
-
-				eventsChan := make(chan targetproviders.TargetEvent)
-				errChan := make(chan error, 1)
-
-				go provider.WatchEvents(ctx, eventsChan, errChan)
-
-			streamLoop:
-				for {
-					select {
-					case <-pm.ctx.Done():
-						cancel()
-						return
-					case event, ok := <-eventsChan:
-						if !ok {
-							cancel()
-							backoff = pm.reconnectBackoff(provider, backoff, "event stream closed")
-							break streamLoop
-						}
-						go pm.HandleProxyEvent(event)
-						backoff = time.Second
-					case err, ok := <-errChan:
-						cancel()
-						msg := "event stream error"
-						if ok && err != nil {
-							pm.log.Err(err).Str("provider", provider.GetDefaultProxyProviderName()).Msg(msg)
-						}
-						backoff = pm.reconnectBackoff(provider, backoff, msg)
-						break streamLoop
-					}
-				}
-			}
-		}(provider)
-	}
-}
-
-const maxWatchBackoff = 5 * time.Minute
-
-const (
-	backoffMultiplier = 2
-	statusSubChanBuf  = 64
-)
-
-func (pm *ProxyManager) reconnectBackoff(provider targetproviders.TargetProvider, current time.Duration, reason string) time.Duration {
-	pm.log.Warn().Str("provider", provider.GetDefaultProxyProviderName()).
-		Dur("retry_after", current).
-		Msg(reason + ", reconnecting")
-	timer := time.NewTimer(current)
-	select {
-	case <-pm.ctx.Done():
-		if !timer.Stop() {
-			<-timer.C
-		}
-	case <-timer.C:
-	}
-	next := current * backoffMultiplier
-	if next > maxWatchBackoff {
-		return maxWatchBackoff
-	}
-	return next
-}
-
-// HandleProxyEvent method handles events from a targetprovider.
-// Each event is serialized per target ID so that stop/start for the same
-// target cannot interleave, while different targets process in parallel.
-//
-// Start() runs OUTSIDE the target lock so a blocking Tailscale login does
-// not prevent stop events for other targets from being processed.
-func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
-	pm.targetLocks.Lock(event.ID)
-
-	var proxyToStart *Proxy
-	var err error
-
-	switch event.Action {
-	case targetproviders.ActionStartProxy:
-		proxyToStart, err = pm.eventStart(event)
-	case targetproviders.ActionStopProxy:
-		pm.eventStop(event)
-	case targetproviders.ActionRestartProxy:
-		pm.eventStop(event)
-		proxyToStart, err = pm.eventStart(event)
-	default:
-		pm.log.Warn().Str("targetID", event.ID).Msgf("unknown proxy event action: %d", event.Action)
-	}
-
-	pm.targetLocks.Unlock(event.ID)
-
-	if err != nil {
-		pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error processing proxy event")
-		return
-	}
-
-	if proxyToStart != nil {
-		// Re-check that the proxy is still in the map with the same
-		// pointer identity. A concurrent stop event could have removed
-		// and closed it between the target lock release and here.
-		current, exists := pm.GetProxy(proxyToStart.Config.Hostname)
-		if !exists || current != proxyToStart {
-			pm.log.Debug().Str("targetID", event.ID).Msg("proxy removed before Start() could execute")
-			return
-		}
-
-		if startErr := proxyToStart.Start(); startErr != nil {
-			pm.log.Error().Err(startErr).Str("targetID", event.ID).Msg("proxy start failed")
-
-			pm.closeAndRemoveProxy(proxyToStart.Config.Hostname, proxyToStart.Config.ProxyProvider)
-		}
-	}
-}
-
-type statusSubscription struct {
-	ch   chan model.ProxyEvent
-	once sync.Once
-}
-
-// SubscribeStatusEvents returns a channel of proxy events and a cancel function.
-func (pm *ProxyManager) SubscribeStatusEvents() (<-chan model.ProxyEvent, func()) {
-	sub := &statusSubscription{ch: make(chan model.ProxyEvent, statusSubChanBuf)}
-
-	pm.subMu.Lock()
-	pm.statusSubscribers[sub] = struct{}{}
-	pm.subMu.Unlock()
-
-	cancel := func() {
-		sub.once.Do(func() {
-			pm.subMu.Lock()
-			delete(pm.statusSubscribers, sub)
-			close(sub.ch)
-			pm.subMu.Unlock()
-		})
-	}
-
-	return sub.ch, cancel
 }
 
 func (pm *ProxyManager) GetProxies() ProxyList {
@@ -398,371 +239,6 @@ func (pm *ProxyManager) MetricsHandler() http.Handler {
 	return pm.metrics.Handler()
 }
 
-// broadcastStatusEvents broadcasts proxy status event to all SubscribeStatusEvents
-func (pm *ProxyManager) broadcastStatusEvents(event model.ProxyEvent) {
-	if pm.webhookSender != nil {
-		pm.webhookSender.Send(webhook.NewEvent(event.ID, event.OldStatus, event.Status))
-	}
-
-	pm.subMu.RLock()
-	for sub := range pm.statusSubscribers {
-		select {
-		case sub.ch <- event:
-		default:
-			pm.log.Warn().
-				Str("proxy", event.ID).
-				Str("status", event.Status.String()).
-				Msg("status event dropped: subscriber channel full (slow consumer)")
-		}
-	}
-	pm.subMu.RUnlock()
-}
-
-// addTargetProviders method adds TargetProviders from configuration file.
-func (pm *ProxyManager) addTargetProviders() {
-	for name, provider := range pm.cfg.Docker {
-		p, err := docker.New(pm.log, name, provider, pm.cfg.ProxyAccessLog, pm.assets)
-		if err != nil {
-			pm.log.Error().Err(err).Msg("Error creating Docker provider")
-			continue
-		}
-
-		pm.addTargetProvider(p, name)
-	}
-	for name, file := range pm.cfg.Lists {
-		p, err := list.New(pm.log, name, file)
-		if err != nil {
-			pm.log.Error().Err(err).Msg("Error creating Files provider")
-			continue
-		}
-
-		pm.addTargetProvider(p, name)
-	}
-}
-
-// addProxyProviders method adds ProxyProviders from configuration file.
-func (pm *ProxyManager) addProxyProviders() {
-	pm.log.Debug().Msg("Setting up Tailscale Providers")
-	// add Tailscale Providers
-	for name, provider := range pm.cfg.Tailscale.Providers {
-		if p, err := tsproxy.New(pm.log, name, provider, pm.cfg.Tailscale.DataDir); err != nil {
-			pm.log.Error().Err(err).Msg("Error creating Tailscale provider")
-		} else {
-			p.Start()
-			pm.log.Debug().Str("provider", name).Msg("Created Proxy provider")
-			pm.addProxyProvider(p, name)
-		}
-	}
-}
-
-func (pm *ProxyManager) addDNSProviders() {
-	for name, cfg := range pm.cfg.DNSProviders {
-		if cfg == nil {
-			continue
-		}
-		switch cfg.Provider {
-		case model.DNSProviderCloudflare:
-			if cfg.APIToken == "" {
-				pm.log.Error().Str("provider", name).Msg("Cloudflare DNS provider missing API token")
-				continue
-			}
-			pm.providerMu.Lock()
-			pm.DNSProviders[name] = cloudflaredns.New(cfg.APIToken.Value())
-			pm.providerMu.Unlock()
-			pm.log.Debug().Str("provider", name).Msg("Created Cloudflare DNS provider")
-		case model.DNSProviderMagicDNS:
-			pm.providerMu.Lock()
-			pm.DNSProviders[name] = magicdns.New()
-			pm.providerMu.Unlock()
-			pm.log.Debug().Str("provider", name).Msg("Created MagicDNS provider")
-		default:
-			pm.log.Error().Str("provider", name).Str("type", cfg.Provider).Msg("Unknown DNS provider type")
-		}
-	}
-}
-
-func (pm *ProxyManager) addTLSProviders() {
-	for name, cfg := range pm.cfg.TLSProviders {
-		if cfg == nil {
-			continue
-		}
-		switch cfg.Provider {
-		case model.TLSProviderTailscale:
-			pm.log.Warn().Str("provider", name).
-				Msg("Tailscale TLS provider is auto-created per proxy, skipping global registration")
-		case model.TLSProviderACME:
-			pm.log.Warn().Str("provider", name).
-				Msg("ACME TLS provider is auto-created per proxy, skipping global registration")
-		default:
-			pm.log.Error().Str("provider", name).Str("type", cfg.Provider).Msg("Unknown TLS provider type")
-		}
-	}
-}
-
-// resolveTLSProviderName returns the effective TLS provider name for a proxy,
-// falling back to the global default.
-func (pm *ProxyManager) resolveTLSProviderName(proxyCfg *model.Config) string {
-	name := proxyCfg.TLSProvider
-	if name == "" {
-		name = pm.cfg.DefaultTLSProvider
-	}
-	return name
-}
-
-// newACMEProvider creates an ACME TLS provider from a TLS config and a DNS provider
-// capable of DNS-01 challenges. Shared by addTLSProviders (startup) and
-// resolveAndSetProviders (per-proxy ACME bypass).
-func (pm *ProxyManager) newACMEProvider(tlsCfg *config.TLSProviderConfig, dnsProv certmagic.DNSProvider) (*acmetls.Provider, error) {
-	return acmetls.New(acmetls.Config{
-		Email:       tlsCfg.Email,
-		CA:          tlsCfg.CA,
-		DNSProvider: dnsProv,
-		CertStorage: tlsCfg.CertStorage,
-		DataDir:     pm.cfg.Tailscale.DataDir,
-	})
-}
-
-func (pm *ProxyManager) resolveDNSProvider(proxyCfg *model.Config) (dnsproviders.Provider, error) {
-	pm.providerMu.RLock()
-	defer pm.providerMu.RUnlock()
-
-	return pm.resolveDNSProviderLocked(proxyCfg)
-}
-
-func (pm *ProxyManager) resolveDNSProviderLocked(proxyCfg *model.Config) (dnsproviders.Provider, error) {
-	if proxyCfg.DNSProvider != "" {
-		p, ok := pm.DNSProviders[proxyCfg.DNSProvider]
-		if !ok {
-			return nil, fmt.Errorf("dns provider %q not found", proxyCfg.DNSProvider)
-		}
-		return p, nil
-	}
-	if pm.cfg.DefaultDNSProvider != "" {
-		p, ok := pm.DNSProviders[pm.cfg.DefaultDNSProvider]
-		if !ok {
-			return nil, fmt.Errorf("default dns provider %q not found", pm.cfg.DefaultDNSProvider)
-		}
-		return p, nil
-	}
-	return nil, ErrNoDNSProvider
-}
-
-func (pm *ProxyManager) resolveTLSProvider(proxyCfg *model.Config, dnsProvider dnsproviders.Provider) (tlsproviders.Provider, error) {
-	pm.providerMu.RLock()
-	defer pm.providerMu.RUnlock()
-
-	return pm.resolveTLSProviderLocked(proxyCfg, dnsProvider)
-}
-
-func (pm *ProxyManager) resolveTLSProviderLocked(proxyCfg *model.Config, dnsProvider dnsproviders.Provider) (tlsproviders.Provider, error) {
-	name := pm.resolveTLSProviderName(proxyCfg)
-	if name == "" {
-		return nil, ErrNoTLSProvider
-	}
-
-	if name == model.TLSProviderTailscale {
-		return tailscaletls.New(nil, 0), nil
-	}
-
-	if cfg, ok := pm.cfg.TLSProviders[name]; ok && cfg.Provider == model.TLSProviderTailscale {
-		return tailscaletls.New(nil, 0), nil
-	}
-
-	// ACME always creates a per-proxy instance bound to the proxy's
-	// resolved DNS provider, ensuring DNS-01 challenges use the correct
-	// DNS zone even when a global ACME exists with a different default.
-	if tlsCfg, ok := pm.cfg.TLSProviders[name]; ok && tlsCfg.Provider == model.TLSProviderACME {
-		if dnsProvider == nil {
-			return nil, fmt.Errorf("ACME TLS provider %q requires a DNS provider", name)
-		}
-		certmagicDNS, ok := dnsProvider.(certmagic.DNSProvider)
-		if !ok {
-			return nil, fmt.Errorf("dns provider %q does not support ACME DNS-01 challenges", dnsProvider.Name())
-		}
-		provider, err := pm.newACMEProvider(tlsCfg, certmagicDNS)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create per-proxy ACME TLS provider: %w", err)
-		}
-		return provider, nil
-	}
-
-	p, ok := pm.TLSProviders[name]
-	if !ok {
-		return nil, fmt.Errorf("tls provider %q not found", name)
-	}
-	return p, nil
-}
-
-func (pm *ProxyManager) resolveAndSetProviders(p *Proxy, proxyConfig *model.Config) error {
-	dnsProvider, err := pm.resolveDNSProvider(proxyConfig)
-	if err != nil {
-		return fmt.Errorf("dns provider resolution: %w", err)
-	}
-
-	tlsProvider, err := pm.resolveTLSProvider(proxyConfig, dnsProvider)
-	if err != nil {
-		return fmt.Errorf("tls provider resolution: %w", err)
-	}
-
-	p.SetDNSAndTLSProviders(dnsProvider, tlsProvider)
-	return nil
-}
-
-func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config) error {
-	p.mtx.RLock()
-	dnsProvider := p.dnsProvider
-	tlsProvider := p.tlsProvider
-	p.mtx.RUnlock()
-
-	if tlsProvider.Name() == model.TLSProviderTailscale {
-		if err := pm.configureTailscaleTLS(p, tlsProvider, proxyConfig); err != nil {
-			return err
-		}
-	}
-
-	// The Tailscale proxy URL is populated asynchronously by watchStatus().
-	// Poll until a non-empty URL is available or the timeout is reached.
-	targetHostname, err := pm.waitForProxyURL(p)
-	if err != nil {
-		return fmt.Errorf("waiting for proxy URL: %w", err)
-	}
-
-	p.setDNSStatus(dnsproviders.DNSStatusPending)
-
-	if err := pm.dnsLifecycle.SetupDNS(p.ctx, dnsProvider, proxyConfig.Domain, targetHostname); err != nil {
-		p.setDNSStatus(dnsproviders.DNSStatusError)
-		return fmt.Errorf("dns setup: %w", err)
-	}
-	p.setDNSStatus(dnsproviders.DNSStatusActive)
-
-	p.setTLSStatus(tlsproviders.TLSStatusPending)
-
-	if err := pm.tlsLifecycle.Provision(p.ctx, tlsProvider, proxyConfig.Domain); err != nil {
-		p.setTLSStatus(tlsproviders.TLSStatusError)
-		return fmt.Errorf("tls provisioning: %w", err)
-	}
-	p.setTLSStatus(tlsproviders.TLSStatusActive)
-
-	return nil
-}
-
-func (pm *ProxyManager) configureTailscaleTLS(p *Proxy, tlsProvider tlsproviders.Provider, proxyConfig *model.Config) error {
-	lcProvider, ok := p.providerProxy.(interface{ GetLocalClient() *local.Client })
-	if !ok {
-		return errors.New("tailscale tls requires a tailscale proxy provider")
-	}
-	lc := lcProvider.GetLocalClient()
-	if lc == nil {
-		return errors.New("tailscale local client not available (proxy not started?)")
-	}
-	tsTLS, ok := tlsProvider.(*tailscaletls.Provider)
-	if !ok {
-		return nil
-	}
-	tsTLS.SetLocalClient(lc)
-	if proxyConfig.ProxyProvider == "" {
-		return nil
-	}
-	if tsCfg := pm.cfg.Tailscale.Providers[proxyConfig.ProxyProvider]; tsCfg != nil {
-		tsTLS.SetMaxConcurrency(tsCfg.MaxCertConcurrency)
-	}
-	return nil
-}
-
-const (
-	proxyURLWaitTimeout = 60 * time.Second
-	urlPollInterval     = 500 * time.Millisecond
-)
-
-func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
-	if host := extractHost(p.providerProxy.GetURL()); host != "" {
-		return host, nil
-	}
-
-	ticker := time.NewTicker(urlPollInterval)
-	defer ticker.Stop()
-	timeout := time.After(proxyURLWaitTimeout)
-
-	for {
-		select {
-		case <-p.urlReady:
-			return extractHost(p.providerProxy.GetURL()), nil
-		case <-ticker.C:
-			if host := extractHost(p.providerProxy.GetURL()); host != "" {
-				return host, nil
-			}
-		case <-p.ctx.Done():
-			return "", fmt.Errorf("context canceled while waiting for proxy URL: %w", p.ctx.Err())
-		case <-timeout:
-			return "", errors.New("timeout waiting for proxy URL to become available")
-		}
-	}
-}
-
-func (pm *ProxyManager) cleanupDomainForProxy(p *Proxy) {
-	if p.Config.Domain == "" {
-		return
-	}
-
-	const cleanupTimeout = 30 * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
-	defer cancel()
-
-	p.mtx.RLock()
-	dnsProvider := p.dnsProvider
-	tlsProvider := p.tlsProvider
-	p.mtx.RUnlock()
-
-	if tlsProvider != nil {
-		if err := pm.tlsLifecycle.Cleanup(ctx, tlsProvider, p.Config.Domain); err != nil {
-			pm.log.Error().Err(err).Str("domain", p.Config.Domain).Msg("tls cleanup failed")
-		}
-	}
-
-	if dnsProvider != nil {
-		if err := pm.dnsLifecycle.CleanupDNS(ctx, dnsProvider, p.Config.Domain); err != nil {
-			pm.log.Error().Err(err).Str("domain", p.Config.Domain).Msg("dns cleanup failed")
-		}
-	}
-
-	p.setDNSStatus(dnsproviders.DNSStatusNone)
-	p.setTLSStatus(tlsproviders.TLSStatusNone)
-}
-
-// closeTLSProvider releases background resources held by the TLS provider
-// (e.g. certmagic's cache goroutine). Providers that don't implement
-// tlsproviders.Closer are silently skipped.
-func (pm *ProxyManager) closeTLSProvider(p *Proxy) {
-	p.mtx.RLock()
-	tls := p.tlsProvider
-	p.mtx.RUnlock()
-
-	if tls == nil {
-		return
-	}
-	if closer, ok := tls.(tlsproviders.Closer); ok {
-		if err := closer.Close(); err != nil {
-			pm.log.Error().Err(err).Str("proxy", p.Config.Hostname).Msg("TLS provider close failed")
-		}
-	}
-}
-
-// addTargetProvider method adds a TargetProvider to the ProxyManager.
-func (pm *ProxyManager) addTargetProvider(provider targetproviders.TargetProvider, name string) {
-	pm.providerMu.Lock()
-	defer pm.providerMu.Unlock()
-
-	pm.TargetProviders[name] = provider
-}
-
-// addProxyProvider method adds	a ProxyProvider to the ProxyManager.
-func (pm *ProxyManager) addProxyProvider(provider proxyproviders.Provider, name string) {
-	pm.providerMu.Lock()
-	defer pm.providerMu.Unlock()
-
-	pm.ProxyProviders[strings.ToLower(name)] = provider
-}
-
 // teardownProxy performs the full teardown sequence for a proxy:
 // cancel context → wait for setup goroutines → cleanup DNS/TLS domains →
 // teardownProxy performs the full teardown sequence for a proxy:
@@ -825,57 +301,6 @@ func (pm *ProxyManager) removeProxy(hostname string) {
 	pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
 }
 
-// eventStart method starts a Proxy from a event trigger
-func (pm *ProxyManager) eventStart(event targetproviders.TargetEvent) (*Proxy, error) {
-	pm.log.Debug().Str("targetID", event.ID).Msg("Adding target")
-
-	pcfg, err := event.TargetProvider.AddTarget(event.ID)
-	if err != nil {
-		return nil, fmt.Errorf("error adding target: %w", err)
-	}
-
-	return pm.newProxy(pcfg.Hostname, pcfg)
-}
-
-// eventStop method stops a Proxy from a event trigger.
-// It acquires the hostname lock BEFORE deleting from the map and re-checks
-// identity after acquiring the lock. This prevents a concurrent
-// restartProxyLocked from inserting a new proxy whose DNS/TLS resources
-// get destroyed by this cleanup.
-func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
-	pm.log.Debug().Str("targetID", event.ID).Msg("Stopping target")
-
-	pm.proxyMu.RLock()
-	hostname := pm.targetIndex[event.ID]
-	pm.proxyMu.RUnlock()
-
-	if err := event.TargetProvider.DeleteProxy(event.ID); err != nil {
-		pm.log.Debug().Err(err).Str("targetID", event.ID).Msg("Provider cleanup skipped")
-	}
-
-	if hostname == "" {
-		return
-	}
-
-	pm.hostLocks.Lock(hostname)
-	defer pm.hostLocks.Unlock(hostname)
-
-	pm.proxyMu.Lock()
-	proxy, exists := pm.Proxies[hostname]
-	if exists && proxy.Config.TargetID == event.ID {
-		delete(pm.Proxies, hostname)
-		delete(pm.targetIndex, event.ID)
-	} else {
-		proxy = nil
-	}
-	pm.proxyMu.Unlock()
-
-	if proxy != nil {
-		pm.teardownProxy(proxy)
-		pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
-	}
-}
-
 // restartProxyLocked creates a new proxy and starts it synchronously.
 // Used only by RestartProxy (dashboard action) where holding the target lock
 // during Start is acceptable. Callers must already hold the target lock.
@@ -891,54 +316,6 @@ func (pm *ProxyManager) restartProxyLocked(name string, proxyConfig *model.Confi
 	}
 
 	return nil
-}
-
-// configureProxyDomain validates domain config, resolves DNS/TLS providers,
-// and launches the async domain setup goroutine for proxies with a custom domain.
-func (pm *ProxyManager) configureProxyDomain(p *Proxy, proxyConfig *model.Config) {
-	if proxyConfig.Domain == "" {
-		return
-	}
-
-	if err := config.ValidateProxyConfig(
-		proxyConfig.Domain,
-		proxyConfig.DNSProvider,
-		proxyConfig.TLSProvider,
-		pm.cfg.DefaultDNSProvider,
-		pm.cfg.DefaultTLSProvider,
-	); err != nil {
-		p.setupWg.Done()
-		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
-			Msg("invalid domain configuration, proxy starting without custom domain")
-		return
-	}
-
-	if err := pm.resolveAndSetProviders(p, proxyConfig); err != nil {
-		p.setupWg.Done()
-		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
-			Msg("domain provider resolution failed, proxy starting without custom domain")
-		return
-	}
-
-	p.mtx.RLock()
-	hasTLSProvider := p.tlsProvider != nil
-	p.mtx.RUnlock()
-
-	if !hasTLSProvider {
-		p.setupWg.Done()
-		return
-	}
-
-	// setupWg.Add(1) was already called in newProxy() before map insertion.
-	go func() {
-		defer p.setupWg.Done()
-		if err := pm.setupDomainForProxy(p, p.Config); err != nil {
-			p.SetDomainError(err.Error())
-			pm.log.Error().Err(err).Str("proxy", p.Config.Hostname).
-				Str("domain", p.Config.Domain).
-				Msg("domain setup failed, proxy running without custom domain")
-		}
-	}()
 }
 
 // newProxy creates a proxy, resolves providers, sets up domain resources,
@@ -986,25 +363,6 @@ func (pm *ProxyManager) newProxy(name string, proxyConfig *model.Config) (*Proxy
 	})
 
 	return p, nil
-}
-
-func (pm *ProxyManager) resolveProxyProvider(proxyConfig *model.Config) (proxyproviders.Provider, error) {
-	proxyProvider, err := pm.getProxyProvider(proxyConfig)
-	if err != nil {
-		return nil, fmt.Errorf("error getting ProxyProvider: %w", err)
-	}
-
-	if dp, ok := proxyProvider.(proxyproviders.DomainRequiredProvider); ok && dp.IsDomainRequired() && proxyConfig.Domain == "" {
-		return nil, errors.New("proxy provider requires a domain to be set on each proxy")
-	}
-
-	authKey, err := proxyProvider.ResolveAuthKey(proxyConfig)
-	if err != nil {
-		return nil, fmt.Errorf("error resolving auth key: %w", err)
-	}
-	proxyConfig.Tailscale.ResolvedAuthKey = authKey
-
-	return proxyProvider, nil
 }
 
 func (pm *ProxyManager) buildProxy(proxyConfig *model.Config, proxyProvider proxyproviders.Provider) (*Proxy, error) {
@@ -1060,42 +418,6 @@ func (pm *ProxyManager) registerProxy(p *Proxy, proxyConfig *model.Config) error
 	return nil
 }
 
-// getProxyProvider method returns a ProxyProvider.
-func (pm *ProxyManager) getProxyProvider(proxy *model.Config) (proxyproviders.Provider, error) {
-	pm.providerMu.RLock()
-	defer pm.providerMu.RUnlock()
-
-	if proxy.ProxyProvider != "" {
-		p, ok := pm.ProxyProviders[strings.ToLower(proxy.ProxyProvider)]
-		if !ok {
-			return nil, ErrProxyProviderNotFound
-		}
-		return p, nil
-	}
-
-	targetProvider, ok := pm.TargetProviders[proxy.TargetProvider]
-	if !ok {
-		return nil, ErrTargetProviderNotFound
-	}
-	if p, ok := pm.ProxyProviders[strings.ToLower(targetProvider.GetDefaultProxyProviderName())]; ok {
-		return p, nil
-	}
-
-	if p, ok := pm.ProxyProviders[strings.ToLower(pm.cfg.DefaultProxyProvider)]; ok {
-		return p, nil
-	}
-
-	return nil, ErrProxyProviderNotFound
-}
-
-func (pm *ProxyManager) getTargetProvider(name string) (targetproviders.TargetProvider, bool) {
-	pm.providerMu.RLock()
-	defer pm.providerMu.RUnlock()
-
-	tp, ok := pm.TargetProviders[name]
-	return tp, ok
-}
-
 // updateProxyCount sets the proxy count metric to the current number of proxies.
 func (pm *ProxyManager) updateProxyCount() {
 	if pm.metrics == nil {
@@ -1113,12 +435,4 @@ func (pm *ProxyManager) cleanupProxyMetrics(hostname string) {
 		pm.metrics.DeleteProxyMetrics(hostname)
 	}
 	pm.updateProxyCount()
-}
-
-func extractHost(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return rawURL
-	}
-	return u.Host
 }

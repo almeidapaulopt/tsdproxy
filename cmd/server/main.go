@@ -143,7 +143,9 @@ func (app *WebApp) Start() {
 
 	app.Log.Info().Msg("Setting up proxy proxies")
 
-	app.ProxyManager.Start()
+	if err := app.ProxyManager.Start(); err != nil {
+		app.Log.Fatal().Err(err).Msg("failed to start proxy manager")
+	}
 
 	app.ProxyManager.WatchEvents()
 

@@ -295,7 +295,9 @@ func TestNewProxyManager_Start(t *testing.T) {
 	})
 
 	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil, nil)
-	pm.Start()
+	if err := pm.Start(); err == nil {
+		t.Fatal("expected error when no providers are configured")
+	}
 }
 
 func TestMetricsHandler(t *testing.T) {
