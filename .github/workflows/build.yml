@@ -25,8 +25,11 @@ jobs:
       - name: Install bun dependencies
         run: bun i --cwd ./web
 
-      - name: Install dependencies
-        run: go install github.com/a-h/templ/cmd/templ@latest
+      - name: Install templ
+        run: |
+          TEMPL_VER=$(go list -m github.com/a-h/templ | awk '{print $2}')
+          curl -sSL "https://github.com/a-h/templ/releases/download/${TEMPL_VER}/templ_Linux_x86_64.tar.gz" \
+            | tar xz -C /usr/local/bin templ
       - name: Generate
         run: go generate ./...
       - name: Build frontend
