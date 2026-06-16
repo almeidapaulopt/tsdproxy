@@ -6,6 +6,7 @@ WORKDIR /app/web
 COPY web/package.json web/bun.lock* ./
 RUN bun install --frozen-lockfile
 COPY web/ ./
+COPY internal/ /app/internal/
 RUN bun run build
 
 FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
