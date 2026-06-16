@@ -52,10 +52,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - { goarch: amd64, docker_platform: linux/amd64 }
-          - { goarch: arm64, docker_platform: linux/arm64 }
-          - { goarch: arm, goarm: "6", docker_platform: linux/arm/v6 }
-          - { goarch: arm, goarm: "7", docker_platform: linux/arm/v7 }
+          - { goarch: amd64, platform: amd64,  docker_platform: linux/amd64 }
+          - { goarch: arm64, platform: arm64,  docker_platform: linux/arm64 }
+          - { goarch: arm, goarm: "6", platform: armv6,  docker_platform: linux/arm/v6 }
+          - { goarch: arm, goarm: "7", platform: armv7,  docker_platform: linux/arm/v7 }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -102,7 +102,7 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v7
         with:
-          name: docker-binaries-${{ matrix.docker_platform }}
+          name: docker-binaries-${{ matrix.platform }}
           path: docker-binaries/
           if-no-files-found: error
 
