@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,8 +31,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-var errRateLimited = errors.New("UDP packet rate limited")
-
 const (
 	maxIdleConnsPerHost = 10
 	idleConnTimeout     = 30 * time.Second
@@ -41,58 +38,15 @@ const (
 	tcpErrChanBuf       = 2
 	dialTimeout         = 10 * time.Second
 	shutdownTimeout     = 10 * time.Second
+	maxTCPAcceptRetries = 5
 )
 
-const (
-	httpRateLimitClients = 4096 // max tracked IPs
-)
+var errRateLimited = errors.New("UDP packet rate limited")
 
 // portHandler is the interface implemented by all port types (HTTP proxy, HTTP redirect, TCP forward).
 type portHandler interface {
 	startWithListener(net.Listener) error
 	close() error
-}
-
-type ipRateLimiter struct {
-	clients map[string]*rate.Limiter
-	rate    rate.Limit
-	burst   int
-	mu      sync.Mutex
-}
-
-func newIPRateLimiter(r rate.Limit, b int) *ipRateLimiter {
-	return &ipRateLimiter{
-		clients: make(map[string]*rate.Limiter),
-		rate:    r,
-		burst:   b,
-	}
-}
-
-func (l *ipRateLimiter) get(clientIP string) *rate.Limiter {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if lim, ok := l.clients[clientIP]; ok {
-		return lim
-	}
-	if len(l.clients) >= httpRateLimitClients {
-		for k := range l.clients {
-			delete(l.clients, k)
-			break
-		}
-	}
-	lim := rate.NewLimiter(l.rate, l.burst)
-	l.clients[clientIP] = lim
-	return lim
-}
-
-func (l *ipRateLimiter) allow(clientIP string) bool {
-	return l.get(clientIP).Allow()
-}
-
-func (l *ipRateLimiter) close() {
-	l.mu.Lock()
-	l.clients = make(map[string]*rate.Limiter)
-	l.mu.Unlock()
 }
 
 type port struct {
@@ -343,18 +297,6 @@ func (p *port) close() error {
 	return errs
 }
 
-func rateLimitMiddleware(limiter *ipRateLimiter, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := resolvePeerIP(r)
-		if ip != "" && !limiter.allow(ip) {
-			w.Header().Set("Retry-After", "1")
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // tcpPort forwards raw TCP connections from the Tailscale listener to the target backend.
 type tcpPort struct {
 	log      zerolog.Logger
@@ -396,15 +338,21 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 		l.Close()
 	}()
 
-	for {
+	for retries := 0; ; retries++ {
 		conn, err := l.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			p.log.Error().Err(err).Msg("error accepting TCP connection")
+			if retries < maxTCPAcceptRetries {
+				p.log.Warn().Err(err).Int("retry", retries+1).Msg("transient TCP accept error, retrying")
+				time.Sleep(time.Duration(retries+1) * time.Second)
+				continue
+			}
+			p.log.Error().Err(err).Msg("error accepting TCP connection after retries")
 			return fmt.Errorf("tcp accept: %w", err)
 		}
+		retries = 0
 
 		p.wg.Add(1)
 		go func(c net.Conn) {
@@ -564,9 +512,18 @@ const (
 
 // clientEntry tracks a per-client backend UDP connection and its last activity.
 type clientEntry struct {
-	conn     *net.UDPConn
-	lastSeen time.Time
-	limiter  *rate.Limiter
+	conn      *net.UDPConn
+	lastSeen  time.Time
+	limiter   *rate.Limiter
+	closeOnce sync.Once
+}
+
+func (e *clientEntry) close() {
+	if e.conn != nil {
+		e.closeOnce.Do(func() {
+			e.conn.Close()
+		})
+	}
 }
 
 func (p *udpPort) relayPackets(pc net.PacketConn) {
@@ -609,9 +566,7 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 func closeAllClients(clientMap map[string]*clientEntry, mapMtx *sync.Mutex) {
 	mapMtx.Lock()
 	for _, entry := range clientMap {
-		if entry.conn != nil {
-			entry.conn.Close()
-		}
+		entry.close()
 	}
 	mapMtx.Unlock()
 }
@@ -692,9 +647,7 @@ func evictOldestClient(clientMap map[string]*clientEntry) {
 		}
 	}
 	if oldest, ok := clientMap[oldestKey]; ok {
-		if oldest.conn != nil {
-			oldest.conn.Close()
-		}
+		oldest.close()
 		delete(clientMap, oldestKey)
 	}
 }
@@ -702,7 +655,7 @@ func evictOldestClient(clientMap map[string]*clientEntry) {
 func (p *udpPort) relayBackendToClient(entry *clientEntry, pc net.PacketConn, clientAddr net.Addr, mapMtx *sync.Mutex, clientMap map[string]*clientEntry) {
 	backend := entry.conn
 	defer func() {
-		backend.Close()
+		entry.close()
 		mapMtx.Lock()
 		// Delete only if this entry hasn't been replaced (e.g. by eviction + re-creation).
 		if current, ok := clientMap[clientAddr.String()]; ok && current == entry {
@@ -758,35 +711,6 @@ func (p *udpPort) close() error {
 	}
 
 	return errs
-}
-
-// resolvePeerIP extracts the single authoritative client IP from a request.
-//
-// When RemoteAddr is localhost (services/VIP proxy hop), the original
-// client IP is read from the inbound X-Forwarded-For with anti-spoofing:
-//   - exactly one X-Forwarded-For header must be present
-//   - the value must be a single IP (no comma-separated chain)
-//   - loopback addresses are rejected
-//
-// For non-localhost connections RemoteAddr is used directly.
-func resolvePeerIP(r *http.Request) string {
-	if !model.IsLocalhost(r.RemoteAddr) {
-		return model.NormalizeIP(r.RemoteAddr)
-	}
-
-	// Trusted proxy hop: extract from X-Forwarded-For.
-	xffVals := r.Header.Values(consts.HeaderXForwardedFor)
-	if len(xffVals) != 1 {
-		return ""
-	}
-	if strings.Contains(xffVals[0], ",") {
-		return ""
-	}
-	ip := model.NormalizeIP(xffVals[0])
-	if parsed := net.ParseIP(ip); parsed != nil && parsed.IsLoopback() {
-		return ""
-	}
-	return ip
 }
 
 // isManagementTarget reports whether a proxy target points to tsdproxy's own
