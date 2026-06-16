@@ -49,6 +49,39 @@ type (
 	}
 
 	// Proxy holds the state for a single proxy.
+	//
+	// Lock hierarchy (acquire in this order to prevent deadlocks):
+	//
+	//   1. opMu  — coarse-grained operation mutex.
+	//      Serializes lifecycle operations (Start, Close, Pause, Resume)
+	//      so that at most one lifecycle transition is in-flight at a time.
+	//      Held for the entire duration of Start() and Close(), including
+	//      blocking calls to the provider proxy.
+	//
+	//   2. mtx   — fine-grained state read-write mutex.
+	//      Guards all mutable state fields listed below. Readers acquire
+	//      RLock; writers acquire Lock. Always acquired AFTER opMu when
+	//      both are needed (e.g. Close acquires opMu then mtx to reset
+	//      paused).
+	//
+	// mtx guards the following fields:
+	//   - tlsProvider, dnsProvider (provider references)
+	//   - health, healthPortName (health checker state)
+	//   - ports (port handler map)
+	//   - status, statusHistory, tlsStatus, dnsStatus (status tracking)
+	//   - domainError (domain setup error message)
+	//   - paused, metricsReady (boolean flags)
+	//   - startedAt (set once in NewProxy, read under RLock)
+	//
+	// Fields NOT guarded by mtx (immutable after construction or
+	// protected by other mechanisms):
+	//   - log, tracerProvider, Config, metrics, proxyAuthToken, httpPort
+	//   - providerProxy (set once in NewProxy)
+	//   - onUpdate (set once in newProxy before map insertion)
+	//   - reResolveConfig (set once in newProxy before map insertion)
+	//   - ctx, cancel (managed via context package)
+	//   - logBuffer (thread-safe LogRingBuffer)
+	//   - eventsWg, setupWg (sync.WaitGroup primitives)
 	Proxy struct {
 		log             zerolog.Logger
 		startedAt       time.Time
@@ -57,24 +90,26 @@ type (
 		tlsProvider     tlsproviders.Provider
 		dnsProvider     dnsproviders.Provider
 		providerProxy   proxyproviders.ProxyInterface
-		onUpdate        func(event model.ProxyEvent)
-		health          *healthChecker
+		logBuffer       *LogRingBuffer
+		urlReady        chan struct{}
 		cancel          context.CancelFunc
 		reResolveConfig func() (*model.Config, error)
 		Config          *model.Config
 		metrics         *metrics.Metrics
 		ports           map[string]portHandler
-		logBuffer       *LogRingBuffer
+		onUpdate        func(event model.ProxyEvent)
+		health          *healthChecker
 		domainError     string
 		proxyAuthToken  string
 		healthPortName  string
 		statusHistory   []StatusTransition
-		eventsWg        sync.WaitGroup
 		setupWg         sync.WaitGroup
+		eventsWg        sync.WaitGroup
 		tlsStatus       tlsproviders.TLSStatus
 		dnsStatus       dnsproviders.DNSStatus
 		status          model.ProxyStatus
 		mtx             sync.RWMutex
+		urlOnce         sync.Once
 		opMu            sync.Mutex
 		httpPort        uint16
 		paused          bool
@@ -137,6 +172,7 @@ func NewProxy(params ProxyParams) (*Proxy, error) {
 		tracerProvider: params.TracerProvider,
 		httpPort:       params.HTTPPort,
 		proxyAuthToken: params.ProxyAuthToken,
+		urlReady:       make(chan struct{}),
 	}
 
 	p.initPorts()
@@ -170,6 +206,7 @@ func (proxy *Proxy) Start() error {
 					return
 				}
 				proxy.setStatus(event.Status)
+				proxy.notifyURLReady()
 			case <-proxy.ctx.Done():
 				return
 			}
@@ -218,6 +255,17 @@ func (proxy *Proxy) Close() {
 // Use to unblock setup goroutines before waiting for them with setupWg.Wait().
 func (proxy *Proxy) cancelCtx() {
 	proxy.cancel()
+}
+
+func (proxy *Proxy) notifyURLReady() {
+	if proxy.urlReady == nil {
+		return
+	}
+	if url := proxy.providerProxy.GetURL(); url != "" {
+		proxy.urlOnce.Do(func() {
+			close(proxy.urlReady)
+		})
+	}
 }
 
 // Pause stops all port listeners and health checks while keeping the
@@ -389,6 +437,10 @@ func (proxy *Proxy) GetDomainError() string {
 	return proxy.domainError
 }
 
+// SetDNSAndTLSProviders attaches the resolved DNS and TLS providers to the proxy.
+// Must be called at most once per Proxy lifecycle (during initial setup in
+// newProxy). Calling it again would silently overwrite the old providers without
+// closing them, leaking any background resources (e.g. certmagic cache goroutine).
 func (proxy *Proxy) SetDNSAndTLSProviders(dns dnsproviders.Provider, tls tlsproviders.Provider) {
 	proxy.mtx.Lock()
 	defer proxy.mtx.Unlock()
