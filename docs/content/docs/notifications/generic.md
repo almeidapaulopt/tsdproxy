@@ -43,6 +43,18 @@ TSDProxy sends a `POST` request with `Content-Type: application/json`:
 | `timestamp` | string | UTC timestamp in RFC 3339 format |
 | `message` | string | Human-readable status change description |
 
+## Custom Payload Template
+
+Set `template` to render a custom request body with Go `text/template`. The template receives the webhook event fields as `.ProxyName`, `.Status`, `.OldStatus`, `.Timestamp`, and `.Message`. When `template` is set and parses successfully, it takes precedence over `type` and is sent as `Content-Type: application/json`.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+webhooks:
+  - url: "https://hooks.slack.com/services/your/webhook/url"
+    type: slack
+    template: |
+      {"text":"TSDProxy: Proxy `{{.ProxyName}}` changed from `{{.OldStatus}}` to `{{.Status}}`"}
+```
+
 ## With Custom Headers
 
 ```yaml {filename="/config/tsdproxy.yaml"}
