@@ -42,7 +42,7 @@ jobs:
           echo "tailscale_version=$TS_VER" >> "$GITHUB_OUTPUT"
           echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
 
       - name: Build and push
         id: push
