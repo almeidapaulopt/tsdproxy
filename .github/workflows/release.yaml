@@ -80,6 +80,17 @@ jobs:
 
   build:
     needs: meta
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64, platform: linux_amd64 }
+          - { goos: linux,   goarch: arm64, platform: linux_arm64 }
+          - { goos: linux,   goarch: arm,   goarm: "6", platform: linux_armv6 }
+          - { goos: linux,   goarch: arm,   goarm: "7", platform: linux_armv7 }
+          - { goos: windows, goarch: amd64, platform: windows_amd64 }
+          - { goos: windows, goarch: arm64, platform: windows_arm64 }
+          - { goos: darwin,  goarch: amd64, platform: darwin_amd64 }
+          - { goos: darwin,  goarch: arm64, platform: darwin_arm64 }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -102,62 +113,61 @@ jobs:
           go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
           go generate ./...
 
-      - name: Cross-compile binaries
+      - name: Build binaries
         env:
           VERSION: ${{ needs.meta.outputs.version }}
           TS_VER: ${{ needs.meta.outputs.tailscale_version }}
           COMMIT: ${{ needs.meta.outputs.git_commit }}
         run: |
           set -euo pipefail
+          ext=""
+          [ "${{ matrix.goos }}" = "windows" ] && ext=".exe"
           mkdir -p dist
 
-          SERVER_LDFLAGS="-s -w \
-            -X github.com/almeidapaulopt/tsdproxy/internal/core.version=${VERSION} \
-            -X tailscale.com/version.Short=${TS_VER} \
-            -X tailscale.com/version.Long=${TS_VER}-TSDProxy \
-            -X tailscale.com/version.GitCommit=${COMMIT} \
-            -X tailscale.com/version.shortStamp=${TS_VER} \
-            -X tailscale.com/version.longStamp=${TS_VER}-TSDProxy \
-            -X tailscale.com/version.gitCommitStamp=${COMMIT}"
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} \
+            go build -ldflags "-s -w \
+              -X github.com/almeidapaulopt/tsdproxy/internal/core.version=${VERSION} \
+              -X tailscale.com/version.Short=${TS_VER} \
+              -X tailscale.com/version.Long=${TS_VER}-TSDProxy \
+              -X tailscale.com/version.GitCommit=${COMMIT} \
+              -X tailscale.com/version.shortStamp=${TS_VER} \
+              -X tailscale.com/version.longStamp=${TS_VER}-TSDProxy \
+              -X tailscale.com/version.gitCommitStamp=${COMMIT}" \
+            -o "dist/tsdproxyd${ext}" ./cmd/server/main.go
 
-          build_target() {
-            local goos="$1" goarch="$2" goarm="$3"
-            local ext="" arm_suffix=""
-            [ "$goos" = "windows" ] && ext=".exe"
-            [ -n "$goarm" ] && arm_suffix="v${goarm}"
-            local dir="dist/${goos}_${goarch}${arm_suffix}"
-            mkdir -p "$dir"
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} \
+            go build -ldflags "-s -w" -o "dist/healthcheck${ext}" ./cmd/healthcheck/main.go
 
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" \
-              go build -ldflags "$SERVER_LDFLAGS" -o "$dir/tsdproxyd${ext}" ./cmd/server/main.go
-            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" \
-              go build -ldflags "-s -w" -o "$dir/healthcheck${ext}" ./cmd/healthcheck/main.go
-          }
-
-          build_target linux   amd64 ""
-          build_target linux   arm64 ""
-          build_target linux   arm   6
-          build_target linux   arm   7
-          build_target windows amd64 ""
-          build_target windows arm64 ""
-          build_target darwin  amd64 ""
-          build_target darwin  arm64 ""
-
-      - name: Create archives
+      - name: Create archive
         env:
           VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          set -euo pipefail
-          cd dist
-          for dir in */; do
-            platform="${dir%/}"
-            cp ../README.md ../LICENSE "$dir"
-            if [[ "$platform" == windows_* ]]; then
-              (cd "$platform" && zip -r -X "../tsdproxy_${VERSION}_${platform}.zip" .)
-            else
-              tar czf "tsdproxy_${VERSION}_${platform}.tar.gz" -C "$platform" .
-            fi
-          done
+          cp README.md LICENSE dist/
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cd dist && zip -r -X "../tsdproxy_${VERSION}_${{ matrix.platform }}.zip" .
+          else
+            tar czf "tsdproxy_${VERSION}_${{ matrix.platform }}.tar.gz" -C dist .
+          fi
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: archive-${{ matrix.platform }}
+          path: tsdproxy_${{ needs.meta.outputs.version }}_${{ matrix.platform }}.*
+          if-no-files-found: error
+
+  assemble:
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download all archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: archive-*
+          merge-multiple: true
+          path: dist
 
       - name: Generate checksums
         run: |
@@ -171,13 +181,18 @@ jobs:
           output-file: ${{ github.workspace }}/dist/sbom.spdx.json
 
       - name: Prepare Docker binaries
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
         run: |
           set -euo pipefail
           for plat in amd64:amd64 arm64:arm64 armv6:arm/v6 armv7:arm/v7; do
             src="${plat%%:*}"
             dst="${plat##*:}"
             mkdir -p "docker-binaries/linux/${dst}"
-            cp "dist/linux_${src}/tsdproxyd" "dist/linux_${src}/healthcheck" "docker-binaries/linux/${dst}/"
+            tmp=$(mktemp -d)
+            tar xzf "dist/tsdproxy_${VERSION}_linux_${src}.tar.gz" -C "$tmp/"
+            cp "$tmp/tsdproxyd" "$tmp/healthcheck" "docker-binaries/linux/${dst}/"
+            rm -rf "$tmp"
           done
 
       - name: Upload release assets
@@ -198,7 +213,7 @@ jobs:
           if-no-files-found: error
 
   docker:
-    needs: [meta, build]
+    needs: [meta, assemble]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -269,7 +284,7 @@ jobs:
           cosign sign --yes "ghcr.io/almeidapaulopt/tsdproxy@${digest}"
 
   github-release:
-    needs: [meta, build]
+    needs: [meta, assemble]
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
     steps:
