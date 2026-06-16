@@ -5,42 +5,24 @@ package proxymanager
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
-	"tailscale.com/client/local"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/core/metrics"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
-	tsproxy "github.com/almeidapaulopt/tsdproxy/internal/proxyproviders/tailscale"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
 
 const maxStatusHistory = 5
-
-// clampDuration converts seconds to time.Duration, clamping to [min, max].
-// Prevents time.NewTicker panic from negative durations caused by int64 overflow.
-func clampDuration(seconds int, minVal, maxVal time.Duration) time.Duration {
-	d := time.Duration(seconds) * time.Second
-	if d < minVal {
-		return minVal
-	}
-	if d > maxVal {
-		return maxVal
-	}
-	return d
-}
 
 type (
 	StatusTransition struct {
@@ -364,21 +346,36 @@ func (proxy *Proxy) setMetricsReady(ready bool) {
 	}
 }
 
-// closePorts closes all port handlers without closing the providerProxy.
-func (proxy *Proxy) closePorts() {
-	var errs error
-
-	proxy.mtx.Lock()
+// collectAndClosePorts extracts port handlers from the proxy under the
+// appropriate lock, closes them, and returns any aggregated error.
+// If clearMap is true, entries are removed from the ports map (requires write lock).
+func (proxy *Proxy) collectAndClosePorts(clearMap bool) error {
 	handlers := make([]portHandler, 0, len(proxy.ports))
-	for k, p := range proxy.ports {
-		handlers = append(handlers, p)
-		delete(proxy.ports, k)
+	if clearMap {
+		proxy.mtx.Lock()
+		for k, p := range proxy.ports {
+			handlers = append(handlers, p)
+			delete(proxy.ports, k)
+		}
+		proxy.mtx.Unlock()
+	} else {
+		proxy.mtx.RLock()
+		for _, p := range proxy.ports {
+			handlers = append(handlers, p)
+		}
+		proxy.mtx.RUnlock()
 	}
-	proxy.mtx.Unlock()
 
+	var errs error
 	for _, p := range handlers {
 		errs = errors.Join(errs, p.close())
 	}
+	return errs
+}
+
+// closePorts closes all port handlers without closing the providerProxy.
+func (proxy *Proxy) closePorts() {
+	errs := proxy.collectAndClosePorts(true)
 
 	if errs != nil && !errors.Is(errs, context.Canceled) && !errors.Is(errs, net.ErrClosed) {
 		proxy.log.Error().Err(errs).Msg("error closing port handlers")
@@ -507,135 +504,6 @@ func (proxy *Proxy) UnsubscribeLogs(ch chan string) {
 	proxy.logBuffer.Unsubscribe(ch)
 }
 
-func (proxy *Proxy) startHealthChecker() {
-	if !proxy.Config.HealthCheckEnabled {
-		return
-	}
-
-	// NOTE: Only the first non-redirect port (sorted by name) gets a health checker.
-	// If the proxy has multiple ports, only the first one is monitored.
-	keys := make([]string, 0, len(proxy.Config.Ports))
-	for k := range proxy.Config.Ports {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		pc := proxy.Config.Ports[k]
-		if pc.IsRedirect {
-			continue
-		}
-		target := pc.GetFirstTarget()
-		if target == nil || target.Host == "" {
-			continue
-		}
-
-		scheme := pc.ProxyProtocol
-		var checkTarget string
-		if scheme == model.ProtoHTTP || scheme == model.ProtoHTTPS {
-			checkTarget = target.String()
-		} else {
-			checkTarget = target.Host
-		}
-
-		// Clamp health check durations to safe ranges to prevent
-		// time.Duration overflow when converting from int seconds.
-		interval := clampDuration(proxy.Config.HealthCheckInterval, time.Second, healthCheckMaxInterval)
-		cooldown := clampDuration(proxy.Config.HealthCheckCooldown, 0, healthCheckMaxCooldown)
-
-		hc := newHealthChecker(proxy.log, checkTarget, scheme, interval, proxy.Config.HealthCheckFailures, cooldown, pc.TLSValidate, func() error {
-			return proxy.reResolveHealthTarget()
-		})
-
-		proxy.mtx.Lock()
-		proxy.healthPortName = k
-		proxy.health = hc
-		proxy.mtx.Unlock()
-
-		hc.start()
-		return
-	}
-}
-
-func (proxy *Proxy) stopHealthChecker() {
-	proxy.mtx.RLock()
-	hc := proxy.health
-	proxy.mtx.RUnlock()
-	if hc != nil {
-		// stop() blocks until the health check goroutine has exited,
-		// ensuring no in-flight checks access proxy state after return.
-		hc.stop()
-	}
-}
-
-func (proxy *Proxy) reResolveHealthTarget() error {
-	if !proxy.Config.AutoRestart {
-		return nil
-	}
-
-	if proxy.reResolveConfig == nil {
-		return nil
-	}
-
-	newCfg, err := proxy.reResolveConfig()
-	if err != nil {
-		return fmt.Errorf("re-resolution failed: %w", err)
-	}
-
-	if proxy.ctx.Err() != nil {
-		return nil
-	}
-
-	// RLock protects iterating proxy.Config.Ports map (read-only after construction).
-	// Actual target mutation uses targetState.mtx internally, and proxy.health uses atomic operations.
-	// The lock also ensures we don't race with startHealthChecker which writes under proxy.mtx.Lock().
-	proxy.mtx.RLock()
-	defer proxy.mtx.RUnlock()
-
-	for portName, newPC := range newCfg.Ports {
-		if newPC.IsRedirect {
-			continue
-		}
-
-		oldPC, ok := proxy.Config.Ports[portName]
-		if !ok {
-			continue
-		}
-
-		oldTarget := oldPC.GetFirstTarget()
-		newTarget := newPC.GetFirstTarget()
-
-		if oldTarget == nil || newTarget == nil {
-			continue
-		}
-
-		if oldTarget.String() == newTarget.String() {
-			continue
-		}
-
-		proxy.log.Info().
-			Str("port", portName).
-			Str("old_target", oldTarget.String()).
-			Str("new_target", newTarget.String()).
-			Msg("health re-resolution: target changed, hot-swapping")
-
-		oldPC.ReplaceTarget(oldTarget, newTarget)
-
-		if portName == proxy.healthPortName && proxy.health != nil {
-			scheme := oldPC.ProxyProtocol
-			var checkTarget string
-			if scheme == model.ProtoHTTP || scheme == model.ProtoHTTPS {
-				checkTarget = newTarget.String()
-			} else {
-				checkTarget = newTarget.Host
-			}
-			proxy.health.SetTarget(checkTarget)
-		}
-	}
-
-	return nil
-}
-
 func (proxy *Proxy) ProviderUserMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		who := proxy.providerProxy.Whois(r)
@@ -646,230 +514,10 @@ func (proxy *Proxy) ProviderUserMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (proxy *Proxy) initPorts() {
-	for k, v := range proxy.Config.Ports {
-		log := proxy.log.With().Str("port", k).Logger()
-
-		var ph portHandler
-		if v.IsRedirect {
-			ph = newPortRedirect(proxy.ctx, v, log)
-		} else if v.ProxyProtocol == model.ProtoHTTP || v.ProxyProtocol == model.ProtoHTTPS {
-			ph = newPortProxy(
-				proxy.ctx, v, log,
-				proxy.Config.ProxyAccessLog,
-				proxy.ProviderUserMiddleware,
-				proxy.metrics,
-				proxy.Config.Hostname,
-				k, proxy.logBuffer,
-				proxy.Config.IdentityHeaders,
-				proxy.tracerProvider,
-				proxy.httpPort,
-				proxy.Config.RateLimitEnabled,
-				proxy.Config.RateLimitRPS,
-				proxy.Config.RateLimitBurst,
-				proxy.proxyAuthToken,
-			)
-		} else if v.ProxyProtocol == model.ProtoUDP {
-			ph = newPortUDP(proxy.ctx, v, log)
-		} else {
-			ph = newPortTCP(proxy.ctx, v, log)
-		}
-
-		proxy.log.Debug().Any("port", ph).Msg("newport")
-
-		proxy.mtx.Lock()
-		proxy.ports[k] = ph
-		proxy.mtx.Unlock()
-	}
-}
-
-func (proxy *Proxy) startProvider() error {
-	proxy.log.Info().Msg("starting proxy")
-
-	proxy.mtx.RLock()
-	portsCount := len(proxy.ports)
-	proxy.mtx.RUnlock()
-
-	if portsCount == 0 {
-		return errors.New("no ports configured")
-	}
-
-	if err := proxy.providerProxy.Start(proxy.ctx); err != nil {
-		return fmt.Errorf("error starting with proxy provider: %w", err)
-	}
-
-	return nil
-}
-
-func (proxy *Proxy) startListeners() error {
-	proxy.mtx.RLock()
-	portsConfig := proxy.Config.Ports
-	proxy.mtx.RUnlock()
-
-	var listenerErrors int
-	for k, pc := range portsConfig {
-		proxy.log.Debug().Str("port", k).Msg("Starting proxy port")
-
-		if pc.ProxyProtocol == model.ProtoUDP {
-			packetConn, err := proxy.providerProxy.GetPacketConn(k)
-			if err != nil {
-				proxy.log.Error().Err(err).Str("port", k).Msg("Error getting UDP packet conn")
-				listenerErrors++
-				continue
-			}
-			proxy.startPacketPort(k, packetConn)
-		} else {
-			l, err := proxy.getListenerForPort(k, pc)
-			if err != nil {
-				proxy.log.Error().Err(err).Str("port", k).Msg("Error adding listener")
-				listenerErrors++
-				continue
-			}
-			proxy.startPort(k, l)
-		}
-	}
-
-	if listenerErrors > 0 && listenerErrors == len(portsConfig) {
-		return fmt.Errorf("all %d listeners failed", listenerErrors)
-	}
-
-	if listenerErrors > 0 {
-		proxy.log.Warn().Int("failed", listenerErrors).Int("total", len(portsConfig)).Msg("proxy started with some listener errors")
-	}
-
-	return nil
-}
-
-func (proxy *Proxy) startPort(name string, l net.Listener) {
-	proxy.mtx.RLock()
-	defer proxy.mtx.RUnlock()
-
-	if p, ok := proxy.ports[name]; ok {
-		go func() {
-			if err := p.startWithListener(l); err != nil {
-				proxy.log.Error().Err(err).Msg("error starting port")
-				proxy.setStatus(model.ProxyStatusError)
-			}
-		}()
-	}
-}
-
-func (proxy *Proxy) getListenerForPort(portName string, pc model.PortConfig) (net.Listener, error) {
-	needsCustomTLS := proxy.Config.Domain != "" &&
-		pc.ProxyProtocol == model.ProtoHTTPS &&
-		proxy.tlsProvider != nil &&
-		proxy.tlsProvider.Name() != model.TLSProviderTailscale
-
-	if needsCustomTLS {
-		return proxy.getCustomTLSListener(portName)
-	}
-
-	if pc.ProxyProtocol == model.ProtoTCP {
-		if raw, ok := proxy.providerProxy.(proxyproviders.RawTCPListener); ok {
-			return raw.GetRawTCPListener(portName)
-		}
-	}
-
-	return proxy.providerProxy.GetListener(portName)
-}
-
-func (proxy *Proxy) getCustomTLSListener(portName string) (net.Listener, error) {
-	raw, ok := proxy.providerProxy.(proxyproviders.RawTCPListener)
-	if !ok {
-		return nil, errors.New("custom domain TLS requires raw TCP listener support from proxy provider")
-	}
-
-	l, err := raw.GetRawTCPListener(portName)
-	if err != nil {
-		return nil, fmt.Errorf("get raw tcp listener: %w", err)
-	}
-
-	domain := proxy.Config.Domain
-	tlsProv := proxy.tlsProvider
-
-	return tls.NewListener(l, &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			proxy.mtx.RLock()
-			tlsActive := proxy.tlsStatus == tlsproviders.TLSStatusActive
-			proxy.mtx.RUnlock()
-
-			if tlsActive {
-				cert, err := tlsProv.GetCertificate(hello.Context(), domain)
-				if err == nil {
-					return &cert, nil
-				}
-				proxy.log.Warn().Err(err).Msg("custom cert lookup failed, falling back to Tailscale cert")
-			}
-
-			// Fallback to Tailscale automatic cert
-			cert, err := proxy.getTailscaleCertificate(hello.Context())
-			if err != nil {
-				return nil, fmt.Errorf("no certificate available for %s: %w", domain, err)
-			}
-			return cert, nil
-		},
-	}), nil
-}
-
-func (proxy *Proxy) getTailscaleCertificate(ctx context.Context) (*tls.Certificate, error) {
-	lcGetter, ok := proxy.providerProxy.(interface{ GetLocalClient() *local.Client })
-	if !ok {
-		return nil, errors.New("tailscale cert not available: provider does not support GetLocalClient")
-	}
-	lc := lcGetter.GetLocalClient()
-	if lc == nil {
-		return nil, errors.New("tailscale local client not available")
-	}
-
-	rawURL := proxy.providerProxy.GetURL()
-	hostname := strings.TrimPrefix(rawURL, "https://")
-	hostname = strings.TrimPrefix(hostname, "http://")
-	if hostname == "" {
-		return nil, errors.New("tailscale hostname not yet available")
-	}
-
-	return tsproxy.CertPairToTLSCertificate(ctx, lc, hostname)
-}
-
-func (proxy *Proxy) startPacketPort(name string, pc net.PacketConn) {
-	proxy.mtx.RLock()
-	defer proxy.mtx.RUnlock()
-
-	p, ok := proxy.ports[name]
-	if !ok {
-		pc.Close()
-		return
-	}
-
-	udp, ok := p.(*udpPort)
-	if !ok {
-		pc.Close()
-		return
-	}
-
-	go func() {
-		if err := udp.startWithPacketConn(pc); err != nil {
-			proxy.log.Error().Err(err).Msg("error starting UDP port")
-			proxy.setStatus(model.ProxyStatusError)
-		}
-	}()
-}
-
 func (proxy *Proxy) close() {
-	var errs error
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("stopping proxy")
 
-	proxy.mtx.RLock()
-	handlers := make([]portHandler, 0, len(proxy.ports))
-	for _, p := range proxy.ports {
-		handlers = append(handlers, p)
-	}
-	proxy.mtx.RUnlock()
-
-	for _, p := range handlers {
-		errs = errors.Join(errs, p.close())
-	}
+	errs := proxy.collectAndClosePorts(false)
 
 	if proxy.providerProxy != nil {
 		errs = errors.Join(errs, proxy.providerProxy.Close())
