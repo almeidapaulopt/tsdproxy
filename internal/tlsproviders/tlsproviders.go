@@ -23,6 +23,14 @@ type (
 		Cleanup(ctx context.Context, domain string) error
 	}
 
+	// Closer is an optional interface implemented by TLS providers that
+	// hold background resources (e.g. certmagic's cache goroutine).
+	// Callers should type-assert and call Close when the provider is
+	// no longer needed.
+	Closer interface {
+		Close() error
+	}
+
 	TLSStatus = lifecycle.Status
 )
 

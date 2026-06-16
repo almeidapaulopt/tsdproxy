@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/caddyserver/certmagic"
 
@@ -17,10 +18,16 @@ import (
 
 // Provider implements tlsproviders.Provider using certmagic ACME DNS-01.
 type Provider struct {
-	cfg *certmagic.Config
+	cfg     *certmagic.Config
+	cache   *certmagic.Cache
+	closeMu sync.Mutex
+	closed  bool
 }
 
-var _ tlsproviders.Provider = (*Provider)(nil)
+var (
+	_ tlsproviders.Provider = (*Provider)(nil)
+	_ tlsproviders.Closer   = (*Provider)(nil)
+)
 
 type Config struct {
 	Email       string
@@ -67,7 +74,7 @@ func New(acmeCfg Config) (*Provider, error) {
 
 	cfg.Issuers = []certmagic.Issuer{issuer}
 
-	return &Provider{cfg: cfg}, nil
+	return &Provider{cfg: cfg, cache: cache}, nil
 }
 
 func (p *Provider) Name() string {
@@ -92,5 +99,18 @@ func (p *Provider) GetCertificate(ctx context.Context, domain string) (tls.Certi
 func (p *Provider) Cleanup(_ context.Context, _ string) error {
 	// certmagic handles renewal and storage automatically
 	// explicit cleanup is not needed for ACME certificates
+	return nil
+}
+
+func (p *Provider) Close() error {
+	p.closeMu.Lock()
+	defer p.closeMu.Unlock()
+	if p.closed {
+		return nil
+	}
+	p.closed = true
+	if p.cache != nil {
+		p.cache.Stop()
+	}
 	return nil
 }

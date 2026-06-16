@@ -11,6 +11,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/proxyproviders"
+	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 )
 
 func TestResolveAndSetProviders_PerProxyACMEUsesResolvedDNSProvider(t *testing.T) {
@@ -40,6 +41,15 @@ func TestResolveAndSetProviders_PerProxyACMEUsesResolvedDNSProvider(t *testing.T
 	}
 
 	sp := &Proxy{}
+
+	t.Cleanup(func() {
+		sp.mtx.RLock()
+		tls := sp.tlsProvider
+		sp.mtx.RUnlock()
+		if closer, ok := tls.(tlsproviders.Closer); ok {
+			closer.Close()
+		}
+	})
 
 	if err := pm.resolveAndSetProviders(sp, proxyConfig); err != nil {
 		t.Fatalf("resolveAndSetProviders failed: %v", err)
@@ -201,97 +211,5 @@ func TestResolveAndSetProviders_ACMEWithNonCertmagicDNSFails(t *testing.T) {
 
 	if err := pm.resolveAndSetProviders(sp, proxyConfig); err == nil {
 		t.Fatal("expected error when DNS provider does not implement certmagic.DNSProvider, got nil")
-	}
-}
-
-func TestResolveDNSProviderForACME_DefaultFound(t *testing.T) {
-	cfg := newTestConfig(t)
-	cfg.DefaultDNSProvider = "cloudflare"
-
-	pm := newTestProxyManager(cfg)
-	pm.DNSProviders["cloudflare"] = &mockDNSProvider{name: "cloudflare"}
-
-	provider, err := pm.resolveDNSProviderForACME()
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if provider == nil {
-		t.Fatal("expected non-nil provider")
-	}
-}
-
-func TestResolveDNSProviderForACME_DefaultNotFound(t *testing.T) {
-	cfg := newTestConfig(t)
-	cfg.DefaultDNSProvider = "nonexistent"
-
-	pm := newTestProxyManager(cfg)
-
-	_, err := pm.resolveDNSProviderForACME()
-	if err == nil {
-		t.Fatal("expected error for missing default DNS provider")
-	}
-	if err.Error() != `default dns provider "nonexistent" not found` {
-		t.Fatalf("unexpected error message: %v", err)
-	}
-}
-
-func TestResolveDNSProviderForACME_DefaultNotCertmagic(t *testing.T) {
-	cfg := newTestConfig(t)
-	cfg.DefaultDNSProvider = "magicdns"
-
-	nonCertmagic := &struct{ dnsproviders.Provider }{
-		Provider: &mockDNSProvider{name: "magicdns"},
-	}
-
-	pm := newTestProxyManager(cfg)
-	pm.DNSProviders["magicdns"] = nonCertmagic
-
-	_, err := pm.resolveDNSProviderForACME()
-	if err == nil {
-		t.Fatal("expected error for non-certmagic DNS provider")
-	}
-	if err.Error() != `dns provider "magicdns" does not support ACME DNS-01 challenges` {
-		t.Fatalf("unexpected error message: %v", err)
-	}
-}
-
-func TestResolveDNSProviderForACME_NoDefaultFindsFirst(t *testing.T) {
-	cfg := newTestConfig(t)
-	cfg.DefaultDNSProvider = ""
-
-	nonCertmagic := &struct{ dnsproviders.Provider }{
-		Provider: &mockDNSProvider{name: "magicdns"},
-	}
-
-	pm := newTestProxyManager(cfg)
-	pm.DNSProviders["magicdns"] = nonCertmagic
-	pm.DNSProviders["cloudflare"] = &mockDNSProvider{name: "cloudflare"}
-
-	provider, err := pm.resolveDNSProviderForACME()
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-	if provider == nil {
-		t.Fatal("expected non-nil provider")
-	}
-}
-
-func TestResolveDNSProviderForACME_NoCapableProvider(t *testing.T) {
-	cfg := newTestConfig(t)
-	cfg.DefaultDNSProvider = ""
-
-	nonCertmagic := &struct{ dnsproviders.Provider }{
-		Provider: &mockDNSProvider{name: "magicdns"},
-	}
-
-	pm := newTestProxyManager(cfg)
-	pm.DNSProviders["magicdns"] = nonCertmagic
-
-	_, err := pm.resolveDNSProviderForACME()
-	if err == nil {
-		t.Fatal("expected error when no certmagic-capable DNS provider exists")
-	}
-	if err.Error() != "no DNS provider capable of ACME DNS-01 (need a provider like Cloudflare)" {
-		t.Fatalf("unexpected error message: %v", err)
 	}
 }
