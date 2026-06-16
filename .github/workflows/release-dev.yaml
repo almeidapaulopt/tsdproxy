@@ -14,7 +14,100 @@ permissions:
   id-token: write
 
 jobs:
+
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build frontend
+        run: |
+          bun i --cwd ./web
+          bun run --cwd web build
+
+      - name: Generate templ
+        run: |
+          go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
+          go generate ./...
+
+      - name: Upload prepared assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: prepared
+          path: |
+            web/dist/
+            internal/**/*_templ.go
+          if-no-files-found: error
+
+  build:
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - { goarch: amd64, docker_platform: linux/amd64 }
+          - { goarch: arm64, docker_platform: linux/arm64 }
+          - { goarch: arm, goarm: "6", docker_platform: linux/arm/v6 }
+          - { goarch: arm, goarm: "7", docker_platform: linux/arm/v7 }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      - name: Download prepared assets
+        uses: actions/download-artifact@v8
+        with:
+          name: prepared
+
+      - name: Compute metadata
+        id: meta
+        run: |
+          TS_VER=$(grep '^	tailscale.com ' go.mod | awk '{print $2}')
+          echo "tailscale_version=$TS_VER" >> "$GITHUB_OUTPUT"
+          echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        env:
+          TS_VER: ${{ steps.meta.outputs.tailscale_version }}
+          COMMIT: ${{ steps.meta.outputs.git_commit }}
+        run: |
+          set -euo pipefail
+          out="docker-binaries/${{ matrix.docker_platform }}"
+          mkdir -p "$out"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} \
+            go build -ldflags "-s -w \
+              -X github.com/almeidapaulopt/tsdproxy/internal/core.version=dev \
+              -X tailscale.com/version.Short=${TS_VER} \
+              -X tailscale.com/version.Long=${TS_VER}-TSDProxy \
+              -X tailscale.com/version.GitCommit=${COMMIT} \
+              -X tailscale.com/version.shortStamp=${TS_VER} \
+              -X tailscale.com/version.longStamp=${TS_VER}-TSDProxy \
+              -X tailscale.com/version.gitCommitStamp=${COMMIT}" \
+            -o "$out/tsdproxyd" ./cmd/server/main.go
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} \
+            go build -ldflags "-s -w" -o "$out/healthcheck" ./cmd/healthcheck/main.go
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-binaries-${{ matrix.docker_platform }}
+          path: docker-binaries/
+          if-no-files-found: error
+
   docker:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -35,30 +128,26 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute metadata
-        id: meta
-        run: |
-          TS_VER=$(grep '^	tailscale.com ' go.mod | awk '{print $2}')
-          echo "tailscale_version=$TS_VER" >> "$GITHUB_OUTPUT"
-          echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-
-      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Download all binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: docker-binaries-*
+          merge-multiple: true
+          path: docker-binaries
 
       - name: Build and push
         id: push
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./docker-binaries
+          file: ./Dockerfile.ci
           platforms: linux/amd64,linux/arm64,linux/arm/v6,linux/arm/v7
           push: true
           tags: |
             almeidapaulopt/tsdproxy:dev
             ghcr.io/almeidapaulopt/tsdproxy:dev
-          build-args: |
-            VERSION=dev
-            TAILSCALE_VERSION=${{ steps.meta.outputs.tailscale_version }}
-            GIT_COMMIT=${{ steps.meta.outputs.git_commit }}
+
+      - uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign images with cosign
         env:

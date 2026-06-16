@@ -78,19 +78,8 @@ jobs:
           echo "tailscale_version=$TS_VER"    >> "$GITHUB_OUTPUT"
           echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-  build:
+  prepare:
     needs: meta
-    strategy:
-      matrix:
-        include:
-          - { goos: linux,   goarch: amd64, platform: linux_amd64 }
-          - { goos: linux,   goarch: arm64, platform: linux_arm64 }
-          - { goos: linux,   goarch: arm,   goarm: "6", platform: linux_armv6 }
-          - { goos: linux,   goarch: arm,   goarm: "7", platform: linux_armv7 }
-          - { goos: windows, goarch: amd64, platform: windows_amd64 }
-          - { goos: windows, goarch: arm64, platform: windows_arm64 }
-          - { goos: darwin,  goarch: amd64, platform: darwin_amd64 }
-          - { goos: darwin,  goarch: arm64, platform: darwin_arm64 }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -112,6 +101,41 @@ jobs:
         run: |
           go install github.com/a-h/templ/cmd/templ@$(go list -m github.com/a-h/templ | awk '{print $2}')
           go generate ./...
+
+      - name: Upload prepared assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: prepared
+          path: |
+            web/dist/
+            internal/**/*_templ.go
+          if-no-files-found: error
+
+  build:
+    needs: [meta, prepare]
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64, platform: linux_amd64 }
+          - { goos: linux,   goarch: arm64, platform: linux_arm64 }
+          - { goos: linux,   goarch: arm,   goarm: "6", platform: linux_armv6 }
+          - { goos: linux,   goarch: arm,   goarm: "7", platform: linux_armv7 }
+          - { goos: windows, goarch: amd64, platform: windows_amd64 }
+          - { goos: windows, goarch: arm64, platform: windows_arm64 }
+          - { goos: darwin,  goarch: amd64, platform: darwin_amd64 }
+          - { goos: darwin,  goarch: arm64, platform: darwin_arm64 }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      - name: Download prepared assets
+        uses: actions/download-artifact@v8
+        with:
+          name: prepared
 
       - name: Build binaries
         env:
