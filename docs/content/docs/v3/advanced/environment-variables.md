@@ -67,7 +67,7 @@ out of version-controlled config files.
 ```yaml {filename="docker-compose.yaml"}
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
+    image: almeidapaulopt/tsdproxy:dev
     environment:
       TSDPROXY_TAILSCALE_DEFAULT_CLIENTID: "${TS_CLIENT_ID}"
       TSDPROXY_TAILSCALE_DEFAULT_CLIENTSECRET: "${TS_CLIENT_SECRET}"
@@ -93,7 +93,7 @@ The following environment variables are from versions prior to v0.6.0. They are 
 ```yaml {filename="docker-compose.yaml"}
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
+    image: almeidapaulopt/tsdproxy:dev
     container_name: tsdproxy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

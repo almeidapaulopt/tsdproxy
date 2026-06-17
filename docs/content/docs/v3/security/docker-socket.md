@@ -35,7 +35,7 @@ services:
       - "2375:2375"
 
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
+    image: almeidapaulopt/tsdproxy:dev
     environment:
       DOCKER_HOST: tcp://docker-proxy:2375
 ```

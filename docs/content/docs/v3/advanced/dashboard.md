@@ -46,7 +46,7 @@ Add labels to the TSDProxy container in your `docker-compose.yml`:
 ```yaml  {filename="docker-compose.yml"}
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
+    image: almeidapaulopt/tsdproxy:dev
     # ... other config ...
     labels:
       tsdproxy.enable: "true"

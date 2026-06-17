@@ -21,7 +21,7 @@ This guide helps migrate from TSDProxy v1 to v2.
 ```yaml
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
+    image: almeidapaulopt/tsdproxy:dev
 ```
 
 Add `extra_hosts` if missing:

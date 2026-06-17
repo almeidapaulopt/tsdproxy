@@ -51,7 +51,7 @@ To reach the Docker host's SSH server through Tailscale:
 ```yaml {filename="docker-compose.yml"}
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
+    image: almeidapaulopt/tsdproxy:dev
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - datadir:/data

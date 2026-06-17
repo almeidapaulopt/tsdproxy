@@ -11,7 +11,7 @@ TSDProxy supports Docker Swarm for managing proxies across a cluster.
 ```yaml docker-compose.yml
 services:
   tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
+    image: almeidapaulopt/tsdproxy:dev
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - datadir:/data
