@@ -498,3 +498,55 @@ func TestAcquireWithoutAutoApprove_DoesNotCallApproval(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sl)
 }
+
+func TestAcquireWithAutoApprove_Success_ReadvertisesListener(t *testing.T) {
+	t.Parallel()
+
+	approvalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer approvalSrv.Close()
+
+	client := testTailscaleClient(approvalSrv.URL)
+
+	vip := &mockVIPAPI{}
+	factory := defaultFactory()
+
+	ss := NewServicesServer(ServicesServerConfig{
+		Hostname:                "test",
+		Log:                     zerolog.Nop(),
+		VIPServiceAPI:           vip,
+		APIClient:               client,
+		AutoApproveDevices:      true,
+		ApprovalReadvertiseDelay: 1 * time.Millisecond,
+		LifecycleConfig:         &NodeLifecycleConfig{},
+		LifecycleProvider: func(_ context.Context, _ zerolog.Logger, _ NodeLifecycleConfig) (
+			*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+		) {
+			ctx, cancel := context.WithCancel(context.Background())
+			nodeRt := &NodeRuntime{
+				Ctx:    ctx,
+				Cancel: cancel,
+				Server: &tsnet.Server{},
+			}
+			nl := &NodeLifecycle{
+				events: make(chan NodeEvent),
+			}
+			return nl, nodeRt, factory, nil
+		},
+	})
+	defer ss.Close()
+
+	ss.getNodeStatusFunc = func(_ context.Context) (*ipnstate.Status, error) {
+		return &ipnstate.Status{
+			Self: &ipnstate.PeerStatus{ID: tailcfg.StableNodeID("99")},
+		}, nil
+	}
+
+	sl, err := ss.Acquire("svc:test", 443, true, false)
+	require.NoError(t, err)
+	require.NotNil(t, sl)
+
+	assert.Len(t, factory.calls, 2, "ListenService should be called twice (initial + re-advertise)")
+	assert.Equal(t, 1, factory.closeCnt, "Close should be called once between the two ListenService calls")
+}

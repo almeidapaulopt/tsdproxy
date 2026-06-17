@@ -39,6 +39,12 @@ const (
 	maxHTTPBodySize           = 1024 * 1024 // 1 MB
 )
 
+// defaultApprovalReadvertiseDelay is the delay between closing and re-listening
+// a service after API-based device approval. This works around Tailscale bug
+// #18821 where the local daemon doesn't pick up the approval status change
+// without a clear → delay → re-advertise cycle.
+const defaultApprovalReadvertiseDelay = 2 * time.Second
+
 // vipServiceAPI abstracts VIP service API calls for testability.
 type vipServiceAPI interface {
 	createOrUpdateVIPService(serviceName string, ports []string) error
@@ -82,6 +88,7 @@ type ServicesServerConfig struct {
 	Ephemeral           bool
 	AutoApproveDevices  bool
 	AutoRemoveConflicts bool
+	ApprovalReadvertiseDelay time.Duration
 }
 
 // serviceEntry tracks a single service listener.
@@ -226,18 +233,25 @@ type ServicesServer struct {
 	ephemeral           bool
 	autoApproveDevices  bool
 	autoRemoveConflicts bool
+	approvalReadvertiseDelay time.Duration
 }
 
 // NewServicesServer creates a ServicesServer and starts the event loop.
 func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
+	readvertiseDelay := cfg.ApprovalReadvertiseDelay
+	if readvertiseDelay == 0 {
+		readvertiseDelay = defaultApprovalReadvertiseDelay
+	}
+
 	ss := &ServicesServer{
-		hostname:            cfg.Hostname,
-		datadir:             cfg.DataDir,
-		authKey:             cfg.AuthKey,
-		controlURL:          cfg.ControlURL,
-		ephemeral:           cfg.Ephemeral,
-		autoApproveDevices:  cfg.AutoApproveDevices,
-		autoRemoveConflicts: cfg.AutoRemoveConflicts,
+		hostname:                cfg.Hostname,
+		datadir:                 cfg.DataDir,
+		authKey:                 cfg.AuthKey,
+		controlURL:              cfg.ControlURL,
+		ephemeral:               cfg.Ephemeral,
+		autoApproveDevices:      cfg.AutoApproveDevices,
+		autoRemoveConflicts:     cfg.AutoRemoveConflicts,
+		approvalReadvertiseDelay: readvertiseDelay,
 		log:                 cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
 		ev:                  NewEventLoop[servicesCmd](servicesLoopCmdBufferSize),
 		certSem:             cfg.CertSem,
@@ -450,6 +464,29 @@ func (ss *ServicesServer) acquireServiceAsync(
 		if err := ss.approveServiceDeviceForServer(ctx, tsServer, c.serviceName); err != nil {
 			ss.log.Warn().Err(err).Str("service", c.serviceName).
 				Msg("failed to auto-approve service device; manual approval required in Tailscale admin console")
+		} else if tsServer != nil {
+			ss.log.Debug().Str("service", c.serviceName).
+				Msg("auto-approved service device, re-advertising listener")
+
+			listenMu.Lock()
+			factory.Close(listener)
+			listenMu.Unlock()
+
+			select {
+			case <-time.After(ss.approvalReadvertiseDelay):
+			case <-ctx.Done():
+				sendResult(nil, ctx.Err())
+				return
+			}
+
+			listenMu.Lock()
+			listener, err = factory.ListenService(c.serviceName, mode)
+			listenMu.Unlock()
+			if err != nil {
+				ss.rollbackVIPServiceOnListenFailure(c.serviceName, allPorts, c.port)
+				sendResult(nil, fmt.Errorf("re-listen service after approval: %w", err))
+				return
+			}
 		}
 	}
 
