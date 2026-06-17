@@ -18,13 +18,20 @@ import (
 
 var _ proxyproviders.ProxyInterface = (*ServiceProxy)(nil)
 
+type serviceExposure interface {
+	Start(ctx context.Context, runtime *NodeRuntime, cfg *model.Config) error
+	Close(ctx context.Context) error
+	firstFQDN() string
+	GetListener(portName string) (net.Listener, error)
+}
+
 // ServiceProxy implements proxyproviders.ProxyInterface for proxies that use
 // Tailscale VIP Services via a shared tsnet.Server.
 type ServiceProxy struct {
 	log           zerolog.Logger
 	config        *model.Config
 	services      *ServicesServer
-	exposure      *ServicesVIPExposure
+	exposure      serviceExposure
 	events        chan model.ProxyEvent
 	forwarderDone chan struct{}
 	stopCh        chan struct{}
@@ -36,15 +43,25 @@ type ServiceProxy struct {
 }
 
 func (p *ServiceProxy) Start(ctx context.Context) error {
+	p.mtx.RLock()
+	started := p.started
+	p.mtx.RUnlock()
+	if started {
+		return nil
+	}
+
+	// exposure.Start() blocks on VIP service provisioning and tsnet auth
+	// retries. Holding p.mtx here deadlocks GetURL/GetListener (which need
+	// RLock) and hangs the entire dashboard.
+	if err := p.exposure.Start(ctx, nil, p.config); err != nil {
+		return err
+	}
+
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
 	if p.started {
 		return nil
-	}
-
-	if err := p.exposure.Start(ctx, nil, p.config); err != nil {
-		return err
 	}
 
 	p.fqdn = p.exposure.firstFQDN()

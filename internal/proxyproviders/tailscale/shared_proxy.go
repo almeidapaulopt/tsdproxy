@@ -38,15 +38,25 @@ type SharedProxy struct {
 }
 
 func (p *SharedProxy) Start(ctx context.Context) error {
+	p.mtx.RLock()
+	started := p.started
+	p.mtx.RUnlock()
+	if started {
+		return nil
+	}
+
+	// exposure.Start() blocks on SharedServer.Acquire (tsnet startup, auth
+	// retries). Holding p.mtx here deadlocks GetListener/GetRawTCPListener/
+	// GetPacketConn (which need RLock) and hangs the dashboard.
+	if err := p.exposure.Start(ctx, nil, p.config); err != nil {
+		return err
+	}
+
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
 	if p.started {
 		return nil
-	}
-
-	if err := p.exposure.Start(ctx, nil, p.config); err != nil {
-		return err
 	}
 
 	p.started = true

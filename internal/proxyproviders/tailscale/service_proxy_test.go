@@ -4,7 +4,11 @@
 package tailscale
 
 import (
+	"context"
+	"net"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
@@ -227,4 +231,141 @@ func TestNewServiceProxyServiceNameFormat(t *testing.T) {
 		c.servicesServer = nil
 	}
 	c.sharedMu.Unlock()
+}
+
+// blockingServiceExposure simulates a stuck exposure.Start() (tsnet auth retries).
+type blockingServiceExposure struct {
+	blockCh      chan struct{}
+	startCalled  atomic.Bool
+	fqdnToReturn string
+}
+
+func (m *blockingServiceExposure) Start(_ context.Context, _ *NodeRuntime, _ *model.Config) error {
+	m.startCalled.Store(true)
+	<-m.blockCh
+	return nil
+}
+
+func (m *blockingServiceExposure) Close(context.Context) error { return nil }
+
+func (m *blockingServiceExposure) firstFQDN() string { return m.fqdnToReturn }
+
+func (m *blockingServiceExposure) GetListener(string) (net.Listener, error) {
+	return nil, nil
+}
+
+// TestServiceProxy_GetURL_MustNotBlockDuringStart proves the dashboard-hang
+// bug: ServiceProxy.Start() must NOT hold p.mtx (write lock) during the
+// blocking exposure.Start() call. GetURL() needs RLock and is called per-proxy
+// on every dashboard request, so one stuck Services-mode proxy hangs the entire
+// dashboard. Confirmed in production via goroutine dump (35 readers parked at
+// ServiceProxy.GetURL RLock).
+func TestServiceProxy_GetURL_MustNotBlockDuringStart(t *testing.T) {
+	t.Parallel()
+
+	ss := NewServicesServer(ServicesServerConfig{
+		Hostname: "test-url",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	mock := &blockingServiceExposure{
+		blockCh:      make(chan struct{}),
+		fqdnToReturn: "test.tailnet.ts.net",
+	}
+	p := &ServiceProxy{
+		log:      zerolog.Nop(),
+		services: ss,
+		config: &model.Config{
+			Ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+			},
+		},
+		exposure: mock,
+		events:   make(chan model.ProxyEvent, 1),
+	}
+
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- p.Start(context.Background())
+	}()
+
+	waitFor(t, func() bool { return mock.startCalled.Load() }, "Start() should call exposure.Start()")
+
+	done := make(chan string, 1)
+	go func() {
+		done <- p.GetURL()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("GetURL() blocked for >500ms while Start() is in progress — " +
+			"root cause of dashboard hangs when Services-mode proxies are stuck " +
+			"during startup")
+	}
+
+	close(mock.blockCh)
+	<-startDone
+}
+
+func TestServiceProxy_GetListener_MustNotBlockDuringStart(t *testing.T) {
+	t.Parallel()
+
+	ss := NewServicesServer(ServicesServerConfig{
+		Hostname: "test-listener",
+		Log:      zerolog.Nop(),
+	})
+	defer ss.Close()
+
+	mock := &blockingServiceExposure{
+		blockCh:      make(chan struct{}),
+		fqdnToReturn: "test.tailnet.ts.net",
+	}
+	p := &ServiceProxy{
+		log:      zerolog.Nop(),
+		services: ss,
+		config: &model.Config{
+			Ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
+			},
+		},
+		exposure: mock,
+		events:   make(chan model.ProxyEvent, 1),
+	}
+
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- p.Start(context.Background())
+	}()
+
+	waitFor(t, func() bool { return mock.startCalled.Load() }, "Start() should call exposure.Start()")
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = p.GetListener("1") //nolint:errcheck // return value irrelevant
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("GetListener() blocked for >500ms while Start() is in progress — " +
+			"same root cause as GetURL")
+	}
+
+	close(mock.blockCh)
+	<-startDone
+}
+
+func waitFor(t *testing.T, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within 2s: %s", msg)
 }
