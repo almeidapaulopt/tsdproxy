@@ -165,6 +165,12 @@ Steps 4–5 skipped for host-network containers.
 - **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context. `"module"` or `"component"` key. Trace for function boundaries, Debug for lifecycle, Info for state changes, Error with `.Err(err)`.
 - **Unit tests**: Co-located `*_test.go` files, run with `go test ./...` (or `make test` using gotestsum)
 - **E2E tests**: `e2e/` — `//go:build e2e`, testcontainers + real Tailscale. Env vars: `TSDPROXY_E2E_AUTHKEY`/`TSDPROXY_E2E_AUTHKEY_FILE`, `TSDPROXY_E2E_CLIENTID`/`TSDPROXY_E2E_CLIENTSECRET`, `TS_TAGS`
+- **Bug-fix TDD protocol (MANDATORY)**: When fixing a bug, follow this sequence:
+  1. **Reproduce first** — Write a failing test that reproduces the bug. Run it and confirm it FAILS. This proves the bug exists and that your test actually exercises it.
+  2. **Apply the fix** — Make the minimal code change required.
+  3. **Verify the test passes** — Run the same test again and confirm it PASSES.
+  4. **If the test itself needs changes during the fix** — Run the updated test WITHOUT the fix applied first (it MUST fail), then run it WITH the fix applied (it MUST pass). This guards against tests that pass for the wrong reason or that no longer actually exercise the bug.
+  - Never skip step 1. A fix without a failing test first is not a verified fix — it is a guess.
 - **Frontend build**: `web/` uses Bun + Vite; `web/dist/` embedded via `go:embed` + statigz + brotli
 - **UI framework**: `templ` for server-rendered HTML; htmx 4 + `hx-sse` for live updates
 - **Import aliases**: Descriptive when packages collide: `cloudflaredns`, `magicdns`, `acmetls`, `tailscaletls`, `tsproxy`
