@@ -71,23 +71,23 @@ func (f tsnetServerFactory) Close(sl *tsnet.ServiceListener) error {
 
 // ServicesServerConfig holds the configuration for creating a ServicesServer.
 type ServicesServerConfig struct {
-	Log                 zerolog.Logger
-	VIPServiceAPI       vipServiceAPI
-	APIClient           *tailscale.Client
-	APIFactory          *APIClientFactory
-	AuthManager         *AuthManager
-	DeviceReconciler    *DeviceReconciler
-	LifecycleConfig     *NodeLifecycleConfig
-	LifecycleProvider   NodeLifecycleProvider
-	CertSem             *semaphore.Weighted
-	Hostname            string
-	DataDir             string
-	AuthKey             string
-	ControlURL          string
-	Tags                string
-	Ephemeral           bool
-	AutoApproveDevices  bool
-	AutoRemoveConflicts bool
+	Log                      zerolog.Logger
+	VIPServiceAPI            vipServiceAPI
+	APIClient                *tailscale.Client
+	APIFactory               *APIClientFactory
+	AuthManager              *AuthManager
+	DeviceReconciler         *DeviceReconciler
+	LifecycleConfig          *NodeLifecycleConfig
+	LifecycleProvider        NodeLifecycleProvider
+	CertSem                  *semaphore.Weighted
+	Hostname                 string
+	DataDir                  string
+	AuthKey                  string
+	ControlURL               string
+	Tags                     string
+	Ephemeral                bool
+	AutoApproveDevices       bool
+	AutoRemoveConflicts      bool
 	ApprovalReadvertiseDelay time.Duration
 }
 
@@ -174,8 +174,9 @@ type servicesIdleTimeoutCmd struct {
 func (servicesIdleTimeoutCmd) cmd() {}
 
 type servicesWatchUpdateCmd struct {
-	authURL string
-	status  model.ProxyStatus
+	authURL      string
+	errorMessage string
+	status       model.ProxyStatus
 }
 
 func (servicesWatchUpdateCmd) cmd() {}
@@ -211,28 +212,28 @@ func (servicesUnsubscribeCmd) cmd() {}
 // ServicesServer manages a shared, ref-counted tsnet.Server for services mode.
 // All mutable state is managed by a single event-loop goroutine.
 type ServicesServer struct {
-	log                 zerolog.Logger
-	vipAPI              vipServiceAPI
-	ev                  *EventLoop[servicesCmd]
-	whoisCache          *WhoisCache
-	apiFactory          *APIClientFactory
-	authManager         *AuthManager
-	deviceReconciler    *DeviceReconciler
-	lifecycleCfg        *NodeLifecycleConfig
-	lifecycleProvider   NodeLifecycleProvider
-	certSem             *semaphore.Weighted
-	localClient         atomic.Pointer[local.Client]
-	apiClient           *tailscale.Client
-	getNodeStatusFunc   func(ctx context.Context) (*ipnstate.Status, error)
-	datadir             string
-	controlURL          string
-	tags                string
-	authKey             string
-	authURL             string
-	hostname            string
-	ephemeral           bool
-	autoApproveDevices  bool
-	autoRemoveConflicts bool
+	log                      zerolog.Logger
+	vipAPI                   vipServiceAPI
+	ev                       *EventLoop[servicesCmd]
+	whoisCache               *WhoisCache
+	apiFactory               *APIClientFactory
+	authManager              *AuthManager
+	deviceReconciler         *DeviceReconciler
+	lifecycleCfg             *NodeLifecycleConfig
+	lifecycleProvider        NodeLifecycleProvider
+	certSem                  *semaphore.Weighted
+	localClient              atomic.Pointer[local.Client]
+	apiClient                *tailscale.Client
+	getNodeStatusFunc        func(ctx context.Context) (*ipnstate.Status, error)
+	datadir                  string
+	controlURL               string
+	tags                     string
+	authKey                  string
+	authURL                  string
+	hostname                 string
+	ephemeral                bool
+	autoApproveDevices       bool
+	autoRemoveConflicts      bool
 	approvalReadvertiseDelay time.Duration
 }
 
@@ -244,26 +245,26 @@ func NewServicesServer(cfg ServicesServerConfig) *ServicesServer {
 	}
 
 	ss := &ServicesServer{
-		hostname:                cfg.Hostname,
-		datadir:                 cfg.DataDir,
-		authKey:                 cfg.AuthKey,
-		controlURL:              cfg.ControlURL,
-		ephemeral:               cfg.Ephemeral,
-		autoApproveDevices:      cfg.AutoApproveDevices,
-		autoRemoveConflicts:     cfg.AutoRemoveConflicts,
+		hostname:                 cfg.Hostname,
+		datadir:                  cfg.DataDir,
+		authKey:                  cfg.AuthKey,
+		controlURL:               cfg.ControlURL,
+		ephemeral:                cfg.Ephemeral,
+		autoApproveDevices:       cfg.AutoApproveDevices,
+		autoRemoveConflicts:      cfg.AutoRemoveConflicts,
 		approvalReadvertiseDelay: readvertiseDelay,
-		log:                 cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
-		ev:                  NewEventLoop[servicesCmd](servicesLoopCmdBufferSize),
-		certSem:             cfg.CertSem,
-		tags:                cfg.Tags,
-		vipAPI:              cfg.VIPServiceAPI,
-		apiClient:           cfg.APIClient,
-		apiFactory:          cfg.APIFactory,
-		authManager:         cfg.AuthManager,
-		deviceReconciler:    cfg.DeviceReconciler,
-		lifecycleCfg:        cfg.LifecycleConfig,
-		lifecycleProvider:   cfg.LifecycleProvider,
-		whoisCache:          NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
+		log:                      cfg.Log.With().Str("services_server", cfg.Hostname).Logger(),
+		ev:                       NewEventLoop[servicesCmd](servicesLoopCmdBufferSize),
+		certSem:                  cfg.CertSem,
+		tags:                     cfg.Tags,
+		vipAPI:                   cfg.VIPServiceAPI,
+		apiClient:                cfg.APIClient,
+		apiFactory:               cfg.APIFactory,
+		authManager:              cfg.AuthManager,
+		deviceReconciler:         cfg.DeviceReconciler,
+		lifecycleCfg:             cfg.LifecycleConfig,
+		lifecycleProvider:        cfg.LifecycleProvider,
+		whoisCache:               NewWhoisCache(whoisCacheTTL, whoisCacheMaxEntries),
 	}
 	go ss.loop()
 	return ss
@@ -384,9 +385,9 @@ func (ss *ServicesServer) handleClose(c servicesCloseCmd, rt *servicesRuntime) {
 func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servicesState, rt *servicesRuntime, nextGen *int) (servicesState, *servicesRuntime) {
 	if state == servicesIdle {
 		if rt == nil {
-			newRT := ss.startRuntimeWithLifecycle()
+			newRT, startErr := ss.startRuntimeWithLifecycle()
 			if newRT == nil {
-				c.reply <- acquireServiceResult{nil, errors.New("services server start failed")}
+				c.reply <- acquireServiceResult{nil, fmt.Errorf("services server start failed: %w", startErr)}
 				return state, rt
 			}
 			newRT.gen = *nextGen
@@ -854,10 +855,10 @@ func isLocalhost(remoteAddr string) bool {
 // startRuntimeWithLifecycle uses NodeLifecycle for tsnet startup, state management,
 // auth resolution, and device reconciliation. A bridge goroutine forwards lifecycle
 // events to the ServicesServer event loop.
-func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
+func (ss *ServicesServer) startRuntimeWithLifecycle() (*servicesRuntime, error) {
 	if ss.lifecycleCfg == nil {
 		ss.log.Error().Msg("startRuntimeWithLifecycle called with nil lifecycleCfg")
-		return nil
+		return nil, errors.New("lifecycle config is nil")
 	}
 
 	provider := ss.lifecycleProvider
@@ -870,7 +871,7 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 	lifecycle, nodeRt, svcFactory, err := provider(startCtx, ss.log.With().Str("component", "lifecycle").Logger(), *ss.lifecycleCfg)
 	if err != nil {
 		ss.log.Error().Err(err).Msg("failed to start services tsnet server via lifecycle")
-		return nil
+		return nil, err
 	}
 
 	if nodeRt.LocalClient != nil {
@@ -880,9 +881,8 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 	if svcFactory == nil {
 		if nodeRt.Server == nil {
 			ss.log.Error().Msg("lifecycle provider returned nil both factory and server")
-			// Clean up the started lifecycle to avoid goroutine/resource leaks.
 			lifecycle.Close()
-			return nil
+			return nil, errors.New("lifecycle provider returned nil factory and server")
 		}
 		svcFactory = tsnetServerFactory{nodeRt.Server}
 	}
@@ -903,7 +903,7 @@ func (ss *ServicesServer) startRuntimeWithLifecycle() *servicesRuntime {
 		ss.bridgeLifecycleEvents(nodeRt.Ctx, lifecycle)
 	}()
 
-	return rt
+	return rt, nil
 }
 
 // stopRuntime tears down the tsnet server and all listeners.
@@ -954,8 +954,9 @@ func (ss *ServicesServer) bridgeLifecycleEvents(ctx context.Context, lifecycle *
 			return
 		}
 		ss.sendProducer(ctx, servicesWatchUpdateCmd{
-			authURL: evt.AuthURL,
-			status:  evt.Status,
+			authURL:      evt.AuthURL,
+			status:       evt.Status,
+			errorMessage: evt.ErrorMessage,
 		})
 	}
 }
@@ -975,7 +976,7 @@ func (ss *ServicesServer) handleWatchUpdate(c servicesWatchUpdateCmd, rt *servic
 		ss.prefetchCerts(rt)
 	}
 	if c.status != model.ProxyStatusInitializing {
-		evt := model.ProxyEvent{Status: c.status}
+		evt := model.ProxyEvent{Status: c.status, ErrorMessage: c.errorMessage}
 		for sub := range rt.subs {
 			select {
 			case sub.Ch <- evt:

@@ -483,13 +483,23 @@ func (c *container) resolveContainerIP(scheme, internalPort string) (*url.URL, b
 }
 
 // resolvePublished resolves the target URL using the published port or
-// falls back to the default hostname with the internal port.
+// falls back to the default hostname with the internal port (host-network
+// containers only).
 func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort string) (*url.URL, bool) {
 	if c.defaultTargetHostname == "" {
 		return nil, false
 	}
 	port := publishedPort
 	if port == "" {
+		// The internal port is only accessible on defaultTargetHostname
+		// when the container shares the host's network namespace.
+		// For bridge-mode containers the internal port is isolated and
+		// must be reached via resolveContainerIP instead — falling back
+		// here would silently route to whatever happens to listen on
+		// that port on the Docker host (e.g. TSDProxy's own dashboard).
+		if !c.networkMode.IsHost() {
+			return nil, false
+		}
 		port = internalPort
 	}
 	if port == "" {

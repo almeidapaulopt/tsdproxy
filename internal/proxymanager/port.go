@@ -213,7 +213,8 @@ func newPortProxy(p portProxyParams) *port {
 	}
 
 	if p.TracerProvider != nil {
-		handler = otelhttp.NewHandler(handler, "proxy",
+		handler = otelhttp.NewHandler(
+			handler, "proxy",
 			otelhttp.WithTracerProvider(p.TracerProvider),
 			otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
 		)

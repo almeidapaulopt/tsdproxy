@@ -21,6 +21,8 @@ Docker Compose with the recommended **Services mode**.
    - **General/Services**: `write` (to create and manage Tailscale services/VIP)
    - **Devices/Core**: `write` (to create and manage Tailscale machines)
    - **Keys/Auth Keys**: `write` (to generate single use keys for services)
+   - **Policy/ACL**: `read` (to verify ACL tags are configured)
+   - **Policy/ACL**: `write` (optional — to auto-provision ACL tags when `autoProvisionAcl: true`)
 5. Assign tags to the OAuth client (e.g. `tag:example`) — Tailscale requires all OAuth-generated keys to have tags.
 6. Click **Generate client** and copy the **Client ID** and **Client Secret** — you'll need them in the config file.
 
@@ -78,6 +80,7 @@ tailscale:
       hostname: "tsdproxy"
       autoApproveDevices: true
       preventDuplicates: true
+      autoProvisionAcl: true
   dataDir: /data/
 
 http:

@@ -390,15 +390,15 @@ func buildPortEntries(ports model.PortConfigList, hostname string) []pages.PortE
 	return entries
 }
 
-func formatHealthStatus(health proxymanager.HealthResult) (string, string) {
+func formatHealthStatus(health proxymanager.HealthResult) (string, string, string) {
 	if health.Status == 0 {
-		return "", ""
+		return "", "", ""
 	}
 	healthLatency := ""
 	if health.Latency > 0 {
 		healthLatency = fmt.Sprintf("(%dms)", health.Latency.Milliseconds())
 	}
-	return health.Status.String(), healthLatency
+	return health.Status.String(), healthLatency, health.Error
 }
 
 func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool, isAdmin bool) pages.ProxyData {
@@ -435,7 +435,12 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		status == model.ProxyStatusAuthFailed ||
 		status == model.ProxyStatusRunning
 
-	healthStatus, healthLatency := formatHealthStatus(p.GetHealth())
+	healthStatus, healthLatency, healthError := formatHealthStatus(p.GetHealth())
+
+	errorMessage := p.GetLastError()
+	if errorMessage == "" {
+		errorMessage = p.GetDomainError()
+	}
 
 	statusHistory := p.GetStatusHistory()
 	history := make([]pages.StatusHistoryEntry, len(statusHistory))
@@ -452,6 +457,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		Name:                  name,
 		URL:                   proxyURL,
 		ProxyStatus:           status,
+		ErrorMessage:          errorMessage,
 		Icon:                  icon,
 		Label:                 label,
 		Ports:                 ports,
@@ -466,6 +472,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		AuthURL:               authURL,
 		HealthStatus:          healthStatus,
 		HealthLatency:         healthLatency,
+		HealthError:           healthError,
 		Category:              p.Config.Dashboard.Category,
 		StatusHistory:         history,
 		Uptime:                core.FormatDuration(p.GetUptime()),
@@ -474,6 +481,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		Domain:                p.Config.Domain,
 		DNSStatus:             p.GetDNSStatus().String(),
 		TLSStatus:             p.GetTLSStatus().String(),
+		DomainError:           p.GetDomainError(),
 	}
 }
 

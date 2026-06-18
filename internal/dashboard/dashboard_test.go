@@ -499,14 +499,14 @@ func TestFormatAgo_1Day(t *testing.T) {
 // -- formatHealthStatus --------------------------------------------------------
 
 func TestFormatHealthStatus_Zero(t *testing.T) {
-	h, l := formatHealthStatus(proxymanager.HealthResult{})
+	h, l, _ := formatHealthStatus(proxymanager.HealthResult{})
 	if h != "" || l != "" {
 		t.Fatalf("expected empty strings, got %q %q", h, l)
 	}
 }
 
 func TestFormatHealthStatus_Healthy(t *testing.T) {
-	h, l := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthHealthy})
+	h, l, _ := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthHealthy})
 	if h != "healthy" {
 		t.Fatalf("expected healthy, got %s", h)
 	}
@@ -516,7 +516,7 @@ func TestFormatHealthStatus_Healthy(t *testing.T) {
 }
 
 func TestFormatHealthStatus_WithLatency(t *testing.T) {
-	h, l := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthHealthy, Latency: 50 * time.Millisecond})
+	h, l, _ := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthHealthy, Latency: 50 * time.Millisecond})
 	if h != "healthy" {
 		t.Fatalf("expected healthy, got %s", h)
 	}

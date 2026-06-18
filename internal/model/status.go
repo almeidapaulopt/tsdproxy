@@ -7,11 +7,12 @@ type (
 	ProxyStatus int
 
 	ProxyEvent struct {
-		ID        string
-		Port      string
-		AuthURL   string
-		Status    ProxyStatus
-		OldStatus ProxyStatus
+		ID           string
+		Port         string
+		AuthURL      string
+		ErrorMessage string
+		Status       ProxyStatus
+		OldStatus    ProxyStatus
 	}
 )
 

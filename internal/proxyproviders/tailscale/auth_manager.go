@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -81,8 +82,9 @@ func (m *AuthManager) ResolveKey(ctx context.Context, cfg AuthConfig, tags strin
 func (m *AuthManager) GenerateOAuthKey(ctx context.Context, tags string) (string, error) {
 	cleanedTags := cleanTags(tags)
 	if len(cleanedTags) == 0 {
-		m.log.Warn().Msg("OAuth without tags: cannot create auth key, interactive login will be required")
-		return "", nil
+		return "", errors.New("OAuth requires at least one tag — " +
+			"add a \"tags\" field to your tailscale provider config " +
+			"(e.g. \"tag:tsdproxy\") and ensure it is listed in ACL tagOwners")
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)

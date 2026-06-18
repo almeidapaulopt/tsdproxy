@@ -5,6 +5,7 @@ package tailscale
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -236,8 +237,8 @@ func TestNewServiceProxyServiceNameFormat(t *testing.T) {
 // blockingServiceExposure simulates a stuck exposure.Start() (tsnet auth retries).
 type blockingServiceExposure struct {
 	blockCh      chan struct{}
-	startCalled  atomic.Bool
 	fqdnToReturn string
+	startCalled  atomic.Bool
 }
 
 func (m *blockingServiceExposure) Start(_ context.Context, _ *NodeRuntime, _ *model.Config) error {
@@ -250,8 +251,10 @@ func (m *blockingServiceExposure) Close(context.Context) error { return nil }
 
 func (m *blockingServiceExposure) firstFQDN() string { return m.fqdnToReturn }
 
+var errBlockingExposureNoListener = errors.New("blockingServiceExposure: no listener")
+
 func (m *blockingServiceExposure) GetListener(string) (net.Listener, error) {
-	return nil, nil
+	return nil, errBlockingExposureNoListener
 }
 
 // TestServiceProxy_GetURL_MustNotBlockDuringStart proves the dashboard-hang

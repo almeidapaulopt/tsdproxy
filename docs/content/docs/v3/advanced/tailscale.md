@@ -21,7 +21,13 @@ OAuth (manual), and AuthKey.
 #### Prerequisites
 
 1. Generate an OAuth client at [https://login.tailscale.com/admin/settings/oauth](https://login.tailscale.com/admin/settings/oauth).
-2. Define tags for services. Tags can be defined in the provider, applying to
+2. Under **Scopes**, enable the required permissions:
+   - **Devices/Core**: `write` (to create and manage Tailscale machines)
+   - **Keys/Auth Keys**: `write` (to generate single use keys for services)
+   - **General/Services**: `write` (only needed for services/VIP mode)
+   - **Policy/ACL**: `read` (to verify ACL tags are configured)
+   - **Policy/ACL**: `write` (optional — needed when `autoProvisionAcl: true`)
+3. Define tags for services. Tags can be defined in the provider, applying to
 all services.
 
 > [!Important]
@@ -137,6 +143,44 @@ for requirements and limitations.
 - Tags can be configured in the provider or service.
 - If tags are defined in the provider, they apply to all services.
 - If tags are defined in the service, provider tags are ignored.
+
+### ACL Auto-Provisioning
+
+When using OAuth authentication with tags, those tags must exist in your
+Tailscale ACL `tagOwners` or the proxy will fail to authenticate. Similarly,
+Funnel requires the `funnel` node attribute in your ACL `nodeAttrs`.
+
+TSDProxy can automate both of these:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+tailscale:
+  providers:
+    default:
+      clientId: "your_client_id"
+      clientSecret: "your_client_secret"
+      tags: "tag:my-service"
+      autoProvisionAcl: true
+```
+
+When `autoProvisionAcl` is `true`, TSDProxy will:
+
+1. **Check** each configured tag against your ACL `tagOwners`.
+2. **Add** any missing tags to `tagOwners`, owned by `autogroup:admin`.
+3. **Ensure** the `funnel` attribute exists in `nodeAttrs` (if any proxy uses Funnel).
+
+All modifications go through the Tailscale API with ETag-based conflict
+detection — if another process modifies the ACL concurrently, TSDProxy fails
+safely instead of overwriting.
+
+> [!IMPORTANT]
+> Requires OAuth credentials (`clientId` + `clientSecret`) with the
+> `policy:write` scope. The OAuth client must be granted this scope at
+> [https://login.tailscale.com/admin/settings/oauth](https://login.tailscale.com/admin/settings/oauth).
+
+> [!TIP]
+> When `autoProvisionAcl` is `false` (default), TSDProxy performs a read-only
+> check and logs a warning if tags are missing. Set it to `true` to fully
+> automate ACL setup.
 
 ## Prevent Duplicate Machines
 

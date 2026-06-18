@@ -150,6 +150,7 @@ type (
 		Services            bool                      `default:"false" yaml:"services"`
 		AutoApproveDevices  bool                      `default:"false" yaml:"autoApproveDevices"`
 		AutoRemoveConflicts bool                      `default:"false" yaml:"autoRemoveConflicts"`
+		AutoProvisionACL    bool                      `default:"false" yaml:"autoProvisionAcl"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.

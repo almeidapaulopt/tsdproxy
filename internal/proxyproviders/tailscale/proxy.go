@@ -215,7 +215,7 @@ func (p *Proxy) bridgeEvents() {
 		}
 
 		select {
-		case p.events <- model.ProxyEvent{Status: evt.Status}:
+		case p.events <- model.ProxyEvent{Status: evt.Status, ErrorMessage: evt.ErrorMessage, AuthURL: evt.AuthURL}:
 		default:
 			p.log.Warn().Msg("dropping proxy event: no listener")
 		}

@@ -550,7 +550,7 @@ func (ss *SharedServer) bridgeLifecycleEvents(ctx context.Context, gen int, even
 	for evt := range events {
 		ss.sendProducer(ctx, watchUpdateCmd{
 			gen:     gen,
-			evt:     model.ProxyEvent{Status: evt.Status},
+			evt:     model.ProxyEvent{Status: evt.Status, ErrorMessage: evt.ErrorMessage},
 			url:     evt.URL,
 			authURL: evt.AuthURL,
 		})

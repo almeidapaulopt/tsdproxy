@@ -16,9 +16,11 @@ import (
 
 // API scope constants for Tailscale OAuth clients.
 const (
-	ScopeDevices  = "devices:core"
-	ScopeAuthKeys = "auth_keys"
-	ScopeServices = "services"
+	ScopeDevices     = "devices:core"
+	ScopeAuthKeys    = "auth_keys"
+	ScopeServices    = "services"
+	ScopePolicyRead  = "policy:read"
+	ScopePolicyWrite = "policy:write"
 )
 
 // APIClientFactory creates Tailscale API clients with appropriate OAuth scopes.

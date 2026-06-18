@@ -92,11 +92,7 @@ func (el *EventLoop[Cmd]) IsClosed() bool {
 // ScheduleIdleTimer starts an idle-shutdown timer that sends a command after
 // the given duration. The cmdFactory callback constructs the mode-specific
 // idle timeout command with the captured generation counter.
-func (el *EventLoop[Cmd]) ScheduleIdleTimer(
-	gen int,
-	timeout time.Duration,
-	cmdFactory func(int) Cmd,
-) *time.Timer {
+func (el *EventLoop[Cmd]) ScheduleIdleTimer(gen int, timeout time.Duration, cmdFactory func(int) Cmd) *time.Timer {
 	return time.AfterFunc(timeout, func() {
 		select {
 		case el.cmds <- cmdFactory(gen):

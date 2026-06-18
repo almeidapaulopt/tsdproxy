@@ -130,9 +130,14 @@ func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
 		if startErr := proxyToStart.Start(); startErr != nil {
 			pm.log.Error().Err(startErr).Str("targetID", event.ID).Msg("proxy start failed")
 
+			proxyToStart.mtx.Lock()
+			proxyToStart.lastError = startErr.Error()
+			proxyToStart.mtx.Unlock()
+
 			pm.broadcastStatusEvents(model.ProxyEvent{
-				ID:     proxyToStart.Config.Hostname,
-				Status: model.ProxyStatusError,
+				ID:           proxyToStart.Config.Hostname,
+				Status:       model.ProxyStatusError,
+				ErrorMessage: startErr.Error(),
 			})
 
 			pm.closeAndRemoveProxy(proxyToStart.Config.Hostname, proxyToStart.Config.ProxyProvider)

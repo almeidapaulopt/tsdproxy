@@ -70,6 +70,7 @@ tailscale:
       controlUrl: https://controlplane.tailscale.com # Override the default Tailscale control URL
       preventDuplicates: false # Delete stale tailnet devices before creating new nodes (OAuth only)
       maxCertConcurrency: 2 # Max parallel TLS cert generation requests (default: 2)
+      autoProvisionAcl: true # Auto-add missing tags and Funnel attribute in Tailscale ACL (default: false)
   dataDir: /data/ # Tailscale data directory
 http:
   hostname: 127.0.0.1 # HTTP server hostname (changed from 0.0.0.0 — see breaking changes)
@@ -116,6 +117,7 @@ Defines multiple Tailscale providers. Each provider has the following options:
 | `hostname` | string | `""` | The Tailscale machine name. Required when `shared: true` or `services: true`. |
 | `autoApproveDevices` | boolean | `false` | Auto-approve device registration in Tailscale. Requires OAuth credentials. Useful in services mode where new nodes need approval before they can start. |
 | `clientSecretFile` | string | `""` | Path to a file containing the OAuth client secret. Overrides `clientSecret` if both are set. |
+| `autoProvisionAcl` | boolean | `false` | Automatically add missing ACL tags to `tagOwners` and configure Funnel attribute in your Tailscale ACL policy file. Requires OAuth credentials with `policy:write` scope. See [ACL Auto-Provisioning](#acl-auto-provisioning). |
 
 Example with multiple providers:
 
@@ -238,6 +240,42 @@ tailscale:
 
 > [!Tip]
 > For more details, see the [Tailscale page](../advanced/tailscale/).
+
+##### autoProvisionAcl
+
+When set to `true`, TSDProxy automatically ensures the provider's tags exist in
+your Tailscale ACL `tagOwners` and configures the Funnel node attribute — all
+via the Tailscale API. Defaults to `false`.
+
+This saves you from manually editing your ACL policy file when adding new tags.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+tailscale:
+  providers:
+    default:
+      clientId: "your_client_id"
+      clientSecret: "your_client_secret"
+      tags: "tag:my-service"
+      autoProvisionAcl: true
+```
+
+| Value | Behavior |
+|-------|----------|
+| `false` | Read-only check — logs a warning if tags are missing from ACL `tagOwners` (default) |
+| `true` | Auto-adds missing tags to `tagOwners` (owned by `autogroup:admin`) and ensures the Funnel attribute is present in `nodeAttrs` |
+
+> [!IMPORTANT]
+> Requires OAuth credentials (`clientId` + `clientSecret`). The OAuth client
+> must have the `policy:write` scope in addition to the device scopes.
+> Without this scope, TSDProxy cannot read or modify the ACL policy file.
+
+> [!TIP]
+> Tags already present in your ACL are left untouched. `autoProvisionAcl` only
+> adds missing entries — it never removes or modifies existing ones.
+
+##### autoRemoveConflicts
+
+See [Services Mode — Auto-remove conflicting devices]({{< ref "/docs/v3/advanced/tailscale#auto-remove-conflicting-devices" >}}) for documentation.
 
 #### docker Section
 

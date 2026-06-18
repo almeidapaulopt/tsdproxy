@@ -82,6 +82,7 @@ type (
 		onUpdate        func(event model.ProxyEvent)
 		health          *healthChecker
 		domainError     string
+		lastError       string
 		proxyAuthToken  string
 		healthPortName  string
 		statusHistory   []StatusTransition
@@ -187,6 +188,9 @@ func (proxy *Proxy) Start() error {
 				if !ok {
 					return
 				}
+				proxy.mtx.Lock()
+				proxy.lastError = event.ErrorMessage
+				proxy.mtx.Unlock()
 				proxy.setStatus(event.Status)
 				proxy.notifyURLReady()
 			case <-proxy.ctx.Done():
@@ -434,6 +438,12 @@ func (proxy *Proxy) GetDomainError() string {
 	return proxy.domainError
 }
 
+func (proxy *Proxy) GetLastError() string {
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+	return proxy.lastError
+}
+
 // SetDNSAndTLSProviders attaches the resolved DNS and TLS providers to the proxy.
 // Must be called at most once per Proxy lifecycle (during initial setup in
 // newProxy). Calling it again would silently overwrite the old providers without
@@ -559,6 +569,7 @@ func (proxy *Proxy) setStatus(status model.ProxyStatus) {
 	hostname := proxy.Config.Hostname
 	m := proxy.metrics
 	ready := proxy.metricsReady
+	lastErr := proxy.lastError
 
 	proxy.mtx.Unlock()
 
@@ -568,9 +579,10 @@ func (proxy *Proxy) setStatus(status model.ProxyStatus) {
 
 	if proxy.onUpdate != nil {
 		proxy.onUpdate(model.ProxyEvent{
-			ID:        hostname,
-			Status:    status,
-			OldStatus: oldStatus,
+			ID:           hostname,
+			Status:       status,
+			OldStatus:    oldStatus,
+			ErrorMessage: lastErr,
 		})
 	}
 }

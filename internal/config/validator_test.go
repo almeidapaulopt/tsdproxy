@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateProxyConfig_NoDomain(t *testing.T) {
@@ -127,7 +128,7 @@ func TestValidateProxyProviders_ServicesAcceptsClientSecretFile(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestValidateProxyProviders_ServiceModeWithoutTagsIsValid(t *testing.T) {
+func TestValidateProxyProviders_ServiceModeWithoutTagsIsError(t *testing.T) {
 	t.Parallel()
 	c := &Data{
 		Tailscale: TailscaleProxyProviderConfig{
@@ -144,8 +145,8 @@ func TestValidateProxyProviders_ServiceModeWithoutTagsIsValid(t *testing.T) {
 	}
 
 	err := c.validateProxyProviders(zerolog.Nop())
-	// Tags are not strictly required — services mode can use interactive login.
-	assert.NoError(t, err)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tag")
 }
 
 func TestValidateProxyProviders_ServicesAndSharedMutualExclusion(t *testing.T) {
@@ -755,4 +756,27 @@ func TestValidateTLSProviders_NilConfig(t *testing.T) {
 	}
 	err := c.validateTLSProviders()
 	assert.NoError(t, err, "nil TLS provider config should be skipped")
+}
+
+func TestValidateProxyProviders_ServiceModeWithOAuth_RequiresTags(t *testing.T) {
+	t.Parallel()
+	c := &Data{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: map[string]*TailscaleServerConfig{
+				"svc": {
+					Services:     true,
+					Hostname:     "myhost",
+					ClientID:     "id-123",
+					ClientSecret: "secret-123",
+					Tags:         "",
+				},
+			},
+		},
+	}
+
+	err := c.validateProxyProviders(zerolog.Nop())
+	require.Error(t, err, "services mode with OAuth credentials must require tags — "+
+		"OAuth auth keys cannot be generated without tags, and the shared tsnet server "+
+		"will silently fall back to interactive login, appearing stuck in Authenticating forever")
+	assert.Contains(t, err.Error(), "tag")
 }

@@ -30,6 +30,7 @@ type ProxyData struct {
 	URL                   string
 	Label                 string
 	ProxyStatus           model.ProxyStatus
+	ErrorMessage          string
 	Ports                 []PortEntry
 	Hostname              string
 	TargetProvider        string
@@ -42,6 +43,7 @@ type ProxyData struct {
 	AuthURL               string
 	HealthStatus          string
 	HealthLatency         string
+	HealthError           string
 	Category              string
 	StatusHistory         []StatusHistoryEntry
 	Uptime                string
@@ -50,6 +52,7 @@ type ProxyData struct {
 	Domain                string
 	DNSStatus             string
 	TLSStatus             string
+	DomainError           string
 }
 
 type StatusHistoryEntry struct {
@@ -76,6 +79,19 @@ templ infoPanel(item ProxyData) {
 		<span class="text-xs font-mono truncate flex-1 text-base-content/80">{ item.Hostname }</span>
 		@copyButton(item.Hostname)
 	</div>
+	if item.ErrorMessage != "" || item.HealthError != "" {
+		<div class="mb-4">
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Diagnostics</p>
+			<div class="bg-error/10 border border-error/20 rounded-lg px-3 py-2 space-y-1">
+				if item.ErrorMessage != "" {
+					<p class="text-xs text-error break-words">{ item.ErrorMessage }</p>
+				}
+				if item.HealthError != "" {
+					<p class="text-xs text-warning break-words">Health: { item.HealthError }</p>
+				}
+			</div>
+		</div>
+	}
 	<!-- Meta badges -->
 	<div class="flex flex-wrap gap-1.5 mb-4">
 		if item.TargetProvider != "" {
@@ -301,11 +317,14 @@ templ ProxyCardInner(item ProxyData) {
 			if item.ProxyStatus == model.ProxyStatusRunning && item.HealthStatus != "" {
 				<div
 					class={ "health-dot", item.HealthStatus }
-					title={ "health: " + item.HealthStatus + " " + item.HealthLatency }
+					title={ "health: " + item.HealthStatus + " " + item.HealthLatency + healthTooltip(item.HealthError) }
 				></div>
 			}
 		</div>
 		@DomainStatusBadges(item)
+		if item.ErrorMessage != "" {
+			<div class="text-xs text-error mt-0.5 line-clamp-2" title={ item.ErrorMessage }>{ item.ErrorMessage }</div>
+		}
 
 		<div class="openbtn">
 			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
@@ -449,6 +468,13 @@ func healthValue(h string) string {
 		return "unknown"
 	}
 	return h
+}
+
+func healthTooltip(err string) string {
+	if err == "" {
+		return ""
+	}
+	return " — " + err
 }
 
 func modalname(name string) string {

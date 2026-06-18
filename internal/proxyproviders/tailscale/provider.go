@@ -81,6 +81,85 @@ func validateDatadir(baseDir, hostname string) (string, error) {
 	return datadir, nil
 }
 
+// validateOAuthAndProvisionACL validates OAuth credentials and optionally
+// auto-provisions ACL tags. Returns nil if apiFactory is unavailable.
+func validateOAuthAndProvisionACL(
+	ctx context.Context,
+	provider *config.TailscaleServerConfig,
+	apiFactory *APIClientFactory,
+	log zerolog.Logger,
+	name string,
+) error {
+	if !apiFactory.IsAvailable() {
+		return nil
+	}
+
+	scopes := ScopesPerProxy()
+	if provider.Services {
+		scopes = ScopesServices()
+	}
+
+	validateCtx, validateCancel := context.WithTimeout(ctx, apiTimeout)
+	if err := apiFactory.ValidateAccess(validateCtx, scopes); err != nil {
+		validateCancel()
+		return fmt.Errorf("new tailscale provider %q: %w", name, err)
+	}
+	validateCancel()
+	log.Info().Strs("scopes", scopes).Msg("OAuth credentials validated")
+
+	// parseTagsForACL drops empty/whitespace-only entries, so a non-empty
+	// provider.Tags (e.g. " , ") can still yield zero tags. Gate on the parsed
+	// result to avoid an out-of-range index on tags[0] below.
+	if tags := parseTagsForACL(provider.Tags); len(tags) > 0 {
+		aclMgr := NewACLManager(
+			apiFactory.NewClient(ScopePolicyRead, ScopePolicyWrite), log,
+		)
+
+		if provider.AutoProvisionACL {
+			if err := autoProvisionTags(ctx, aclMgr, tags, name); err != nil {
+				return err
+			}
+			log.Info().Msg("ACL auto-provisioning completed successfully")
+		} else {
+			warnMissingTags(ctx, aclMgr, tags, log)
+		}
+	}
+
+	return nil
+}
+
+func autoProvisionTags(ctx context.Context, aclMgr *ACLManager, tags []string, name string) error {
+	aclCtx, aclCancel := context.WithTimeout(ctx, apiTimeout)
+	defer aclCancel()
+
+	if err := aclMgr.EnsureTags(aclCtx, tags); err != nil {
+		return fmt.Errorf("new tailscale provider %q: auto-provision ACL tags: %w", name, err)
+	}
+	if err := aclMgr.EnsureFunnelAttribute(aclCtx, tags[0]); err != nil {
+		return fmt.Errorf("new tailscale provider %q: auto-provision Funnel attribute: %w", name, err)
+	}
+	return nil
+}
+
+func warnMissingTags(ctx context.Context, aclMgr *ACLManager, tags []string, log zerolog.Logger) {
+	aclCtx, aclCancel := context.WithTimeout(ctx, apiTimeout)
+	defer aclCancel()
+
+	acl, err := aclMgr.client.PolicyFile().Get(aclCtx)
+	if err != nil {
+		log.Warn().Err(err).Str("scope", ScopePolicyRead).
+			Msg("Unable to read ACL to verify tags; the OAuth client may need the policy:read scope " +
+				"(https://login.tailscale.com/admin/settings/oauth)")
+		return
+	}
+	for _, tag := range tags {
+		if _, ok := acl.TagOwners[tag]; !ok {
+			log.Warn().Str("tag", tag).
+				Msg("Tag not found in ACL tagOwners. Set autoProvisionAcl: true or add it manually.")
+		}
+	}
+}
+
 var (
 	_ proxyproviders.Provider               = (*Client)(nil)
 	_ proxyproviders.DomainRequiredProvider = (*Client)(nil)
@@ -105,18 +184,8 @@ func New(log zerolog.Logger, name string, provider *config.TailscaleServerConfig
 
 	clientLog := log.With().Str("tailscale", name).Logger()
 
-	if apiFactory.IsAvailable() {
-		scopes := ScopesPerProxy()
-		if provider.Services {
-			scopes = ScopesServices()
-		}
-		validateCtx, validateCancel := context.WithTimeout(context.Background(), apiTimeout)
-		if err := apiFactory.ValidateAccess(validateCtx, scopes); err != nil {
-			validateCancel()
-			return nil, fmt.Errorf("new tailscale provider %q: %w", name, err)
-		}
-		validateCancel()
-		clientLog.Info().Strs("scopes", scopes).Msg("OAuth credentials validated")
+	if err := validateOAuthAndProvisionACL(context.Background(), provider, apiFactory, clientLog, name); err != nil {
+		return nil, err
 	}
 
 	reconcileInterval, err := time.ParseDuration(provider.ReconcileInterval)

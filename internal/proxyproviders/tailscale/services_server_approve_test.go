@@ -513,13 +513,13 @@ func TestAcquireWithAutoApprove_Success_ReadvertisesListener(t *testing.T) {
 	factory := defaultFactory()
 
 	ss := NewServicesServer(ServicesServerConfig{
-		Hostname:                "test",
-		Log:                     zerolog.Nop(),
-		VIPServiceAPI:           vip,
-		APIClient:               client,
-		AutoApproveDevices:      true,
+		Hostname:                 "test",
+		Log:                      zerolog.Nop(),
+		VIPServiceAPI:            vip,
+		APIClient:                client,
+		AutoApproveDevices:       true,
 		ApprovalReadvertiseDelay: 1 * time.Millisecond,
-		LifecycleConfig:         &NodeLifecycleConfig{},
+		LifecycleConfig:          &NodeLifecycleConfig{},
 		LifecycleProvider: func(_ context.Context, _ zerolog.Logger, _ NodeLifecycleConfig) (
 			*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
 		) {

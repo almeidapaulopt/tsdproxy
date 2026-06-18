@@ -156,26 +156,25 @@ func TestResolveKeyUnavailableFactorySkipsOAuth(t *testing.T) {
 
 // --- AuthManager GenerateOAuthKey tests ---
 
-func TestGenerateOAuthKeyNoTagsReturnsEmpty(t *testing.T) {
+func TestGenerateOAuthKeyNoTagsReturnsError(t *testing.T) {
 	t.Parallel()
 
 	f := NewAPIClientFactory("test-id", "test-secret")
 	m := NewAuthManager(zerolog.Nop(), f, false)
 
-	key, err := m.GenerateOAuthKey(context.Background(), "")
-	require.NoError(t, err)
-	assert.Equal(t, "", key)
+	_, err := m.GenerateOAuthKey(context.Background(), "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tag")
 }
 
-func TestGenerateOAuthKeyWhitespaceOnlyTagsReturnsEmpty(t *testing.T) {
+func TestGenerateOAuthKeyWhitespaceOnlyTagsReturnsError(t *testing.T) {
 	t.Parallel()
 
 	f := NewAPIClientFactory("test-id", "test-secret")
 	m := NewAuthManager(zerolog.Nop(), f, false)
 
-	key, err := m.GenerateOAuthKey(context.Background(), "  , ,  ")
-	require.NoError(t, err)
-	assert.Equal(t, "", key)
+	_, err := m.GenerateOAuthKey(context.Background(), "  , ,  ")
+	require.Error(t, err)
 }
 
 // --- OAuth integration tests using httptest.Server ---
@@ -417,4 +416,27 @@ func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	newReq.URL.Scheme = "http"
 	newReq.URL.Host = t.targetURL[len("http://"):]
 	return http.DefaultTransport.RoundTrip(newReq)
+}
+
+func TestGenerateOAuthKey_ErrorWhenTagsEmpty(t *testing.T) {
+	t.Parallel()
+
+	f := NewAPIClientFactory("test-id", "test-secret")
+	m := NewAuthManager(zerolog.Nop(), f, false)
+
+	_, err := m.GenerateOAuthKey(context.Background(), "")
+	require.Error(t, err, "OAuth with empty tags must return an error — "+
+		"otherwise the shared tsnet server silently falls back to interactive login "+
+		"and appears stuck in Authenticating forever on the dashboard")
+	assert.Contains(t, err.Error(), "tag")
+}
+
+func TestGenerateOAuthKey_ErrorWhenTagsWhitespaceOnly(t *testing.T) {
+	t.Parallel()
+
+	f := NewAPIClientFactory("test-id", "test-secret")
+	m := NewAuthManager(zerolog.Nop(), f, false)
+
+	_, err := m.GenerateOAuthKey(context.Background(), "  , ,  ")
+	require.Error(t, err)
 }

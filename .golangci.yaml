@@ -68,6 +68,9 @@ linters:
       - std-error-handling
     rules:
       - linters:
+          - whitespace
+        text: "multi-line statement"
+      - linters:
           - goconst
         path: (.+)_test\.go
     paths:

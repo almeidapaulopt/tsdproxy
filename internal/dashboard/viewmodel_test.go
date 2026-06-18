@@ -324,7 +324,7 @@ func TestFormatAgo_AlmostOneMinute(t *testing.T) {
 func TestFormatHealthStatus_Down(t *testing.T) {
 	t.Parallel()
 
-	h, _ := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthDown})
+	h, _, _ := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthDown})
 	if h != "down" {
 		t.Fatalf("expected 'down', got %s", h)
 	}
@@ -335,7 +335,7 @@ func TestFormatHealthStatus_Unknown(t *testing.T) {
 
 	// HealthUnknown is 0, which formatHealthStatus treats as "no status set"
 	// and returns empty strings. This is correct: zero-value means "not checked".
-	h, _ := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthUnknown})
+	h, _, _ := formatHealthStatus(proxymanager.HealthResult{Status: proxymanager.HealthUnknown})
 	if h != "" {
 		t.Fatalf("expected empty string for zero-value HealthUnknown, got %q", h)
 	}
@@ -344,7 +344,7 @@ func TestFormatHealthStatus_Unknown(t *testing.T) {
 func TestFormatHealthStatus_LatencyZero(t *testing.T) {
 	t.Parallel()
 
-	h, l := formatHealthStatus(proxymanager.HealthResult{
+	h, l, _ := formatHealthStatus(proxymanager.HealthResult{
 		Status:  proxymanager.HealthHealthy,
 		Latency: 0,
 	})

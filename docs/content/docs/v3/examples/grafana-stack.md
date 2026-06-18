@@ -85,6 +85,8 @@ tailscale:
       services: true
       hostname: "tsdproxy"
       autoApproveDevices: true
+      preventDuplicates: true
+      autoProvisionAcl: true
   dataDir: /data/
 
 http:

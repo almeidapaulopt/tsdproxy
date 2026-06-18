@@ -183,12 +183,15 @@ func (c *Data) validateServicesProvider(name string, p *TailscaleServerConfig, l
 		return fmt.Errorf("tailscale provider %q: services mode requires clientSecret or clientSecretFile for VIP Services API", name)
 	}
 	if p.Tags == "" {
-		log.Warn().Str("provider", name).Str("hostname", p.Hostname).
-			Msg("services mode without tags: interactive login will be required for the shared tsnet node")
-	} else {
-		log.Info().Str("provider", name).Str("hostname", p.Hostname).Str("tags", p.Tags).
-			Msg("services tsnet provider configured")
+		return fmt.Errorf("tailscale provider %q: services mode requires tags — "+
+			"OAuth auth keys cannot be generated without tags. "+
+			"Add a \"tags\" field (e.g. \"tag:tsdproxy\") and ensure the tag is assigned to your OAuth client "+
+			"in the Tailscale admin console (Access Controls → OAuth clients) and listed in ACL tagOwners",
+			name)
 	}
+
+	log.Info().Str("provider", name).Str("hostname", p.Hostname).Str("tags", p.Tags).
+		Msg("services tsnet provider configured")
 
 	if p.AutoApproveDevices && !hasOAuthCredentials(p) {
 		return fmt.Errorf("tailscale provider %q: autoApproveDevices requires OAuth credentials (clientId + clientSecret)", name)
