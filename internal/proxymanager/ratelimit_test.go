@@ -102,7 +102,7 @@ func TestRateLimitMiddleware_AppliesWhenXFFIsLoopback_BUG(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "127.0.0.1:4321"
-	req.Header.Set("X-Forwarded-For", "127.0.0.1")
+	req.Header.Set("X-Forwarded-For", canonicalLoopback)
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

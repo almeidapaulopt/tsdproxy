@@ -32,14 +32,15 @@ import (
 )
 
 const (
-	maxIdleConnsPerHost  = 10
-	idleConnTimeout      = 30 * time.Second
-	tcpDialTimeout       = 10 * time.Second
-	tcpErrChanBuf        = 2
-	dialTimeout          = 10 * time.Second
-	shutdownTimeout      = 10 * time.Second
-	maxTCPAcceptRetries  = 5
-	defaultMaxTCPConns   = 1024
+	maxIdleConnsPerHost = 10
+	idleConnTimeout     = 30 * time.Second
+	tcpDialTimeout      = 10 * time.Second
+	tcpErrChanBuf       = 2
+	dialTimeout         = 10 * time.Second
+	shutdownTimeout     = 10 * time.Second
+	maxTCPAcceptRetries = 5
+	defaultMaxTCPConns  = 1024
+	canonicalLoopback   = "127.0.0.1"
 )
 
 var errRateLimited = errors.New("UDP packet rate limited")
@@ -309,15 +310,15 @@ type tcpPort struct {
 	ctx         context.Context
 	metrics     *metrics.Metrics
 	cancel      context.CancelFunc
-	proxyName   string
+	sem         chan struct{}
 	portName    string
+	proxyName   string
 	pconfig     model.PortConfig
-	wg          sync.WaitGroup // track active connections
-	acceptWg    sync.WaitGroup // tracks whether startWithListener has finished
-	activeConns atomic.Int64   // current number of active TCP connections
-	sem         chan struct{}  // bounds concurrent connections to cap goroutine growth
+	wg          sync.WaitGroup
+	acceptWg    sync.WaitGroup
+	activeConns atomic.Int64
 	mtx         sync.Mutex
-	started     atomic.Bool // true once startWithListener has been called
+	started     atomic.Bool
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string) *tcpPort {
@@ -326,7 +327,14 @@ func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logge
 
 // newPortTCPWithLimit is the testable constructor: callers can pass a small
 // maxConns to verify the semaphore behavior without opening 1000+ connections.
-func newPortTCPWithLimit(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string, maxConns int) *tcpPort {
+func newPortTCPWithLimit(
+	ctx context.Context,
+	pconfig model.PortConfig,
+	log zerolog.Logger,
+	metrics *metrics.Metrics,
+	proxyName, portName string,
+	maxConns int,
+) *tcpPort {
 	if maxConns < 1 {
 		maxConns = defaultMaxTCPConns
 	}
@@ -800,7 +808,7 @@ func isManagementTarget(target *url.URL, httpPort uint16) bool {
 	host := target.Hostname()
 	// Accept "localhost" alias and exact 127.0.0.1. Reject any other loopback
 	// (e.g. 127.0.0.2) to prevent auth-token leakage via spoofed targets.
-	if host != "localhost" && host != "127.0.0.1" {
+	if host != "localhost" && host != canonicalLoopback {
 		return false
 	}
 	return target.Port() == strconv.FormatUint(uint64(httpPort), 10) &&

@@ -559,8 +559,8 @@ func TestPortProxyStripsSpoofedXForwardedFor(t *testing.T) {
 	}
 
 	xff := captured.Get(consts.HeaderXForwardedFor)
-	if xff != "127.0.0.1" {
-		t.Errorf("X-Forwarded-For: want 127.0.0.1, got %q", xff)
+	if xff != canonicalLoopback {
+		t.Errorf("X-Forwarded-For: want %s, got %q", canonicalLoopback, xff)
 	}
 
 	xRealIP := captured.Get(consts.HeaderRealIP)
@@ -998,7 +998,7 @@ func TestResolvePeerIP_LocalhostWithLoopbackXFF(t *testing.T) {
 		RemoteAddr: "127.0.0.1:12345",
 		Header:     make(http.Header),
 	}
-	r.Header.Set("X-Forwarded-For", "127.0.0.1")
+	r.Header.Set("X-Forwarded-For", canonicalLoopback)
 	ip := resolvePeerIP(r)
 	if ip != "" {
 		t.Fatalf("expected empty for loopback XFF, got %q", ip)
@@ -1328,7 +1328,7 @@ func TestIsManagementTarget_RejectsNonLocalhostLoopback_BUG(t *testing.T) {
 		host string
 		want bool
 	}{
-		{name: "exact loopback", host: "127.0.0.1", want: true},
+		{name: "exact loopback", host: canonicalLoopback, want: true},
 		{name: "localhost alias", host: "localhost", want: true},
 		{name: "non-localhost loopback 127.0.0.2", host: "127.0.0.2", want: false},
 		{name: "non-localhost loopback 127.1.2.3", host: "127.1.2.3", want: false},
