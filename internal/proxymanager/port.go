@@ -32,13 +32,14 @@ import (
 )
 
 const (
-	maxIdleConnsPerHost = 10
-	idleConnTimeout     = 30 * time.Second
-	tcpDialTimeout      = 10 * time.Second
-	tcpErrChanBuf       = 2
-	dialTimeout         = 10 * time.Second
-	shutdownTimeout     = 10 * time.Second
-	maxTCPAcceptRetries = 5
+	maxIdleConnsPerHost  = 10
+	idleConnTimeout      = 30 * time.Second
+	tcpDialTimeout       = 10 * time.Second
+	tcpErrChanBuf        = 2
+	dialTimeout          = 10 * time.Second
+	shutdownTimeout      = 10 * time.Second
+	maxTCPAcceptRetries  = 5
+	defaultMaxTCPConns   = 1024
 )
 
 var errRateLimited = errors.New("UDP packet rate limited")
@@ -314,11 +315,21 @@ type tcpPort struct {
 	wg          sync.WaitGroup // track active connections
 	acceptWg    sync.WaitGroup // tracks whether startWithListener has finished
 	activeConns atomic.Int64   // current number of active TCP connections
+	sem         chan struct{}  // bounds concurrent connections to cap goroutine growth
 	mtx         sync.Mutex
 	started     atomic.Bool // true once startWithListener has been called
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string) *tcpPort {
+	return newPortTCPWithLimit(ctx, pconfig, log, metrics, proxyName, portName, defaultMaxTCPConns)
+}
+
+// newPortTCPWithLimit is the testable constructor: callers can pass a small
+// maxConns to verify the semaphore behavior without opening 1000+ connections.
+func newPortTCPWithLimit(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string, maxConns int) *tcpPort {
+	if maxConns < 1 {
+		maxConns = defaultMaxTCPConns
+	}
 	ctxPort, cancel := context.WithCancel(ctx)
 
 	tp := &tcpPort{
@@ -329,6 +340,7 @@ func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logge
 		metrics:   metrics,
 		proxyName: proxyName,
 		portName:  portName,
+		sem:       make(chan struct{}, maxConns),
 	}
 
 	return tp
@@ -357,13 +369,28 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 			}
 			if retries < maxTCPAcceptRetries {
 				p.log.Warn().Err(err).Int("retry", retries+1).Msg("transient TCP accept error, retrying")
-				time.Sleep(time.Duration(retries+1) * time.Second)
+				select {
+				case <-time.After(time.Duration(retries+1) * time.Second):
+				case <-p.ctx.Done():
+					return nil
+				}
 				continue
 			}
 			p.log.Error().Err(err).Msg("error accepting TCP connection after retries")
 			return fmt.Errorf("tcp accept: %w", err)
 		}
 		retries = 0
+
+		// Bound concurrent connections so a single tailnet member cannot
+		// exhaust goroutines by opening unlimited idle TCP sessions.
+		// Non-blocking acquire: if the semaphore is full, reject immediately.
+		select {
+		case p.sem <- struct{}{}:
+		default:
+			p.log.Warn().Int("active", int(p.activeConns.Load())).Msg("TCP connection limit reached, rejecting")
+			conn.Close()
+			continue
+		}
 
 		p.activeConns.Add(1)
 		if p.metrics != nil {
@@ -373,6 +400,7 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 		p.wg.Add(1)
 		go func(c net.Conn) {
 			defer func() {
+				<-p.sem
 				p.activeConns.Add(-1)
 				if p.metrics != nil {
 					p.metrics.SetConnectionsActive(p.proxyName, p.portName, int(p.activeConns.Load()))
@@ -758,23 +786,23 @@ func (p *udpPort) close() error {
 // isManagementTarget reports whether a proxy target points to tsdproxy's own
 // management HTTP server (the self-proxy case where tsdproxy proxies to itself).
 //
-// Heuristic: loopback IP + management port + empty/root path. This accepts any
-// loopback address, not just the address the server actually binds to. The path
-// check ensures only the root management server (no path prefix) is matched,
-// preventing a co-located service at 127.0.0.1:<same-port>/some-path from
-// receiving the per-process auth token.
+// Matches ONLY the canonical loopback address (127.0.0.1) plus the "localhost"
+// alias, NOT the entire 127.0.0.0/8 range. A looser check (any ip.IsLoopback())
+// would let a co-located service bound to e.g. 127.0.0.2:<same-port>/ receive
+// the per-process auth token, which grants admin RBAC on the management API.
+// The path check ensures only the root management server (no path prefix) is
+// matched, preventing a co-located service at 127.0.0.1:<same-port>/some-path
+// from receiving the token.
 func isManagementTarget(target *url.URL, httpPort uint16) bool {
 	if target == nil {
 		return false
 	}
 	host := target.Hostname()
-	// net.ParseIP does not recognize "localhost"; map to the numeric form so
-	// that list-provider targets like "http://localhost:8080" are detected.
-	if host == "localhost" {
-		host = "127.0.0.1"
+	// Accept "localhost" alias and exact 127.0.0.1. Reject any other loopback
+	// (e.g. 127.0.0.2) to prevent auth-token leakage via spoofed targets.
+	if host != "localhost" && host != "127.0.0.1" {
+		return false
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback() &&
-		target.Port() == strconv.FormatUint(uint64(httpPort), 10) &&
+	return target.Port() == strconv.FormatUint(uint64(httpPort), 10) &&
 		(target.Path == "" || target.Path == "/")
 }

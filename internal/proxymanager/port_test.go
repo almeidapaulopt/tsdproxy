@@ -6,6 +6,7 @@ package proxymanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -1291,5 +1292,269 @@ func TestUDPPort_CloseBeforeStart_GoroutineStompsConn(t *testing.T) {
 		t.Error("BUG: p.conn was set to non-nil after close() returned — " +
 			"startWithPacketConn ran untracked, stomping closed state. " +
 			"Missing `started` atomic.Bool guard (see tcpPort pattern at port.go:386)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Additional bug-reproduction tests for the security/bug review.
+// Each test asserts the CORRECT (post-fix) behavior, so it FAILS today and
+// passes once the bug is fixed. Per AGENTS.md bug-fix TDD protocol.
+// ---------------------------------------------------------------------------
+
+// TestIsManagementTarget_RejectsNonLocalhostLoopback_BUG reproduces H-1:
+// isManagementTarget uses ip.IsLoopback() which is true for the entire
+// 127.0.0.0/8 range (e.g. 127.0.0.2, 127.5.6.7). The per-process auth token
+// (which grants admin RBAC on the management API) is forwarded to ANY target
+// matching loopback + port + root path, not just the exact bind address.
+//
+// Attack scenario:
+//  1. Attacker has list-provider config write access OR runs a container in
+//     host-network mode that binds to 127.0.0.2:<mgmt-port>/.
+//  2. They configure target: http://127.0.0.2:8080/ in tsdproxy.yaml or labels.
+//  3. isManagementTarget returns true → auth token injected into the request
+//     to the attacker's listener → full admin API compromise.
+//
+// Expected post-fix: isManagementTarget should match ONLY the exact IP the
+// management server binds to (typically 127.0.0.1), not any loopback address.
+//
+// Today: the 127.0.0.2 and 127.1.2.3 subtests fail (returns true, want false).
+func TestIsManagementTarget_RejectsNonLocalhostLoopback_BUG(t *testing.T) {
+	t.Parallel()
+
+	const mgmtPort uint16 = 8080
+
+	cases := []struct {
+		name string
+		host string
+		want bool
+	}{
+		{name: "exact loopback", host: "127.0.0.1", want: true},
+		{name: "localhost alias", host: "localhost", want: true},
+		{name: "non-localhost loopback 127.0.0.2", host: "127.0.0.2", want: false},
+		{name: "non-localhost loopback 127.1.2.3", host: "127.1.2.3", want: false},
+		{name: "non-localhost loopback 127.255.255.254", host: "127.255.255.254", want: false},
+		{name: "private non-loopback", host: "192.168.1.1", want: false},
+		{name: "link-local metadata endpoint", host: "169.254.169.254", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			u := &url.URL{
+				Scheme: "http",
+				Host:   fmt.Sprintf("%s:%d", tc.host, mgmtPort),
+				Path:   "/",
+			}
+			got := isManagementTarget(u, mgmtPort)
+			require.Equal(t, tc.want, got,
+				"isManagementTarget(%s) = %v, want %v — "+
+					"BUG: accepts any 127.x.x.x loopback, enabling auth-token leak via "+
+					"loopback-spoofed management target (port.go:766-780)", tc.host, got, tc.want)
+		})
+	}
+}
+
+// TestTCPPort_HasNoConnectionLimit_BUG reproduces H-3: tcpPort accepts
+// unlimited concurrent connections. UDP is bounded at 1024 clients
+// (port.go udpMaxClients), HTTP IPs at 4096 (ratelimit.go httpRateLimitClients),
+// but TCP has no equivalent cap.
+//
+// Attack scenario: any tailnet member opens 50k idle TCP connections →
+// ~150k goroutines → memory exhaustion → tsdproxy OOM-killed → ALL proxies
+// drop, not just the targeted one.
+//
+// Expected post-fix: a `maxTCPConcurrent` semaphore (e.g. 1024, matching UDP)
+// should reject connections beyond the limit.
+//
+// Today: this test fails because all 5 connections succeed (no limit).
+func TestTCPPort_HasNoConnectionLimit_BUG(t *testing.T) {
+	t.Parallel()
+
+	backendLn, backendWg := startEchoBackend(t)
+	t.Cleanup(func() {
+		// Close THEN wait (correct order; defer LIFO would deadlock).
+		backendLn.Close()
+		backendWg.Wait()
+	})
+
+	pconfig := newTestTCPConfig(t, backendLn.Addr().String())
+	const testMaxConns = 3
+	tp := newPortTCPWithLimit(context.Background(), pconfig, zerolog.Nop(), nil, "", "", testMaxConns)
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	conns := make([]net.Conn, 0, 5)
+	t.Cleanup(func() {
+		// Close client conns first so handleConn's io.Copy unblocks and
+		// tp.close()'s acceptWg.Wait() returns promptly.
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		_ = tp.close()
+		_ = frontLn.Close()
+	})
+
+	go func() { _ = tp.startWithListener(frontLn) }()
+
+	// Open more than testMaxConns connections. After the fix, the semaphore
+	// rejects the overflow at Accept time. Before the fix, all are accepted.
+	const numConns = 5
+	for i := 0; i < numConns; i++ {
+		c, dialErr := net.DialTimeout("tcp", frontLn.Addr().String(), 500*time.Millisecond)
+		if dialErr != nil {
+			continue
+		}
+		conns = append(conns, c)
+	}
+
+	// Give the server time to process all pending accepts. TCP handshakes
+	// complete in the kernel before the server's userspace Accept returns,
+	// so client-side dial success does NOT reflect server-side acceptance.
+	// We measure server-side activeConns instead.
+	require.Eventually(t, func() bool {
+		return tp.activeConns.Load() <= int64(testMaxConns)
+	}, 500*time.Millisecond, 10*time.Millisecond,
+		"BUG: tcpPort has %d active connections — semaphore should cap at %d. "+
+			"UDP is bounded at udpMaxClients=1024 and HTTP at httpRateLimitClients=4096; "+
+			"TCP now has maxTCPConns (default %d, test override %d).",
+		tp.activeConns.Load(), testMaxConns, defaultMaxTCPConns, testMaxConns)
+}
+
+// flakyAcceptListener wraps a net.Listener and returns transient errors for
+
+// TestHTTPPort_StartWithListenerAfterClose_ReturnsErrServerClosed is a
+// NEGATIVE confirmation: the originally suspected bug ("startWithListener
+// hangs forever after close()") does NOT exist. Go's http.Server.trackListener
+// mechanism sets s.shutdown=true during Shutdown(), which causes subsequent
+// Serve() calls to return ErrServerClosed immediately.
+//
+// This test documents the WORKING behavior so future contributors don't
+// re-attempt the same "fix". It PASSES today.
+func TestHTTPPort_StartWithListenerAfterClose_ReturnsErrServerClosed(t *testing.T) {
+	t.Parallel()
+
+	pconfig := model.PortConfig{ProxyProtocol: "http"}
+	targetURL, _ := url.Parse("http://127.0.0.1:1")
+	pconfig.AddTarget(targetURL)
+
+	p := newPortProxy(portProxyParams{
+		Ctx:             context.Background(),
+		PortConfig:      pconfig,
+		Log:             zerolog.Nop(),
+		WhoisMiddleware: func(next http.Handler) http.Handler { return next },
+		ProxyName:       "test",
+		PortName:        "p",
+	})
+
+	// Close BEFORE startWithListener. http.Server.Shutdown sets s.shutdown=true.
+	require.NoError(t, p.close())
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.startWithListener(ln)
+	}()
+
+	select {
+	case err := <-done:
+		// Go's stdlib returns ErrServerClosed via trackListener, so Serve
+		// never blocks. startWithListener returns nil (the error is filtered
+		// at port.go:272).
+		require.NoError(t, err, "expected nil — ErrServerClosed is filtered")
+	case <-time.After(2 * time.Second):
+		t.Fatal("startWithListener should return promptly after close() — " +
+			"http.Server.trackListener returns ErrServerClosed when shutdown flag is set")
+	}
+}
+
+// flakyAcceptListener wraps a net.Listener and returns transient errors for
+// the first N Accept calls, then delegates to the underlying listener.
+// Used by TestTCPPort_AcceptRetrySleepNotCtxAware_BUG to trigger the
+// time.Sleep retry path in tcpPort.startWithListener (port.go:358-361).
+type flakyAcceptListener struct {
+	net.Listener
+	failsRemaining int
+	mu             sync.Mutex
+}
+
+func (l *flakyAcceptListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	if l.failsRemaining > 0 {
+		l.failsRemaining--
+		l.mu.Unlock()
+		return nil, errors.New("flaky transient error")
+	}
+	l.mu.Unlock()
+	return l.Listener.Accept()
+}
+
+// TestTCPPort_AcceptRetrySleepNotCtxAware_BUG reproduces the shutdown-delay
+// bug at port.go:360. The TCP accept retry loop uses time.Sleep without
+// consulting p.ctx — on shutdown during a transient Accept error, close()
+// blocks for up to 15 seconds (1+2+3+4+5s for retries 0-4) before noticing
+// the listener was closed.
+//
+// Expected post-fix: the sleep should be replaced with a select that includes
+// p.ctx.Done() so shutdown returns promptly (within milliseconds).
+//
+// Today: this test fails because close() takes longer than 500ms after
+// ctx cancellation (it sleeps through the cancellation).
+func TestTCPPort_AcceptRetrySleepNotCtxAware_BUG(t *testing.T) {
+	t.Parallel()
+
+	realLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer realLn.Close()
+
+	// Inject enough transient errors to keep the retry/sleep path busy.
+	flaky := &flakyAcceptListener{
+		Listener:       realLn,
+		failsRemaining: maxTCPAcceptRetries + 5,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pconfig := model.PortConfig{ProxyProtocol: "tcp"}
+	tp := newPortTCP(ctx, pconfig, zerolog.Nop(), nil, "", "")
+
+	go func() { _ = tp.startWithListener(flaky) }()
+	defer tp.close()
+
+	// Wait until the retry path has consumed at least one Accept (and entered
+	// the time.Sleep). Once failsRemaining decreases, the first sleep is active.
+	require.Eventually(t, func() bool {
+		flaky.mu.Lock()
+		defer flaky.mu.Unlock()
+		return flaky.failsRemaining < maxTCPAcceptRetries+5
+	}, 2*time.Second, 5*time.Millisecond)
+
+	// Cancel ctx to trigger shutdown. The bug: the active time.Sleep ignores
+	// ctx and continues for its full duration.
+	start := time.Now()
+	cancel()
+
+	closeDone := make(chan struct{})
+	go func() {
+		_ = tp.close()
+		close(closeDone)
+	}()
+
+	select {
+	case <-closeDone:
+		elapsed := time.Since(start)
+		// After fix: elapsed < ~50ms (select unblocks immediately on ctx.Done).
+		// Today: elapsed ≈ current sleep duration (1s on first retry, up to 5s).
+		// Use 500ms threshold so the test fails reliably on the bug while
+		// remaining stable under CI scheduling jitter.
+		require.Less(t, elapsed, 500*time.Millisecond,
+			"BUG: tcpPort.close() took %v after ctx cancel — "+
+				"time.Sleep in accept retry path is not ctx-aware (port.go:360), "+
+				"delaying shutdown by up to 15s during transient Accept errors.", elapsed)
+	case <-time.After(10 * time.Second):
+		t.Fatal("BUG: tcpPort.close() did not return within 10s — " +
+			"time.Sleep blocks shutdown indefinitely when Accept keeps failing")
 	}
 }
