@@ -1103,3 +1103,81 @@ func TestGetStatus_InitialZeroValue(t *testing.T) {
 	proxy := &Proxy{}
 	assert.Equal(t, model.ProxyStatus(0), proxy.GetStatus())
 }
+
+// TestResume_AllListenersFail_LeavesZombieState_BUG reproduces the
+// zombie-state bug at proxy.go:281-335. When ALL listeners fail in Resume(),
+// the function:
+//  1. Sets paused=false (line 290) — proxy no longer considered paused
+//  2. Calls initPorts() (line 293) — populates proxy.ports with fresh handlers
+//  3. Fails every listener attempt
+//  4. Sets status=Error and returns the error (line 321)
+//
+// The proxy is now "unpaused but dead":
+//   - paused == false (not paused)
+//   - No listeners running (cannot serve traffic)
+//   - health checker NOT restarted (line 326 only runs on partial success)
+//   - Operator must manually Restart via dashboard
+//
+// Expected post-fix: Resume should either re-Pause() the proxy OR fully
+// tear it down, so the proxy is never left in a half-alive state.
+//
+// Today: this test fails because paused==false and health==nil after Resume
+// returns its error — the zombie state.
+func TestResume_AllListenersFail_LeavesZombieState_BUG(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	proxy := &Proxy{
+		log: zerolog.Nop(),
+		Config: &model.Config{
+			Hostname: "test",
+			Ports: map[string]model.PortConfig{
+				"1": {ProxyProtocol: model.ProtoTCP},
+			},
+		},
+		providerProxy: &stubProviderProxy{listenerErr: errors.New("listener unavailable")},
+		paused:        true,
+		status:        model.ProxyStatusPaused,
+		ports:         make(map[string]portHandler),
+		statusHistory: make([]StatusTransition, 0, maxStatusHistory),
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+	pc := proxy.Config.Ports["1"]
+	pc.AddTarget(&url.URL{Scheme: "tcp", Host: "127.0.0.1:1"})
+	proxy.Config.Ports["1"] = pc
+	proxy.initPorts()
+
+	err := proxy.Resume()
+	require.Error(t, err, "Resume with all listeners failing must return an error")
+
+	// The bug: proxy is left in an inconsistent state.
+	//
+	// A consistent "Error" state would be one of:
+	//   (a) paused == true (re-paused because Resume could not complete)
+	//   (b) proxy fully torn down (health=nil AND ports empty AND paused irrelevant)
+	//
+	// Today: paused == false AND ports populated AND no listeners AND no health.
+	// That's the zombie state.
+
+	proxy.mtx.RLock()
+	pausedAfter := proxy.paused
+	healthAfter := proxy.health
+	portsAfter := len(proxy.ports)
+	proxy.mtx.RUnlock()
+
+	// After fix: paused should be true (Resume should re-Pause on full failure),
+	// OR the proxy should be fully closed (health nil + ports empty + status Error).
+	// Either of these is acceptable. The bug is the current "neither" state.
+	consistentState := (pausedAfter && healthAfter == nil) ||
+		(!pausedAfter && portsAfter == 0 && healthAfter == nil)
+
+	require.True(t, consistentState,
+		"BUG: Resume left proxy in zombie state — paused=%v, health=%v, ports=%d. "+
+			"Expected either (a) paused=true with health=nil (re-paused), or "+
+			"(b) paused=false with health=nil AND ports=0 (fully torn down). "+
+			"Current state: paused=false + populated ports + no listeners + no health checker "+
+			"= unresponsive but appears active (proxy.go:281-335).",
+		pausedAfter, healthAfter, portsAfter)
+}

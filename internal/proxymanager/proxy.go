@@ -338,8 +338,15 @@ func (proxy *Proxy) Resume() error {
 	}
 
 	if listenerErrors > 0 && listenerErrors == len(portsConfig) {
+		// Re-pause so the proxy is not left in a zombie state
+		// (paused=false + no listeners + no health checker). Without this,
+		// the operator must manually Restart from the dashboard.
+		proxy.mtx.Lock()
+		proxy.paused = true
+		proxy.mtx.Unlock()
+
 		proxy.setStatus(model.ProxyStatusError)
-		proxy.log.Error().Msg("proxy resume failed: all listeners errored")
+		proxy.log.Error().Msg("proxy resume failed: all listeners errored, re-pausing")
 		return fmt.Errorf("proxy %s resume failed: all %d listeners errored", proxy.Config.Hostname, listenerErrors)
 	}
 
