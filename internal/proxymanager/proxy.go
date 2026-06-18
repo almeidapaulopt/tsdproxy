@@ -275,10 +275,26 @@ func (proxy *Proxy) Pause() error {
 
 	proxy.stopHealthChecker()
 	proxy.closePorts()
+	proxy.resetRuntimeMetrics()
 	proxy.setStatus(model.ProxyStatusPaused)
 
 	proxy.log.Info().Msg("proxy paused")
 	return nil
+}
+
+// resetRuntimeMetrics zeroes the per-port and health gauges that no longer
+// reflect reality once the proxy is paused. Without this, Prometheus would
+// keep reporting the pre-pause "healthy / N active connections" values
+// for the lifetime of the pause. ProxyStatus is left untouched.
+func (proxy *Proxy) resetRuntimeMetrics() {
+	if proxy.metrics == nil {
+		return
+	}
+	m := proxy.metrics
+	hostname := proxy.Config.Hostname
+
+	m.SetProxyUp(hostname, -1)
+	m.ResetProxyPortMetrics(hostname)
 }
 
 // Resume re-initializes port handlers and restarts listeners after a Pause.

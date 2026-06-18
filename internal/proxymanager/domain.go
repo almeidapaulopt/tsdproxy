@@ -5,6 +5,7 @@ package proxymanager
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/url"
@@ -54,7 +55,41 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 	}
 	p.setTLSStatus(tlsproviders.TLSStatusActive)
 
+	if pm.metrics != nil {
+		pm.startCertExpiryTracking(p, tlsProvider, proxyConfig.Domain)
+	}
+
 	return nil
+}
+
+// startCertExpiryTracking records the initial cert expiry and spawns a
+// background goroutine that periodically refreshes it. Without the refresh,
+// tsdproxy_cert_expiry_seconds would go stale after the first cert renewal
+// (Tailscale ~90d, ACME ~30d) and pin at 0 forever, falsely alerting operators.
+//
+// The goroutine exits when p.ctx is canceled (proxy Close).
+func (pm *ProxyManager) startCertExpiryTracking(p *Proxy, tlsProvider tlsproviders.Provider, domain string) {
+	pm.updateCertExpiryMetric(p, tlsProvider, domain)
+
+	interval := pm.certExpiryRefresh
+	if interval <= 0 {
+		interval = defaultCertExpiryRefreshInterval
+	}
+
+	p.eventsWg.Add(1)
+	go func() {
+		defer p.eventsWg.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				pm.updateCertExpiryMetric(p, tlsProvider, domain)
+			case <-p.ctx.Done():
+				return
+			}
+		}
+	}()
 }
 
 func (pm *ProxyManager) configureTailscaleTLS(p *Proxy, tlsProvider tlsproviders.Provider, proxyConfig *model.Config) error {
@@ -83,6 +118,8 @@ func (pm *ProxyManager) configureTailscaleTLS(p *Proxy, tlsProvider tlsproviders
 const (
 	proxyURLWaitTimeout = 60 * time.Second
 	urlPollInterval     = 500 * time.Millisecond
+
+	defaultCertExpiryRefreshInterval = time.Hour
 )
 
 func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
@@ -138,6 +175,30 @@ func (pm *ProxyManager) cleanupDomainForProxy(p *Proxy) {
 
 	p.setDNSStatus(dnsproviders.DNSStatusNone)
 	p.setTLSStatus(tlsproviders.TLSStatusNone)
+}
+
+func (pm *ProxyManager) updateCertExpiryMetric(p *Proxy, tlsProvider tlsproviders.Provider, domain string) {
+	cert, err := tlsProvider.GetCertificate(p.ctx, domain)
+	if err != nil {
+		pm.log.Debug().Err(err).Str("proxy", p.Config.Hostname).Msg("cert expiry: failed to get certificate")
+		return
+	}
+	if cert.Leaf == nil {
+		if len(cert.Certificate) == 0 {
+			return
+		}
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err != nil {
+			pm.log.Debug().Err(err).Str("proxy", p.Config.Hostname).Msg("cert expiry: failed to parse certificate")
+			return
+		}
+		cert.Leaf = leaf
+	}
+	remaining := time.Until(cert.Leaf.NotAfter).Seconds()
+	if remaining < 0 {
+		remaining = 0
+	}
+	pm.metrics.SetCertExpirySeconds(p.Config.Hostname, remaining)
 }
 
 // closeTLSProvider releases background resources held by the TLS provider

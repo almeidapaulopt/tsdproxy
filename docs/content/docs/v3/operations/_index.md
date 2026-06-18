@@ -16,4 +16,7 @@ Day-to-day operations: health monitoring, backup, and recovery.
   {{< card link="api" title="API Reference" icon="code"
     subtitle="REST API for automation and monitoring"
   >}}
+  {{< card link="metrics" title="Metrics & Grafana" icon="chart-bar"
+    subtitle="Prometheus endpoint and pre-built Grafana dashboard"
+  >}}
 {{< /cards >}}

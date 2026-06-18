@@ -65,7 +65,7 @@ func TestTCPPortForward(t *testing.T) {
 	defer backendLn.Close()
 
 	pconfig := newTestTCPConfig(t, backendLn.Addr().String())
-	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop())
+	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop(), nil, "", "")
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -119,7 +119,7 @@ func TestTCPPortMultipleConnections(t *testing.T) {
 	defer backendLn.Close()
 
 	pconfig := newTestTCPConfig(t, backendLn.Addr().String())
-	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop())
+	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop(), nil, "", "")
 
 	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -161,7 +161,7 @@ func TestTCPPortMultipleConnections(t *testing.T) {
 func TestTCPPortClose(t *testing.T) {
 	t.Parallel()
 	pconfig := model.PortConfig{ProxyProtocol: "tcp"}
-	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop())
+	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop(), nil, "", "")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -204,7 +204,7 @@ func TestTCPPortClose(t *testing.T) {
 func TestTCPPortEmptyTarget(t *testing.T) {
 	t.Parallel()
 	pconfig := model.PortConfig{ProxyProtocol: "tcp"}
-	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop())
+	tp := newPortTCP(context.Background(), pconfig, zerolog.Nop(), nil, "", "")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -614,7 +614,7 @@ func TestNewPortUDP(t *testing.T) {
 	targetURL, _ := url.Parse("udp://127.0.0.1:9999")
 	pconfig.AddTarget(targetURL)
 
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 	if up == nil {
 		t.Fatal("newPortUDP returned nil")
 	}
@@ -627,7 +627,7 @@ func TestUDPPort_StartWithListener_ReturnsError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pconfig := model.PortConfig{ProxyProtocol: "udp"}
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -645,7 +645,7 @@ func TestUDPPort_StartWithPacketConn_NoTarget(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pconfig := model.PortConfig{ProxyProtocol: "udp"}
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 	defer up.close()
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -666,7 +666,7 @@ func TestUDPPort_EchoRelay(t *testing.T) {
 
 	ctx := context.Background()
 	pconfig := NewTestUDPConfig(t, backendAddr.String())
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -708,7 +708,7 @@ func TestUDPPort_GetOrCreateBackendConn_Existing(t *testing.T) {
 	ctx := context.Background()
 	backendAddr, _ := startUDPEchoBackend(t)
 	pconfig := NewTestUDPConfig(t, backendAddr.String())
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -751,7 +751,7 @@ func TestUDPPort_GetOrCreateBackendConn_MaxClientsEvicts(t *testing.T) {
 	ctx := context.Background()
 	backendAddr, _ := startUDPEchoBackend(t)
 	pconfig := NewTestUDPConfig(t, backendAddr.String())
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -793,7 +793,7 @@ func TestUDPPort_GetOrCreateBackendConn_MaxClientsEvicts(t *testing.T) {
 func TestUDPPort_Close_Idempotent(_ *testing.T) {
 	ctx := context.Background()
 	pconfig := model.PortConfig{ProxyProtocol: "udp"}
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	up.close()
 	up.close() // should not panic
@@ -803,7 +803,7 @@ func TestUDPPort_RelayBackendToClient_ClosesOnIdleTimeout(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pconfig := model.PortConfig{ProxyProtocol: "udp"}
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -1055,7 +1055,7 @@ func TestUDPPort_GetOrCreateBackendConn_NoTarget(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	pconfig := model.PortConfig{ProxyProtocol: "udp"}
-	up := newPortUDP(ctx, pconfig, zerolog.Nop())
+	up := newPortUDP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -1201,7 +1201,7 @@ func TestTCPPort_CancelledContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	pconfig := model.PortConfig{ProxyProtocol: "tcp"}
-	tp := newPortTCP(ctx, pconfig, zerolog.Nop())
+	tp := newPortTCP(ctx, pconfig, zerolog.Nop(), nil, "", "")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1250,7 +1250,7 @@ func TestUDPPort_CloseBeforeStart_GoroutineStompsConn(t *testing.T) {
 
 	backendAddr, _ := startUDPEchoBackend(t)
 	pconfig := NewTestUDPConfig(t, backendAddr.String())
-	up := newPortUDP(context.Background(), pconfig, zerolog.Nop())
+	up := newPortUDP(context.Background(), pconfig, zerolog.Nop(), nil, "", "")
 
 	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {

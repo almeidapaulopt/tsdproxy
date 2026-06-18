@@ -42,6 +42,18 @@ func TestNew(t *testing.T) {
 	if m.ProxyStatus == nil {
 		t.Error("ProxyStatus not initialized")
 	}
+	if m.ProxyUp == nil {
+		t.Error("ProxyUp not initialized")
+	}
+	if m.ConnectionsActive == nil {
+		t.Error("ConnectionsActive not initialized")
+	}
+	if m.UDPClientsActive == nil {
+		t.Error("UDPClientsActive not initialized")
+	}
+	if m.CertExpirySeconds == nil {
+		t.Error("CertExpirySeconds not initialized")
+	}
 }
 
 func TestSetProxyCount(t *testing.T) {
@@ -91,6 +103,31 @@ func TestDeleteProxyMetrics_NonExistent(t *testing.T) {
 	m.DeleteProxyMetrics("nonexistent")
 }
 
+func TestSetProxyUp(t *testing.T) {
+	m := newTestMetrics(t)
+	m.SetProxyUp("webapp", 1)
+	m.SetProxyUp("webapp", 0)
+	m.SetProxyUp("webapp", -1)
+}
+
+func TestSetConnectionsActive(t *testing.T) {
+	m := newTestMetrics(t)
+	m.SetConnectionsActive("webapp", "443", 5)
+	m.SetConnectionsActive("webapp", "443", 0)
+}
+
+func TestSetUDPClientsActive(t *testing.T) {
+	m := newTestMetrics(t)
+	m.SetUDPClientsActive("webapp", "5060", 3)
+	m.SetUDPClientsActive("webapp", "5060", 0)
+}
+
+func TestSetCertExpirySeconds(t *testing.T) {
+	m := newTestMetrics(t)
+	m.SetCertExpirySeconds("webapp", 86400)
+	m.SetCertExpirySeconds("webapp", 0)
+}
+
 func TestMiddleware(t *testing.T) {
 	m := newTestMetrics(t)
 	mw := m.Middleware("testproxy", "443")
@@ -125,7 +162,7 @@ func TestMiddleware_RecordsMetrics(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	val := m.RequestsTotal.WithLabelValues("testproxy", "443")
+	val := m.RequestsTotal.WithLabelValues("testproxy", "443", "404")
 	c := collectCounterValue(val) > 0
 	if !c {
 		t.Error("expected requests total to be > 0")
@@ -244,6 +281,34 @@ func TestHandler_IncludesProxyStatus(t *testing.T) {
 	}
 	if !strings.Contains(body, `tsdproxy_proxy_status{proxy="api",status="error"}`) {
 		t.Error("expected api error status in metrics output")
+	}
+}
+
+func TestHandler_IncludesNewMetrics(t *testing.T) {
+	m := newTestMetrics(t)
+	m.SetProxyUp("webapp", 1)
+	m.SetConnectionsActive("webapp", "443", 3)
+	m.SetUDPClientsActive("webapp", "5060", 2)
+	m.SetCertExpirySeconds("webapp", 86400)
+
+	handler := m.Handler()
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+
+	if !strings.Contains(body, "tsdproxy_proxy_up") {
+		t.Error("expected proxy_up metric in output")
+	}
+	if !strings.Contains(body, "tsdproxy_proxy_connections_active") {
+		t.Error("expected connections_active metric in output")
+	}
+	if !strings.Contains(body, "tsdproxy_udp_clients_active") {
+		t.Error("expected udp_clients_active metric in output")
+	}
+	if !strings.Contains(body, `tsdproxy_cert_expiry_seconds{proxy="webapp"}`) {
+		t.Error("expected cert_expiry_seconds metric in output", body)
 	}
 }
 

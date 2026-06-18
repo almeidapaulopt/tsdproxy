@@ -219,6 +219,10 @@ Prometheus metrics endpoint. Exports per-proxy request counters, latency
 histograms, in-flight request gauges, and proxy status gauges. Protected
 by admin middleware.
 
+See [Metrics & Grafana]({{< ref "/docs/v3/operations/metrics" >}}) for the
+full metric catalog, Prometheus scrape config, and pre-built Grafana
+dashboard provisioning.
+
 ### Restart proxy
 
 ```http

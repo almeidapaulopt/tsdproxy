@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -22,6 +23,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/almeidapaulopt/tsdproxy/grafana"
 	"github.com/almeidapaulopt/tsdproxy/internal/api"
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/core"
@@ -141,6 +143,9 @@ func (app *WebApp) Start() {
 	adminMW := core.AdminMiddleware(app.Cfg, app.Log)
 	app.HTTP.Get("/metrics", adminMW(app.ProxyManager.MetricsHandler()))
 
+	app.HTTP.Get("/-/grafana/dashboard.json", serveEmbedded(grafana.Content, "dashboard.json", "application/json"))
+	app.HTTP.Get("/-/grafana/datasource.yaml", serveEmbedded(grafana.Content, "datasource.yaml", "text/yaml; charset=utf-8"))
+
 	app.Log.Info().Msg("Setting up proxy proxies")
 
 	if err := app.ProxyManager.Start(); err != nil {
@@ -211,4 +216,16 @@ func (app *WebApp) Stop(force <-chan os.Signal) {
 	}
 
 	app.Log.Info().Msg("Server was shutdown successfully")
+}
+
+func serveEmbedded(fsys embed.FS, name, contentType string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		data, err := fsys.ReadFile(name)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		_, _ = w.Write(data)
+	})
 }

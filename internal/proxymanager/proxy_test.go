@@ -414,7 +414,7 @@ func TestStartPacketPort_StartsUDP(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = pc.Close() })
 
-	up := newPortUDP(context.Background(), model.PortConfig{}, zerolog.Nop())
+	up := newPortUDP(context.Background(), model.PortConfig{}, zerolog.Nop(), nil, "", "")
 	proxy := &Proxy{
 		log:    zerolog.Nop(),
 		Config: &model.Config{},
@@ -446,7 +446,7 @@ func TestStartPacketPort_WrongPortType(t *testing.T) {
 	require.NoError(t, err)
 	defer pc.Close()
 
-	tcpHandler := newPortTCP(context.Background(), model.PortConfig{}, zerolog.Nop())
+	tcpHandler := newPortTCP(context.Background(), model.PortConfig{}, zerolog.Nop(), nil, "", "")
 	proxy := &Proxy{
 		log:    zerolog.Nop(),
 		Config: &model.Config{},

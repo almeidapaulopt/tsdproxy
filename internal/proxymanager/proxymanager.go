@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
@@ -51,8 +52,8 @@ type (
 		log               zerolog.Logger
 		ctx               context.Context
 		tracerProvider    trace.TracerProvider
-		Proxies           ProxyList
-		targetIndex       map[string]string
+		tlsLifecycle      *tlsproviders.TLSLifecycleManager
+		webhookSender     *webhook.Sender
 		cfg               *config.Data
 		assets            *web.Assets
 		TargetProviders   TargetProviderList
@@ -60,19 +61,20 @@ type (
 		DNSProviders      DNSProviderList
 		TLSProviders      TLSProviderList
 		dnsLifecycle      *dnsproviders.LifecycleManager
-		tlsLifecycle      *tlsproviders.TLSLifecycleManager
+		Proxies           ProxyList
 		statusSubscribers map[*statusSubscription]struct{}
-		webhookSender     *webhook.Sender
+		targetIndex       map[string]string
 		metrics           *metrics.Metrics
+		hostLocks         *keyedLocks
 		cancel            context.CancelFunc
 		targetLocks       *keyedLocks
-		hostLocks         *keyedLocks
 		proxyAuthToken    string
+		eventsWg          sync.WaitGroup
+		certExpiryRefresh time.Duration
 		proxyMu           sync.RWMutex
 		providerMu        sync.RWMutex
 		subMu             sync.RWMutex
 		stopping          atomic.Bool
-		eventsWg          sync.WaitGroup
 	}
 )
 
@@ -100,6 +102,7 @@ func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken str
 		statusSubscribers: make(map[*statusSubscription]struct{}),
 		log:               logger.With().Str("module", "proxymanager").Logger(),
 		metrics:           metrics.New(nil),
+		certExpiryRefresh: defaultCertExpiryRefreshInterval,
 		tracerProvider:    tp,
 		webhookSender:     webhook.NewSender(logger, cfg.Webhooks),
 		assets:            assets,

@@ -63,6 +63,7 @@ type healthChecker struct {
 	cancel              context.CancelFunc
 	done                chan struct{}
 	onRedetect          func() error
+	onResult            func(HealthResult)
 	httpClient          httpclient.Doer
 	scheme              string
 	interval            time.Duration
@@ -167,6 +168,7 @@ func (hc *healthChecker) stop() {
 func (hc *healthChecker) run() {
 	defer close(hc.done)
 	hc.check()
+	hc.notifyResult()
 
 	ticker := time.NewTicker(hc.interval)
 	defer ticker.Stop()
@@ -177,7 +179,17 @@ func (hc *healthChecker) run() {
 			return
 		case <-ticker.C:
 			hc.check()
+			hc.notifyResult()
 		}
+	}
+}
+
+func (hc *healthChecker) notifyResult() {
+	if hc.onResult == nil {
+		return
+	}
+	if r := hc.result.Load(); r != nil {
+		hc.onResult(*r)
 	}
 }
 
@@ -392,6 +404,9 @@ func clampDuration(seconds int, minVal, maxVal time.Duration) time.Duration {
 
 func (proxy *Proxy) startHealthChecker() {
 	if !proxy.Config.HealthCheckEnabled {
+		if proxy.metrics != nil {
+			proxy.metrics.SetProxyUp(proxy.Config.Hostname, -1)
+		}
 		return
 	}
 
@@ -430,10 +445,28 @@ func (proxy *Proxy) startHealthChecker() {
 			return proxy.reResolveHealthTarget()
 		})
 
+		if proxy.metrics != nil {
+			hostname := proxy.Config.Hostname
+			hc.onResult = func(result HealthResult) {
+				switch result.Status {
+				case HealthHealthy:
+					proxy.metrics.SetProxyUp(hostname, 1)
+				case HealthDown:
+					proxy.metrics.SetProxyUp(hostname, 0)
+				default:
+					proxy.metrics.SetProxyUp(hostname, -1)
+				}
+			}
+		}
+
 		proxy.mtx.Lock()
 		proxy.healthPortName = k
 		proxy.health = hc
 		proxy.mtx.Unlock()
+
+		if proxy.metrics != nil {
+			proxy.metrics.SetProxyUp(proxy.Config.Hostname, -1)
+		}
 
 		hc.start()
 		return

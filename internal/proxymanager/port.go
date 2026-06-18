@@ -303,25 +303,32 @@ func (p *port) close() error {
 
 // tcpPort forwards raw TCP connections from the Tailscale listener to the target backend.
 type tcpPort struct {
-	log      zerolog.Logger
-	ctx      context.Context
-	listener net.Listener
-	cancel   context.CancelFunc
-	pconfig  model.PortConfig
-	mtx      sync.Mutex
-	wg       sync.WaitGroup // track active connections
-	acceptWg sync.WaitGroup // tracks whether startWithListener has finished
-	started  atomic.Bool    // true once startWithListener has been called
+	log         zerolog.Logger
+	listener    net.Listener
+	ctx         context.Context
+	metrics     *metrics.Metrics
+	cancel      context.CancelFunc
+	proxyName   string
+	portName    string
+	pconfig     model.PortConfig
+	wg          sync.WaitGroup // track active connections
+	acceptWg    sync.WaitGroup // tracks whether startWithListener has finished
+	activeConns atomic.Int64   // current number of active TCP connections
+	mtx         sync.Mutex
+	started     atomic.Bool // true once startWithListener has been called
 }
 
-func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *tcpPort {
+func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string) *tcpPort {
 	ctxPort, cancel := context.WithCancel(ctx)
 
 	tp := &tcpPort{
-		log:     log.With().Str("port", pconfig.String()).Logger(),
-		ctx:     ctxPort,
-		cancel:  cancel,
-		pconfig: pconfig,
+		log:       log.With().Str("port", pconfig.String()).Logger(),
+		ctx:       ctxPort,
+		cancel:    cancel,
+		pconfig:   pconfig,
+		metrics:   metrics,
+		proxyName: proxyName,
+		portName:  portName,
 	}
 
 	return tp
@@ -358,9 +365,20 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 		}
 		retries = 0
 
+		p.activeConns.Add(1)
+		if p.metrics != nil {
+			p.metrics.SetConnectionsActive(p.proxyName, p.portName, int(p.activeConns.Load()))
+		}
+
 		p.wg.Add(1)
 		go func(c net.Conn) {
-			defer p.wg.Done()
+			defer func() {
+				p.activeConns.Add(-1)
+				if p.metrics != nil {
+					p.metrics.SetConnectionsActive(p.proxyName, p.portName, int(p.activeConns.Load()))
+				}
+				p.wg.Done()
+			}()
 			p.handleConn(c)
 		}(conn)
 	}
@@ -442,25 +460,31 @@ func (p *tcpPort) close() error {
 // udpPort forwards UDP packets from the Tailscale PacketConn to the target backend.
 type udpPort struct {
 	log          zerolog.Logger
-	ctx          context.Context
 	conn         net.PacketConn
-	cancel       context.CancelFunc
+	ctx          context.Context
+	metrics      *metrics.Metrics
 	clientMap    map[string]*clientEntry
+	cancel       context.CancelFunc
+	portName     string
+	proxyName    string
 	pconfig      model.PortConfig
 	wg           sync.WaitGroup
-	mtx          sync.Mutex
 	clientMapMtx sync.Mutex
+	mtx          sync.Mutex
 	started      atomic.Bool
 }
 
-func newPortUDP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger) *udpPort {
+func newPortUDP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string) *udpPort {
 	ctxPort, cancel := context.WithCancel(ctx)
 
 	return &udpPort{
-		log:     log.With().Str("port", pconfig.String()).Logger(),
-		ctx:     ctxPort,
-		cancel:  cancel,
-		pconfig: pconfig,
+		log:       log.With().Str("port", pconfig.String()).Logger(),
+		ctx:       ctxPort,
+		cancel:    cancel,
+		pconfig:   pconfig,
+		metrics:   metrics,
+		proxyName: proxyName,
+		portName:  portName,
 	}
 }
 
@@ -567,6 +591,12 @@ func (p *udpPort) relayPackets(pc net.PacketConn) {
 	}
 }
 
+func (p *udpPort) updateClientMetric(count int) {
+	if p.metrics != nil {
+		p.metrics.SetUDPClientsActive(p.proxyName, p.portName, count)
+	}
+}
+
 func closeAllClients(clientMap map[string]*clientEntry, mapMtx *sync.Mutex) {
 	mapMtx.Lock()
 	for _, entry := range clientMap {
@@ -604,6 +634,8 @@ func (p *udpPort) getOrCreateBackendConn(
 
 	if !entry.limiter.Allow() {
 		p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
+		delete(clientMap, key)
+		p.updateClientMetric(len(clientMap))
 		return nil, errRateLimited
 	}
 
@@ -615,22 +647,26 @@ func (p *udpPort) getOrCreateBackendConn(
 	target := p.pconfig.GetFirstTarget()
 	if target == nil || target.Host == "" {
 		delete(clientMap, key)
+		p.updateClientMetric(len(clientMap))
 		return nil, errors.New("no target configured for UDP port")
 	}
 
 	backendAddr, err := net.ResolveUDPAddr(model.ProtoUDP, target.Host)
 	if err != nil {
 		delete(clientMap, key)
+		p.updateClientMetric(len(clientMap))
 		return nil, fmt.Errorf("error resolving backend UDP address: %w", err)
 	}
 
 	conn, err := net.DialUDP(model.ProtoUDP, nil, backendAddr)
 	if err != nil {
 		delete(clientMap, key)
+		p.updateClientMetric(len(clientMap))
 		return nil, err
 	}
 
 	entry.conn = conn
+	p.updateClientMetric(len(clientMap))
 
 	p.wg.Add(1)
 	go func() {
@@ -664,6 +700,7 @@ func (p *udpPort) relayBackendToClient(entry *clientEntry, pc net.PacketConn, cl
 		// Delete only if this entry hasn't been replaced (e.g. by eviction + re-creation).
 		if current, ok := clientMap[clientAddr.String()]; ok && current == entry {
 			delete(clientMap, clientAddr.String())
+			p.updateClientMetric(len(clientMap))
 		}
 		mapMtx.Unlock()
 	}()
@@ -707,6 +744,7 @@ func (p *udpPort) close() error {
 	if clientMap != nil {
 		closeAllClients(clientMap, clientMapMtx)
 	}
+	p.updateClientMetric(0)
 
 	p.cancel()
 

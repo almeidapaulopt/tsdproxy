@@ -39,9 +39,9 @@ func (proxy *Proxy) initPorts() {
 				RateLimitBurst:   proxy.Config.RateLimitBurst,
 			})
 		} else if v.ProxyProtocol == model.ProtoUDP {
-			ph = newPortUDP(proxy.ctx, v, log)
+			ph = newPortUDP(proxy.ctx, v, log, proxy.metrics, proxy.Config.Hostname, k)
 		} else {
-			ph = newPortTCP(proxy.ctx, v, log)
+			ph = newPortTCP(proxy.ctx, v, log, proxy.metrics, proxy.Config.Hostname, k)
 		}
 
 		proxy.log.Debug().Any("port", ph).Msg("newport")

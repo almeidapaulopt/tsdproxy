@@ -114,9 +114,42 @@ services:
       - tsdproxy.proxyprovider=services
       - tsdproxy.container_port=80
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tsdproxy-prometheus
+    network_mode: "host"
+    volumes:
+      - ./prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --web.console.templates=/etc/prometheus/consoles
+      - --web.enable-lifecycle
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tsdproxy-grafana
+    network_mode: "host"
+    volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ../grafana:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/dashboard.json
+      - GF_SERVER_HTTP_PORT=3000
+    restart: unless-stopped
+
 volumes:
   tsdata:
   tmp:
+  prometheus-data:
+  grafana-data:
 
 networks:
   c1:

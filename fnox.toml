@@ -6,7 +6,7 @@ service = "tsdproxy"
 prefix = "tsdproxy"
 
 [secrets]
-TSDPROXY_E2E_AUTHKEY = { provider = "keychain", value = "TS_AUTHKEY" }
+TSDPROXY_E2E_AUTHKEY = { provider = "keychain", value = "TSDPROXY_E2E_AUTHKEY" }
 TSDPROXY_E2E_CLIENTID = { provider = "keychain", value = "TSDPROXY_E2E_CLIENTID" }
 TSDPROXY_E2E_CLIENTSECRET = { provider = "keychain", value = "TSDPROXY_E2E_CLIENTSECRET" }
 
