@@ -330,6 +330,49 @@ labels:
 
 {{% /details %}}
 
+## Rate Limiting Labels
+
+These labels configure per-IP rate limiting on each HTTP proxy port. Rate limiting protects your backends from abusive clients by throttling requests per client IP.
+
+Rate limiting is enabled by default (`rateLimitEnabled: true`) with sensible defaults. Configure per-provider in `tsdproxy.yaml` or override per-container with these labels:
+
+{{% details title="tsdproxy.ratelimit.enabled" %}}
+
+Enable or disable rate limiting for this container. Defaults to `true` (inherited from provider config).
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.ratelimit.enabled: "false"
+```
+
+{{% /details %}}
+{{% details title="tsdproxy.ratelimit.rps" %}}
+
+Max requests per second per client IP. Must be between 1 and 10000. Defaults to `100` (inherited from provider config).
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.ratelimit.rps: "50"
+```
+
+{{% /details %}}
+{{% details title="tsdproxy.ratelimit.burst" %}}
+
+Burst capacity per client IP. Allows short bursts above the RPS limit. Must be between 1 and 100000. Defaults to `200` (inherited from provider config).
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.ratelimit.burst: "100"
+```
+
+{{% /details %}}
+
+> [!TIP]
+> Rate limiting is per-client-IP, not per-proxy. Each connecting IP gets its own token bucket. The limiter uses an LRU-like eviction strategy — the oldest idle client is evicted first when the client limit (4096 tracked IPs) is reached.
+
 ## Custom Domain Labels
 
 {{% details title="tsdproxy.domain" %}}

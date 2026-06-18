@@ -46,6 +46,9 @@ docker:
     healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
     healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
     healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
+    rateLimitEnabled: true # (optional) Enable rate limiting (default: true)
+    rateLimitRps: 100 # (optional) Max requests per second per client IP (1–10000, default: 100)
+    rateLimitBurst: 200 # (optional) Burst capacity per client IP (1–100000, default: 200)
 lists:
   critical: # Name of the target list provider
     filename: /config/critical.yaml # Path to the proxy list file
@@ -56,6 +59,9 @@ lists:
     healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
     healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
     healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
+    rateLimitEnabled: true # (optional) Enable rate limiting (default: true)
+    rateLimitRps: 100 # (optional) Max requests per second per client IP (1–10000, default: 100)
+    rateLimitBurst: 200 # (optional) Burst capacity per client IP (1–100000, default: 200)
 tailscale:
   providers:
     default: # Name of the Tailscale provider
@@ -473,6 +479,29 @@ Must be at least 1. Defaults to `3`.
 
 Fixed cooldown in seconds between re-resolution attempts while the target remains
 unhealthy. Set to `0` (default) to use exponential backoff instead.
+
+##### rateLimitEnabled
+
+Defaults to `true`. When enabled, per-IP rate limiting is applied to each HTTP
+proxy port to protect backends from abusive clients. Individual containers can
+override this with the `tsdproxy.ratelimit.enabled` Docker label.
+
+##### rateLimitRps
+
+Max requests per second per client IP. Must be between 1 and 10000. Defaults to
+`100`. Individual containers can override this with the `tsdproxy.ratelimit.rps`
+Docker label.
+
+##### rateLimitBurst
+
+Burst capacity per client IP. Allows short bursts above the RPS limit. Must be
+between 1 and 100000. Defaults to `200`. Individual containers can override this
+with the `tsdproxy.ratelimit.burst` Docker label.
+
+> [!TIP]
+> Rate limiting is per-client-IP with a token bucket algorithm. Each connecting
+> IP gets its own bucket. The limiter tracks up to 4096 clients — the oldest
+> idle client is evicted first when the limit is reached.
 
 #### dnsProviders Section
 

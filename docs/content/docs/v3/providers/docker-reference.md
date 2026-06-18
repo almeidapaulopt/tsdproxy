@@ -35,6 +35,9 @@ This is the only label you need. TSDProxy will use the container name as the Tai
 | `tsdproxy.health_check_interval` | `"30"` | Seconds between health probes |
 | `tsdproxy.health_check_failures` | `"3"` | Consecutive failures before re-resolution |
 | `tsdproxy.health_check_cooldown` | `"0"` | Fixed cooldown in seconds (0 = exponential backoff) |
+| `tsdproxy.ratelimit.enabled` | provider default | Enable rate limiting for this container. Set to `"false"` to disable |
+| `tsdproxy.ratelimit.rps` | provider default | Max requests per second per client IP (1–10000) |
+| `tsdproxy.ratelimit.burst` | provider default | Burst capacity per client IP (1–100000) |
 
 ## Custom Domain Labels
 

@@ -24,6 +24,12 @@ weight: 500
 - **Dashboard filter buttons for new statuses** — filter bar updated with buttons for `AuthFailed`, `DeviceConflict`, and `Reconciling` statuses.
 - **`AwaitingApproval` status in dashboard** — dashboard now handles the `AwaitingApproval` status with appropriate UI and API support.
 - **Provider change warning** — TSDProxy now warns in logs when a proxy's provider changes during restart, helping detect configuration drift.
+- **Rate limiting** — per-IP rate limiting for HTTP proxy ports to protect backends from abusive clients. Configurable per-provider (Docker/Lists) and overridable per-container with Docker labels. See [Rate Limiting]({{< ref "/docs/v3/providers/docker#rate-limiting" >}}) and [Server Configuration]({{< ref "/docs/v3/serverconfig#docker-section" >}}) for details.
+  - `rateLimitEnabled` — toggle rate limiting on or off (default: `true`)
+  - `rateLimitRps` — max requests per second per client IP (default: `100`, range: 1–10000)
+  - `rateLimitBurst` — burst capacity per client IP (default: `200`, range: 1–100000)
+  - Per-container Docker labels: `tsdproxy.ratelimit.enabled`, `tsdproxy.ratelimit.rps`, `tsdproxy.ratelimit.burst`
+- **`shutdownDrainSeconds` config option** — configurable drain period after health endpoint goes not-ready before HTTP server shutdown. Gives load balancers time to converge. Range: 0–300 seconds. See [Server Configuration]({{< ref "/docs/v3/serverconfig#shutdowndrainseconds" >}}) for details.
 
 #### Fixes
 

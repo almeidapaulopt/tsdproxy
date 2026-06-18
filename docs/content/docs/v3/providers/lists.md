@@ -104,6 +104,9 @@ lists:
     healthCheckInterval: 30 # (optional) Seconds between health probes (default: 30)
     healthCheckFailures: 3 # (optional) Consecutive failures before re-resolution (default: 3)
     healthCheckCooldown: 0 # (optional) Fixed cooldown in seconds, 0 for exponential backoff (default: 0)
+    rateLimitEnabled: true # (optional) Enable rate limiting (default: true)
+    rateLimitRps: 100 # (optional) Max requests per second per client IP (1–10000, default: 100)
+    rateLimitBurst: 200 # (optional) Burst capacity per client IP (1–100000, default: 200)
 ```
 
 See [Health Check]({{< ref "/docs/v3/operations/health-check#backend-health-monitoring" >}}) for details on
