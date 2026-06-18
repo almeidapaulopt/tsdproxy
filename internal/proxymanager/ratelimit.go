@@ -80,7 +80,13 @@ func (l *ipRateLimiter) close() {
 func rateLimitMiddleware(limiter *ipRateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := resolvePeerIP(r)
-		if ip != "" && !limiter.allow(ip) {
+		if ip == "" {
+			// Fall back to RemoteAddr so requests with an unresolvable peer
+			// IP (e.g. services/VIP mode with missing/spoofed XFF) are still
+			// rate-limited instead of silently exempted.
+			ip = r.RemoteAddr
+		}
+		if !limiter.allow(ip) {
 			w.Header().Set("Retry-After", "1")
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
