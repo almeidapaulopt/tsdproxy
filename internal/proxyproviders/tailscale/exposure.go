@@ -202,17 +202,17 @@ func (e *PerProxyExposure) Close(_ context.Context) error {
 
 func (e *PerProxyExposure) closeAll() {
 	for _, l := range e.listeners {
-		if err := l.Close(); err != nil {
+		if err := l.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			e.log.Warn().Err(err).Msg("failed to close listener")
 		}
 	}
 	for _, l := range e.rawListeners {
-		if err := l.Close(); err != nil {
+		if err := l.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			e.log.Warn().Err(err).Msg("failed to close raw listener")
 		}
 	}
 	for _, pc := range e.packetConns {
-		if err := pc.Close(); err != nil {
+		if err := pc.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			e.log.Warn().Err(err).Msg("failed to close packet conn")
 		}
 	}
