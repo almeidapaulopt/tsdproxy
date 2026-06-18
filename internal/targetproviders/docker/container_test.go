@@ -145,11 +145,11 @@ func TestResolvePublished_FallbackToInternalPort(t *testing.T) {
 }
 
 func TestResolvePublished_BridgeModeNoPublishedPortReturnsFalse(t *testing.T) {
-	// Bridge-mode container with no published port MUST NOT fall back to
-	// defaultTargetHostname:internalPort. The internal port is only reachable
-	// on the container's own IP, not on the Docker host. Falling back here
-	// would silently route to whatever happens to listen on that port on the
-	// host (e.g. TSDProxy's own dashboard on port 8080).
+	// Bridge-mode container with no published port and no explicit port label
+	// MUST NOT fall back to defaultTargetHostname:internalPort. The internal
+	// port is only reachable on the container's own IP, not on the Docker host.
+	// Falling back here would silently route to whatever happens to listen on
+	// that port on the host (e.g. TSDProxy's own dashboard on port 8080).
 	c := newTestContainer("172.17.0.1", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
 
 	inputURL, _ := url.Parse("http://0.0.0.0:8080")
@@ -159,9 +159,42 @@ func TestResolvePublished_BridgeModeNoPublishedPortReturnsFalse(t *testing.T) {
 	}
 }
 
+func TestResolvePublished_BridgeModeExplicitPortLabelFallsBack(t *testing.T) {
+	// Bridge-mode container with an explicit tsdproxy.container_port label
+	// SHOULD fall back to defaultTargetHostname:internalPort. The user
+	// explicitly declared the target port, so they know it is reachable at
+	// defaultTargetHostname (e.g. a host-side service).
+	c := newTestContainer("127.0.0.1", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
+	c.labels = map[string]string{LabelContainerPort: "8080"}
+
+	inputURL, _ := url.Parse("http://0.0.0.0:8080")
+	u, ok := c.resolvePublished(inputURL, "", "8080")
+	if !ok {
+		t.Fatal("expected resolvePublished to succeed for bridge-mode container with explicit container_port label")
+	}
+	if u.Host != "127.0.0.1:8080" {
+		t.Errorf("host: got %q, want \"127.0.0.1:8080\"", u.Host)
+	}
+}
+
+func TestResolvePublished_BridgeModeExplicitPortStarLabelFallsBack(t *testing.T) {
+	c := newTestContainer("127.0.0.1", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
+	c.labels = map[string]string{LabelPort + "http": "80/http:8080/http"}
+
+	inputURL, _ := url.Parse("http://0.0.0.0:8080")
+	u, ok := c.resolvePublished(inputURL, "", "8080")
+	if !ok {
+		t.Fatal("expected resolvePublished to succeed for bridge-mode container with explicit tsdproxy.port.* label")
+	}
+	if u.Host != "127.0.0.1:8080" {
+		t.Errorf("host: got %q, want \"127.0.0.1:8080\"", u.Host)
+	}
+}
+
 func TestGetTargetURL_BridgeNoPublishedPortUsesContainerIPNotGateway(t *testing.T) {
 	// Reproduces the "broken service serves dashboard" bug:
-	// A bridge-mode container with container_port=8080 and no published ports.
+	// A bridge-mode container with no explicit port label and no published
+	// ports. The port (8080) was auto-detected from Docker's bindings.
 	// defaultTargetHostname is the Docker gateway (172.17.0.1).
 	// TSDProxy itself listens on 8080, so 172.17.0.1:8080 is the dashboard.
 	// The resolution must use the container IP, NOT the gateway.

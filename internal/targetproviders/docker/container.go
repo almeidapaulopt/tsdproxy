@@ -483,21 +483,23 @@ func (c *container) resolveContainerIP(scheme, internalPort string) (*url.URL, b
 }
 
 // resolvePublished resolves the target URL using the published port or
-// falls back to the default hostname with the internal port (host-network
-// containers only).
+// falls back to the default hostname with the internal port.
+//
+// The internal-port fallback is allowed when the user explicitly declared the
+// target port via a tsdproxy.container_port or tsdproxy.port.* label — they are
+// stating the port is reachable at defaultTargetHostname. For auto-detected
+// ports (no explicit label, port inferred from Docker bindings) the fallback is
+// restricted to host-network containers only: a bridge-mode container's
+// internal port is isolated and falling back here would silently route to
+// whatever happens to listen on that port on the Docker host (e.g. TSDProxy's
+// own dashboard).
 func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort string) (*url.URL, bool) {
 	if c.defaultTargetHostname == "" {
 		return nil, false
 	}
 	port := publishedPort
 	if port == "" {
-		// The internal port is only accessible on defaultTargetHostname
-		// when the container shares the host's network namespace.
-		// For bridge-mode containers the internal port is isolated and
-		// must be reached via resolveContainerIP instead — falling back
-		// here would silently route to whatever happens to listen on
-		// that port on the Docker host (e.g. TSDProxy's own dashboard).
-		if !c.networkMode.IsHost() {
+		if !c.networkMode.IsHost() && !c.hasExplicitPortLabel() {
 			return nil, false
 		}
 		port = internalPort
@@ -507,6 +509,21 @@ func (c *container) resolvePublished(iPort *url.URL, publishedPort, internalPort
 	}
 	u, err := url.Parse(iPort.Scheme + "://" + c.defaultTargetHostname + ":" + port)
 	return u, err == nil
+}
+
+// hasExplicitPortLabel reports whether the user declared the target port via a
+// tsdproxy.container_port or tsdproxy.port.* label (as opposed to auto-detecting
+// the port from the container's Docker port bindings).
+func (c *container) hasExplicitPortLabel() bool {
+	if _, ok := c.labels[LabelContainerPort]; ok {
+		return true
+	}
+	for key := range c.labels {
+		if strings.HasPrefix(key, LabelPort) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *container) getPublishedPort(internalPort string) string {
