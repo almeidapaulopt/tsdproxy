@@ -564,6 +564,7 @@ func TestSendOne(t *testing.T) {
 	})
 }
 
+//nolint:cyclop // multi-subtest table-driven test, complexity from subtests
 func TestSendOneTemplatePayload(t *testing.T) {
 	t.Parallel()
 
@@ -741,6 +742,190 @@ func TestSendOneTemplateExecutionError(t *testing.T) {
 	if c := calls.Load(); c != 0 {
 		t.Errorf("expected no HTTP calls after template error, got %d", c)
 	}
+}
+
+func TestSendOneTemplateFunctions(t *testing.T) {
+	t.Parallel()
+
+	event := testEvent()
+
+	t.Run("renders with toUpper function", func(t *testing.T) {
+		t.Parallel()
+
+		var body []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:      server.URL,
+			Template: `{"proxy":"{{.ProxyName}}","status":"{{toUpper .Status}}"}`,
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+
+		var decoded struct {
+			Proxy  string `json:"proxy"`
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal error: %v", err)
+		}
+		if decoded.Status != "RUNNING" {
+			t.Errorf("status = %q, want %q", decoded.Status, "RUNNING")
+		}
+	})
+
+	t.Run("renders with toLower function", func(t *testing.T) {
+		t.Parallel()
+
+		var body []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:      server.URL,
+			Template: `{"proxy":"{{toLower .ProxyName}}","status":"{{toLower .Status}}"}`,
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+
+		var decoded struct {
+			Proxy  string `json:"proxy"`
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal error: %v", err)
+		}
+		if decoded.Proxy != "test-proxy" {
+			t.Errorf("proxy = %q, want %q", decoded.Proxy, "test-proxy")
+		}
+		if decoded.Status != "running" {
+			t.Errorf("status = %q, want %q", decoded.Status, "running")
+		}
+	})
+
+	t.Run("renders with sprintf function", func(t *testing.T) {
+		t.Parallel()
+
+		var body []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:      server.URL,
+			Template: `{"status":"{{sprintf .Status}}"}`,
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+
+		var decoded struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal error: %v", err)
+		}
+		if decoded.Status != "Running" {
+			t.Errorf("status = %q, want %q", decoded.Status, "Running")
+		}
+	})
+}
+
+func TestSendOneTemplateContentType(t *testing.T) {
+	t.Parallel()
+
+	event := testEvent()
+
+	t.Run("default content type is application/json", func(t *testing.T) {
+		t.Parallel()
+
+		var contentType string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contentType = r.Header.Get("Content-Type")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:      server.URL,
+			Template: `{"status":"{{.Status}}"}`,
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+		if contentType != contentTypeJSON {
+			t.Errorf("Content-Type = %q, want %q", contentType, contentTypeJSON)
+		}
+	})
+
+	t.Run("custom templateContentType is used when set", func(t *testing.T) {
+		t.Parallel()
+
+		var contentType string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contentType = r.Header.Get("Content-Type")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:                 server.URL,
+			Template:            `status={{.Status}}`,
+			TemplateContentType: "text/plain",
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+		if contentType != "text/plain" {
+			t.Errorf("Content-Type = %q, want %q", contentType, "text/plain")
+		}
+	})
+
+	t.Run("templateContentType ignored when no template set", func(t *testing.T) {
+		t.Parallel()
+
+		var contentType string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contentType = r.Header.Get("Content-Type")
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:                 server.URL,
+			Type:                "ntfy",
+			TemplateContentType: "text/plain",
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+		if contentType != contentTypeTextPlain {
+			t.Errorf("Content-Type = %q, want %q", contentType, contentTypeTextPlain)
+		}
+	})
 }
 
 func testSendOneGeneric(t *testing.T, event Event) {
