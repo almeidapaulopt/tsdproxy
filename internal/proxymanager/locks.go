@@ -5,6 +5,8 @@ package proxymanager
 
 import (
 	"fmt"
+	"os"
+	"runtime/debug"
 	"sync"
 )
 
@@ -44,14 +46,20 @@ func (kl *keyedLocks) Lock(key string) {
 
 // Unlock releases the mutex for the given key and removes the entry
 // when the last holder releases it.
-// Panics with a descriptive message if the key was never locked or was
-// already fully released, indicating a caller logic error (e.g. double-unlock).
+//
+// If the key is not currently locked (double-unlock or unlocked-without-lock),
+// the call logs to stderr with a stack trace and returns without panicking.
+// A panic here would take down the entire tsdproxy process and every proxy
+// it hosts; a single caller bug should not have that blast radius.
 func (kl *keyedLocks) Unlock(key string) {
 	kl.mu.Lock()
 	rc, ok := kl.locks[key]
 	if !ok {
 		kl.mu.Unlock()
-		panic(fmt.Sprintf("keyedLocks.Unlock: key %q is not locked (double-unlock or unlocked-without-lock)", key))
+		fmt.Fprintf(os.Stderr,
+			"keyedLocks.Unlock: key %q is not locked (double-unlock or unlocked-without-lock)\n--- stack ---\n%s",
+			key, debug.Stack())
+		return
 	}
 	rc.refs--
 	if rc.refs == 0 {
