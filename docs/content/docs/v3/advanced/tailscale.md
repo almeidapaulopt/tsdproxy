@@ -182,6 +182,116 @@ safely instead of overwriting.
 > check and logs a warning if tags are missing. Set it to `true` to fully
 > automate ACL setup.
 
+#### What gets added
+
+Given a provider configured with `tags: "tag:my-service"` and
+`autoProvisionAcl: true`, TSDProxy transforms an ACL that lacks both the tag
+and the Funnel attribute into one that has both.
+
+Before auto-provisioning, a minimal ACL might look like this:
+
+```hujson
+{
+  "tagOwners": {
+    "tag:existing": ["group:devs"],
+  },
+  "nodeAttrs": [],
+}
+```
+
+After TSDProxy runs, the same ACL contains a new `tagOwners` entry and a new
+`nodeAttrs` entry:
+
+```hujson
+{
+  "tagOwners": {
+    "tag:existing": ["group:devs"],
+    "tag:my-service": ["autogroup:admin"],
+  },
+  "nodeAttrs": [
+    {
+      "target": ["tag:my-service"],
+      "attr": ["funnel"],
+    },
+  ],
+}
+```
+
+The new tag is always owned by `autogroup:admin`, which grants management
+rights to all admins of the tailnet. Existing entries in `tagOwners` and
+`nodeAttrs` are left untouched.
+
+#### Funnel attribute provisioning
+
+When `autoProvisionAcl` is `true`, TSDProxy proactively adds the `funnel`
+node attribute on every startup, even if no proxy currently uses Funnel. This
+avoids a second startup failure later when you enable Funnel on a container.
+
+The check is global. If any entry in `nodeAttrs` already grants `funnel`,
+TSDProxy does nothing. The attribute is only added once, scoped to the first
+configured tag (or `autogroup:member` when no tag is set).
+
+> [!NOTE]
+> If you run multiple Tailscale providers with different tags, only the first
+> provider to auto-provision writes the Funnel attribute, scoped to its tag.
+> Subsequent providers skip the step because the attribute is already present.
+> Manually broaden the `target` list in the policy file if you need Funnel for
+> additional tags.
+
+The operation is idempotent. Re-running TSDProxy against an ACL that already
+has the entry leaves it unchanged.
+
+#### Error scenarios and recovery
+
+| Scenario | Symptom in logs | Resolution |
+|----------|-----------------|------------|
+| Missing `policy:write` scope | Error message names `policy:write` and links to the OAuth settings page | Edit the OAuth client at [https://login.tailscale.com/admin/settings/oauth](https://login.tailscale.com/admin/settings/oauth), add **Policy/ACL: write**, then restart TSDProxy |
+| Missing `policy:read` scope | Error message names `policy:read` | Same page, add **Policy/ACL: read** |
+| Concurrent ACL modification (ETag mismatch) | `write ACL: ... another process may have modified the policy file concurrently` | TSDProxy fails safe and does not overwrite. Trigger a config reload or restart TSDProxy to re-run auto-provisioning |
+| Invalid ACL from a prior manual edit | `ACL validation failed (dry-run)` | Fix the ACL in the Tailscale admin console first. TSDProxy will not write on top of an invalid policy |
+| Tailscale API rate limiting | Transient errors during `EnsureTags` or `EnsureFunnelAttribute` | The Tailscale SDK retries internally. Persistent failures surface as a startup error; restart TSDProxy after a brief wait |
+| OAuth client revoked or expired | Startup fails with an auth error before ACL provisioning runs | Regenerate the OAuth client or restore its credentials, then restart |
+
+> [!TIP]
+> When auto-provisioning fails, TSDProxy does not partially apply changes. The
+> provider is not registered, so no proxies using that provider start. Fix the
+> underlying issue and restart.
+
+#### Headscale and custom control servers
+
+ACL auto-provisioning uses the Tailscale SaaS policy API
+(`PolicyFile().Get`, `Validate`, `Set`). Headscale and other alternative
+control servers do not implement this API, so `autoProvisionAcl` has no effect
+when `controlURL` points elsewhere. OAuth credentials are also a Tailscale
+SaaS feature, so the prerequisite checks fail before ACL provisioning runs.
+
+With Headscale, manage ACLs manually in the headscale policy file. Tags must
+exist there before any proxy can authenticate. See
+[Headscale / Custom Control Server]({{< ref "/docs/v3/advanced/headscale" >}})
+for setup details.
+
+#### Auditing and rollback
+
+Every change TSDProxy makes goes through the Tailscale policy API, which
+records a revision. Inspect the results in two ways:
+
+- **Tailscale admin console**: open
+  [Access Controls](https://login.tailscale.com/admin/acls) to view the current
+  policy and its revision history.
+- **CLI**: run `tailscale acl get` to print the current ACL as HuJSON. This
+  requires an OAuth client or API access token with the `policy:read` scope.
+
+To roll back, set `autoProvisionAcl: false` and restart TSDProxy. Existing
+`tagOwners` and `nodeAttrs` entries remain in your policy. TSDProxy reverts to
+read-only mode, logging a warning if a tag is missing instead of adding it.
+Remove the auto-provisioned entries themselves by deleting them from the
+policy file in the Tailscale admin console.
+
+> [!TIP]
+> See the `autoProvisionAcl` option in
+> [Server Configuration](../serverconfig/#autoprovisionacl) for the
+> configuration reference.
+
 ## Prevent Duplicate Machines
 
 When TSDProxy restarts and the data directory has been lost (e.g. non-persistent
