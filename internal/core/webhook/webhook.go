@@ -21,6 +21,8 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const (
@@ -31,6 +33,8 @@ const (
 	contentTypeJSON      = "application/json"
 	contentTypeTextPlain = "text/plain"
 	providerDiscord      = "discord"
+	providerSlack        = "slack"
+	providerNtfy         = "ntfy"
 	statusRunning        = "running"
 	statusError          = "error"
 	fieldInline          = "inline"
@@ -59,23 +63,23 @@ type (
 	}
 
 	sendJob struct {
-		index int
 		event Event
 		cfg   config.WebhookConfig
+		index int
 	}
 
 	Sender struct {
 		log       zerolog.Logger
 		ctx       context.Context
 		client    httpclient.Doer
+		templates map[int]*template.Template
 		cancel    context.CancelFunc
 		queue     chan sendJob
 		configs   []config.WebhookConfig
-		templates map[int]*template.Template
 		wg        sync.WaitGroup
 		closeMu   sync.Mutex
-		closed    bool
 		started   bool
+		closed    bool
 	}
 )
 
@@ -135,13 +139,23 @@ func NewSyncSender(log zerolog.Logger, configs []config.WebhookConfig, doer ...h
 	}
 }
 
+var templateFuncs = template.FuncMap{
+	"toUpper": strings.ToUpper,
+	"toLower": strings.ToLower,
+	"title":   cases.Title(language.English).String,
+	"trim":    strings.TrimSpace,
+	"sprintf": fmt.Sprintf,
+}
+
 func parseWebhookTemplates(log zerolog.Logger, configs []config.WebhookConfig) map[int]*template.Template {
 	templates := make(map[int]*template.Template)
 	for i, cfg := range configs {
 		if cfg.Template == "" {
 			continue
 		}
-		tmpl, err := template.New(fmt.Sprintf("webhook-%d", i)).Parse(cfg.Template)
+		tmpl, err := template.New(fmt.Sprintf("webhook-%d", i)).
+			Funcs(templateFuncs).
+			Parse(cfg.Template)
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -280,14 +294,19 @@ func (s *Sender) sendOne(index int, cfg config.WebhookConfig, event Event) error
 				Msg("failed to render webhook template")
 			return fmt.Errorf("error rendering webhook template: %w", err)
 		}
-		body, contentType = rendered.Bytes(), contentTypeJSON
+		body = rendered.Bytes()
+		if cfg.TemplateContentType != "" {
+			contentType = cfg.TemplateContentType
+		} else {
+			contentType = contentTypeJSON
+		}
 	} else {
 		switch strings.ToLower(cfg.Type) {
 		case providerDiscord:
 			body, contentType = s.formatDiscord(event)
-		case "slack":
+		case providerSlack:
 			body, contentType = s.formatSlack(event)
-		case "ntfy":
+		case providerNtfy:
 			body, contentType = s.formatNtfy(event)
 		default:
 			body, contentType = s.formatGeneric(event)

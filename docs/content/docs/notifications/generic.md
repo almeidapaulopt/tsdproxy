@@ -45,7 +45,7 @@ TSDProxy sends a `POST` request with `Content-Type: application/json`:
 
 ## Custom Payload Template
 
-Set `template` to render a custom request body with Go `text/template`. The template receives the webhook event fields as `.ProxyName`, `.Status`, `.OldStatus`, `.Timestamp`, and `.Message`. When `template` is set and parses successfully, it takes precedence over `type` and is sent as `Content-Type: application/json`.
+Set `template` to render a custom request body with Go `text/template`. The template receives the webhook event fields as `.ProxyName`, `.Status`, `.OldStatus`, `.Timestamp`, and `.Message`. When `template` is set and parses successfully, it takes precedence over `type`.
 
 ```yaml {filename="/config/tsdproxy.yaml"}
 webhooks:
@@ -54,6 +54,36 @@ webhooks:
     template: |
       {"text":"TSDProxy: Proxy `{{.ProxyName}}` changed from `{{.OldStatus}}` to `{{.Status}}`"}
 ```
+
+### Template Functions
+
+The following functions are available in templates:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `toUpper` | Converts string to uppercase | `{{toUpper .Status}}` → `RUNNING` |
+| `toLower` | Converts string to lowercase | `{{toLower .ProxyName}}` → `myapp` |
+| `title` | Converts string to title case | `{{title .Status}}` → `Running` |
+| `trim` | Strips leading and trailing whitespace | `{{trim .Message}}` |
+| `sprintf` | Formats a string with `fmt.Sprintf` verbs | `{{sprintf "%s: %s" .ProxyName .Status}}` |
+
+### Template Content Type
+
+By default, template output is sent with `Content-Type: application/json`. Use `templateContentType` to override:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+webhooks:
+  - url: "https://example.com/webhook"
+    template: |
+      status={{.Status}}
+    templateContentType: "text/plain"
+```
+
+When no `template` is set, `templateContentType` has no effect — the content type is determined by the webhook `type` instead.
+
+### Sanitization
+
+Template rendering outputs the raw field values without sanitization. If your endpoint interprets `@` mentions (e.g. Discord, Slack), consider handling them in your template body or using the built-in type formatters instead.
 
 ## With Custom Headers
 
