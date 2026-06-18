@@ -72,10 +72,11 @@ type (
 	}
 
 	WebhookConfig struct {
-		URL     string            `yaml:"url"`
-		Headers map[string]string `yaml:"headers,omitempty"`
-		Type    string            `yaml:"type"`
-		Events  []string          `yaml:"events,omitempty"`
+		URL      string            `yaml:"url"`
+		Headers  map[string]string `yaml:"headers,omitempty"`
+		Type     string            `yaml:"type"`
+		Events   []string          `yaml:"events,omitempty"`
+		Template string            `yaml:"template,omitempty"`
 	}
 
 	// LogConfig stores logging configuration.

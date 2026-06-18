@@ -564,6 +564,185 @@ func TestSendOne(t *testing.T) {
 	})
 }
 
+func TestSendOneTemplatePayload(t *testing.T) {
+	t.Parallel()
+
+	event := testEvent()
+
+	t.Run("renders slack style template", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			contentType string
+			body        string
+		)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contentType = r.Header.Get("Content-Type")
+			bodyBytes, _ := io.ReadAll(r.Body)
+			body = string(bodyBytes)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:      server.URL,
+			Type:     "slack",
+			Template: `{"text":"Proxy {{.ProxyName}} moved from {{.OldStatus}} to {{.Status}}"}`,
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+		if contentType != contentTypeJSON {
+			t.Errorf("Content-Type = %q, want %q", contentType, contentTypeJSON)
+		}
+		want := `{"text":"Proxy test-proxy moved from Stopped to Running"}`
+		if body != want {
+			t.Errorf("body = %q, want %q", body, want)
+		}
+	})
+
+	t.Run("without template uses type formatter", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			contentType string
+			body        []byte
+		)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			contentType = r.Header.Get("Content-Type")
+			body, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{URL: server.URL, Type: "slack"}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+		wantBody, wantContentType := s.formatSlack(event)
+		if contentType != wantContentType {
+			t.Errorf("Content-Type = %q, want %q", contentType, wantContentType)
+		}
+		if !bytes.Equal(body, wantBody) {
+			t.Errorf("body = %q, want %q", string(body), string(wantBody))
+		}
+	})
+
+	t.Run("renders all event fields", func(t *testing.T) {
+		t.Parallel()
+
+		var body []byte
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL: server.URL,
+			Template: `{"proxy":"{{.ProxyName}}","status":"{{.Status}}","oldStatus":"{{.OldStatus}}",` +
+				`"timestamp":"{{.Timestamp}}","message":"{{.Message}}"}`,
+		}
+		s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+
+		var decoded map[string]string
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal error: %v", err)
+		}
+		want := map[string]string{
+			"proxy":     event.ProxyName,
+			"status":    event.Status,
+			"oldStatus": event.OldStatus,
+			"timestamp": event.Timestamp,
+			"message":   event.Message,
+		}
+		for key, wantValue := range want {
+			if decoded[key] != wantValue {
+				t.Errorf("%s = %q, want %q", key, decoded[key], wantValue)
+			}
+		}
+	})
+
+	t.Run("invalid template falls back to type formatter", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			body   []byte
+			logBuf bytes.Buffer
+		)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		cfg := config.WebhookConfig{
+			URL:      server.URL + "/secret?token=abc",
+			Type:     "generic",
+			Template: "{{",
+		}
+		s := NewSyncSender(zerolog.New(&logBuf), []config.WebhookConfig{cfg})
+
+		if err := s.SendSync(event); err != nil {
+			t.Fatalf("SendSync error: %v", err)
+		}
+
+		var decoded Event
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal error: %v", err)
+		}
+		if decoded != event {
+			t.Errorf("decoded event = %+v, want %+v", decoded, event)
+		}
+
+		logOutput := logBuf.String()
+		if !strings.Contains(logOutput, "invalid webhook template") {
+			t.Errorf("log should mention invalid template, got %q", logOutput)
+		}
+		if !strings.Contains(logOutput, server.URL) {
+			t.Errorf("log should contain redacted URL host, got %q", logOutput)
+		}
+		if strings.Contains(logOutput, "token=abc") {
+			t.Errorf("log should not contain URL query secret, got %q", logOutput)
+		}
+	})
+}
+
+func TestSendOneTemplateExecutionError(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	mock := &callMockDoer{fn: func(_ *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
+	}}
+	cfg := config.WebhookConfig{
+		URL:      "http://example.com/webhook",
+		Type:     "generic",
+		Template: "{{.Missing}}",
+	}
+	s := NewSyncSender(zerolog.Nop(), []config.WebhookConfig{cfg}, mock)
+
+	err := s.sendOne(0, cfg, testEvent())
+	if err == nil {
+		t.Fatal("expected template execution error")
+	}
+	if !strings.Contains(err.Error(), "error rendering webhook template") {
+		t.Errorf("error should mention template rendering, got %v", err)
+	}
+	if c := calls.Load(); c != 0 {
+		t.Errorf("expected no HTTP calls after template error, got %d", c)
+	}
+}
+
 func testSendOneGeneric(t *testing.T, event Event) {
 	t.Helper()
 
@@ -595,7 +774,7 @@ func testSendOneGeneric(t *testing.T, event Event) {
 		Headers: map[string]string{"X-Test-Header": "test-value"},
 	}
 
-	if err := s.sendOne(cfg, event); err != nil {
+	if err := s.sendOne(0, cfg, event); err != nil {
 		t.Fatalf("sendOne error: %v", err)
 	}
 	if reqMethod != http.MethodPost {
@@ -633,7 +812,7 @@ func testSendOneDiscord(t *testing.T, event Event) {
 		ctx:    context.Background(),
 	}
 
-	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: providerDiscord}, event); err != nil {
+	if err := s.sendOne(0, config.WebhookConfig{URL: server.URL, Type: providerDiscord}, event); err != nil {
 		t.Fatalf("sendOne error: %v", err)
 	}
 	if contentType != contentTypeJSON {
@@ -657,7 +836,7 @@ func testSendOneSlack(t *testing.T, event Event) {
 		ctx:    context.Background(),
 	}
 
-	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "slack"}, event); err != nil {
+	if err := s.sendOne(0, config.WebhookConfig{URL: server.URL, Type: "slack"}, event); err != nil {
 		t.Fatalf("sendOne error: %v", err)
 	}
 	if contentType != contentTypeJSON {
@@ -685,7 +864,7 @@ func testSendOneNtfy(t *testing.T, event Event) {
 		ctx:    context.Background(),
 	}
 
-	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "ntfy"}, event); err != nil {
+	if err := s.sendOne(0, config.WebhookConfig{URL: server.URL, Type: "ntfy"}, event); err != nil {
 		t.Fatalf("sendOne error: %v", err)
 	}
 	if contentType != contentTypeTextPlain {
@@ -712,7 +891,7 @@ func testSendOneCasing(t *testing.T, event Event) {
 		ctx:    context.Background(),
 	}
 
-	if err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "DISCORD"}, event); err != nil {
+	if err := s.sendOne(0, config.WebhookConfig{URL: server.URL, Type: "DISCORD"}, event); err != nil {
 		t.Fatalf("sendOne error: %v", err)
 	}
 	if contentType != contentTypeJSON {
@@ -735,7 +914,7 @@ func testSendOneErrorStatus(t *testing.T, event Event) {
 		ctx:    context.Background(),
 	}
 
-	err := s.sendOne(config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
+	err := s.sendOne(0, config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
 	if err == nil {
 		t.Fatal("expected error for status 400")
 	}
@@ -768,7 +947,7 @@ func TestSendWithRetry(t *testing.T) {
 			ctx:    context.Background(),
 		}
 
-		if err := s.sendWithRetry(config.WebhookConfig{URL: server.URL, Type: "generic"}, event); err != nil {
+		if err := s.sendWithRetry(0, config.WebhookConfig{URL: server.URL, Type: "generic"}, event); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if c := callCount.Load(); c != 1 {
@@ -795,7 +974,7 @@ func TestSendWithRetry(t *testing.T) {
 			ctx:    context.Background(),
 		}
 
-		if err := s.sendWithRetry(config.WebhookConfig{URL: server.URL, Type: "generic"}, event); err != nil {
+		if err := s.sendWithRetry(0, config.WebhookConfig{URL: server.URL, Type: "generic"}, event); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if c := callCount.Load(); c != 2 {
@@ -819,7 +998,7 @@ func TestSendWithRetry(t *testing.T) {
 			ctx:    context.Background(),
 		}
 
-		err := s.sendWithRetry(config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
+		err := s.sendWithRetry(0, config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -849,7 +1028,7 @@ func TestSendWithRetry(t *testing.T) {
 			cancel: cancel,
 		}
 
-		err := s.sendWithRetry(config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
+		err := s.sendWithRetry(0, config.WebhookConfig{URL: server.URL, Type: "generic"}, event)
 		if err == nil {
 			t.Fatal("expected error from canceled context")
 		}
@@ -1169,7 +1348,7 @@ func TestSendOne_NetworkError(t *testing.T) {
 		ctx:    context.Background(),
 	}
 
-	err := s.sendOne(config.WebhookConfig{URL: "http://127.0.0.1:1/webhook", Type: "generic"}, testEvent())
+	err := s.sendOne(0, config.WebhookConfig{URL: "http://127.0.0.1:1/webhook", Type: "generic"}, testEvent())
 	if err == nil {
 		t.Fatal("expected error from network failure")
 	}
@@ -1209,7 +1388,7 @@ func TestSendWithRetry_NetworkError_ThenSuccess(t *testing.T) {
 
 	cfg := config.WebhookConfig{URL: "http://example.com/webhook", Type: "generic"}
 
-	err := s.sendWithRetry(cfg, event)
+	err := s.sendWithRetry(0, cfg, event)
 	if err != nil {
 		t.Fatalf("expected success after retry, got: %v", err)
 	}
@@ -1232,7 +1411,7 @@ func TestSendOne_502GatewayError(t *testing.T) {
 		ctx:    context.Background(),
 	}
 
-	err := s.sendOne(config.WebhookConfig{URL: "http://example.com/webhook", Type: "generic"}, testEvent())
+	err := s.sendOne(0, config.WebhookConfig{URL: "http://example.com/webhook", Type: "generic"}, testEvent())
 	if err == nil {
 		t.Fatal("expected error for 502 status")
 	}
