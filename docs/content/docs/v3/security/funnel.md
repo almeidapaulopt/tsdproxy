@@ -8,6 +8,14 @@ Funnel exposes services to the public internet. Use with caution.
 
 ## Enabling
 
+> [!IMPORTANT]
+> For Docker containers, Funnel is **disabled by default**. The operator must
+> set `allowContainerFunnel: true` in the Docker provider configuration before
+> containers can use the `tailscale_funnel` port option. See
+> [Server Configuration]({{< ref "/docs/v3/serverconfig#allowcontainerfunnel" >}})
+> for details. Lists provider configs are operator-controlled and do not require
+> this flag.
+
 **Docker:**
 ```yaml
 labels:

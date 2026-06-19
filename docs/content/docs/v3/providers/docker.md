@@ -138,9 +138,16 @@ labels:
 
 | Option | Description |
 |--------|-------------|
-| `no_tlsvalidate` | Disable TLS validation on the target certificate (TLS validation is enabled by default) |
-| `tailscale_funnel` | Activate Tailscale Funnel on the port |
+| `no_tlsvalidate` | Disable TLS validation on the target certificate. **Requires** `allowTlsValidateDisable: true` in the Docker provider config. |
+| `tailscale_funnel` | Activate Tailscale Funnel on the port. **Requires** `allowContainerFunnel: true` in the Docker provider config. |
 | `no_autodetect` | Disable auto-detection of the target URL for this port |
+
+> [!WARNING]
+> The `no_tlsvalidate` and `tailscale_funnel` options are **disabled by default**
+> for security. Containers cannot self-enable them unless the operator explicitly
+> sets `allowTlsValidateDisable` or `allowContainerFunnel` to `true` in the
+> Docker provider configuration. See [Server Configuration]({{< ref "/docs/v3/serverconfig#allowcontainerfunnel" >}})
+> for details.
 
 ## Port ranges
 

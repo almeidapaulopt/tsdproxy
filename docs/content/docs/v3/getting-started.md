@@ -69,6 +69,8 @@ docker:
     host: unix:///var/run/docker.sock
     targetHostname: host.docker.internal
     defaultProxyProvider: default
+    allowContainerFunnel: false # (optional) Allow containers to self-enable public internet exposure (default: false)
+    allowTlsValidateDisable: false # (optional) Allow containers to disable TLS validation (default: false)
 
 tailscale:
   providers:

@@ -12,6 +12,8 @@ weight: 500
 
 - **Services/VIP mode** — new Tailscale exposure mode using VIP Services API. Each proxy gets an auto-assigned FQDN from Tailscale without needing external DNS or TLS providers. Configure with `services: true` on a Tailscale provider. Requires OAuth credentials and a `hostname`. No custom domain or UDP support. See [Services Mode]({{< ref "/docs/v3/advanced/tailscale#services-mode" >}}) for documentation.
 - **Shared Tailscale with custom domains** — multiple proxies can now share a single Tailscale connection with SNI routing while using external DNS and ACME TLS providers for custom domains. Configure with `shared: true` on a Tailscale provider. See [Shared Tailscale]({{< ref "/docs/v3/advanced/tailscale#shared-tailscale" >}}) for documentation.
+- **`allowContainerFunnel` config option** — operator-controlled gate for Tailscale Funnel. When `false` (default), containers cannot self-enable public internet exposure via the `tailscale_funnel` port option or legacy `tsdproxy.funnel` label. Requests are silently ignored with a warning. See [Server Configuration]({{< ref "/docs/v3/serverconfig#allowcontainerfunnel" >}}) for details.
+- **`allowTlsValidateDisable` config option** — operator-controlled gate for TLS validation disable. When `false` (default), containers cannot disable TLS certificate validation via the `no_tlsvalidate` port option or legacy `tsdproxy.tlsvalidate=false` label. See [Server Configuration]({{< ref "/docs/v3/serverconfig#allowtlsvalidatedisable" >}}) for details.
 - **`autoApproveDevices` config option** — automatically approve device registration in Tailscale. Useful in services mode where new nodes need approval before starting. Requires OAuth credentials. See [Server Configuration]({{< ref "/docs/v3/serverconfig#tailscale-section" >}}) for details.
 - **`authRetry` config block** — configurable retry policy for tsnet startup failures. Controls max attempts, initial backoff, and backoff cap with exponential growth. Non-recoverable errors (invalid tags, expired keys) stop retrying early. See [Server Configuration]({{< ref "/docs/v3/serverconfig#authretry" >}}) for details.
 - **`reconcileInterval` config option** — periodic device reconciliation interval. TSDProxy checks for stale devices matching the provider's hostname and tags and removes offline ones. Set to a duration string (e.g. `"5m"`, `"1h"`). Default `"0"` disables periodic reconciliation. See [Server Configuration]({{< ref "/docs/v3/serverconfig#reconcileinterval" >}}) for details.
@@ -33,6 +35,18 @@ weight: 500
 
 #### Fixes
 
+- Fix HTTP port listener fd leak when `close()` runs before `Serve()` registers the listener — now uses `portStartLock` guard consistent with TCP/UDP ports
+- Fix TCP listener fd leak when `Accept()` exhausts retries — listener is now explicitly closed on permanent error
+- Fix TCP proxy missing idle timeout — connections now have a 5-minute read/write deadline to prevent slowloris-style resource exhaustion
+- Fix `keyedLocks` double-unlock silently corrupting an unrelated lock holder — Lock now returns an unlock closure guarded by `sync.Once` with pointer-identity validation
+- Fix TCP `io.Copy` errors silently discarded — now logged at Debug for connection debugging
+- Fix `extractHost` returning malformed URLs as DNS CNAME targets — now returns an error on parse failure
+- Fix `setupDomainForProxy` bare-returning `configureTailscaleTLS` error without context wrapping
+- Fix cert expiry metric silently going stale — consecutive parse failures now escalate to Warn after 3 cycles
+- Fix `DeleteProxy` error logged at Debug instead of Warn — provider cleanup failures now visible to operators
+- Fix inner `provider.WatchEvents` goroutine untracked — now tracked via WaitGroup to prevent goroutine accumulation on reconnect
+- Fix `ResolvedAuthKey` stored as plaintext `string` — now uses `secretstring.SecretString` to prevent credential leakage in debug dumps
+- Fix O(n) LRU eviction in IP rate limiter — replaced with O(1) `container/list` doubly-linked list
 - Fix device reconciler deleting offline exact-match devices on restart even when local state exists
 - Fix goroutine, semaphore, and shutdown leaks in Tailscale provider lifecycle
 - Fix data races in services server tests

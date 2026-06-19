@@ -49,6 +49,8 @@ docker:
     rateLimitEnabled: true # (optional) Enable rate limiting (default: true)
     rateLimitRps: 100 # (optional) Max requests per second per client IP (1–10000, default: 100)
     rateLimitBurst: 200 # (optional) Burst capacity per client IP (1–100000, default: 200)
+    allowContainerFunnel: false # (optional) Allow containers to self-enable Tailscale Funnel — public internet exposure (default: false)
+    allowTlsValidateDisable: false # (optional) Allow containers to disable TLS certificate validation (default: false)
 lists:
   critical: # Name of the target list provider
     filename: /config/critical.yaml # Path to the proxy list file
@@ -479,6 +481,49 @@ Must be at least 1. Defaults to `3`.
 
 Fixed cooldown in seconds between re-resolution attempts while the target remains
 unhealthy. Set to `0` (default) to use exponential backoff instead.
+
+##### allowContainerFunnel
+
+Defaults to `false`. When set to `true`, containers can enable
+[Tailscale Funnel](https://tailscale.com/kb/1223/funnel) (public internet exposure)
+via the `tailscale_funnel` port option or the legacy `tsdproxy.funnel` label.
+
+When `false` (default), any container requesting Funnel will be **silently
+ignored** and a warning logged. This prevents containers from self-granting
+public internet exposure without operator approval.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  local:
+    host: unix:///var/run/docker.sock
+    allowContainerFunnel: true
+```
+
+> [!CAUTION]
+> Funnel bypasses Tailscale authentication. Only enable this if you trust all
+> container owners on this Docker host. See [Funnel Security]({{< ref "/docs/v3/security/funnel" >}}).
+
+##### allowTlsValidateDisable
+
+Defaults to `false`. When set to `true`, containers can disable TLS certificate
+validation on their proxied connections via the `no_tlsvalidate` port option or
+the legacy `tsdproxy.tlsvalidate=false` label.
+
+When `false` (default), any container requesting TLS validation disable will be
+**silently ignored** and a warning logged. This prevents containers from
+unilaterally weakening TLS security.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  local:
+    host: unix:///var/run/docker.sock
+    allowTlsValidateDisable: true
+```
+
+> [!WARNING]
+> Disabling TLS validation allows man-in-the-middle attacks on the connection
+> between TSDProxy and the container. Only enable this if you have containers
+> with self-signed certificates and understand the risk.
 
 ##### rateLimitEnabled
 
