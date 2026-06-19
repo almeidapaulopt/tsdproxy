@@ -1006,14 +1006,14 @@ func TestResolvePeerIP_LocalhostWithLoopbackXFF(t *testing.T) {
 }
 
 func TestIsManagementTarget_Nil(t *testing.T) {
-	if isManagementTarget(nil, uint16(8080)) {
+	if isManagementTarget(nil, "8080") {
 		t.Error("expected false for nil target")
 	}
 }
 
 func TestIsManagementTarget_NonLoopback(t *testing.T) {
 	u, _ := url.Parse("https://example.com:8080")
-	if isManagementTarget(u, uint16(8080)) {
+	if isManagementTarget(u, "8080") {
 		t.Error("expected false for non-loopback target")
 	}
 }
@@ -1021,7 +1021,7 @@ func TestIsManagementTarget_NonLoopback(t *testing.T) {
 func TestIsManagementTarget_LocalhostLoopback(t *testing.T) {
 	t.Parallel()
 	u, _ := url.Parse("http://localhost:8080")
-	if !isManagementTarget(u, uint16(8080)) {
+	if !isManagementTarget(u, "8080") {
 		t.Error("expected true for localhost:8080 target")
 	}
 }
@@ -1029,7 +1029,7 @@ func TestIsManagementTarget_LocalhostLoopback(t *testing.T) {
 func TestIsManagementTarget_WrongPort(t *testing.T) {
 	t.Parallel()
 	u, _ := url.Parse("http://127.0.0.1:9090")
-	if isManagementTarget(u, uint16(8080)) {
+	if isManagementTarget(u, "8080") {
 		t.Error("expected false for wrong port")
 	}
 }
@@ -1321,7 +1321,7 @@ func TestUDPPort_CloseBeforeStart_GoroutineStompsConn(t *testing.T) {
 func TestIsManagementTarget_RejectsNonLocalhostLoopback_BUG(t *testing.T) {
 	t.Parallel()
 
-	const mgmtPort uint16 = 8080
+	const mgmtPort = "8080"
 
 	cases := []struct {
 		name string
@@ -1342,7 +1342,7 @@ func TestIsManagementTarget_RejectsNonLocalhostLoopback_BUG(t *testing.T) {
 			t.Parallel()
 			u := &url.URL{
 				Scheme: "http",
-				Host:   fmt.Sprintf("%s:%d", tc.host, mgmtPort),
+				Host:   fmt.Sprintf("%s:%s", tc.host, mgmtPort),
 				Path:   "/",
 			}
 			got := isManagementTarget(u, mgmtPort)
@@ -1556,5 +1556,224 @@ func TestTCPPort_AcceptRetrySleepNotCtxAware_BUG(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("BUG: tcpPort.close() did not return within 10s — " +
 			"time.Sleep blocks shutdown indefinitely when Accept keeps failing")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// M3: HTTP server connection cap (DoS hardening).
+// ---------------------------------------------------------------------------
+
+// TestHTTPPort_ConnectionLimit_BUG reproduces M3: the HTTP reverse-proxy path
+// (port.startWithListener / newPortProxy) accepts unlimited concurrent
+// connections — unlike tcpPort which is bounded by defaultMaxTCPConns (1024)
+// and udpPort which is bounded by udpMaxClients (1024).
+//
+// Attack scenario: any tailnet member can open arbitrary idle HTTP connections
+// (slowloris-style), exhausting goroutines and memory and OOM-killing
+// tsdproxy, taking down ALL proxies — not just the targeted one.
+//
+// Expected post-fix: a `limitedListener` wrapping the listener in
+// port.startWithListener should bound concurrent connections via a semaphore
+// (default defaultMaxHTTPConns=2048). The (N+1)th connection should be
+// rejected/blocked when the semaphore is full.
+//
+// Before the fix: the test fails because all numConns+1 dial attempts
+// succeed (no semaphore).
+func TestHTTPPort_ConnectionLimit_BUG(t *testing.T) {
+	t.Parallel()
+
+	// Use a small limit so we can deterministically saturate it without
+	// opening thousands of real TCP connections.
+	const testMaxHTTPConns = 3
+
+	// releaseBackend unblocks all in-flight backend handlers so the proxy
+	// can shut down cleanly. Without this, http.Server.Shutdown would hang
+	// waiting for handlers blocked on <-r.Context().Done().
+	releaseBackend := make(chan struct{})
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-releaseBackend
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	backendURL, err := url.Parse(backend.URL)
+	require.NoError(t, err)
+
+	pconfig := model.PortConfig{ProxyProtocol: "http", TLSValidate: false}
+	pconfig.AddTarget(backendURL)
+
+	p := newPortProxy(portProxyParams{
+		Ctx:              context.Background(),
+		PortConfig:       pconfig,
+		Log:              zerolog.Nop(),
+		WhoisMiddleware:  func(next http.Handler) http.Handler { return next },
+		ProxyName:        "test-proxy",
+		PortName:         "test-port",
+		IdentityHeaders:  false,
+		RateLimitEnabled: false,
+		ProxyAuthToken:   "test-token",
+		MaxHTTPConns:     testMaxHTTPConns,
+	})
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- p.startWithListener(frontLn) }()
+
+	// Cleanup order matters: close client conns AND release the backend
+	// BEFORE p.close() — otherwise Shutdown hangs waiting for blocked
+	// backend handlers.
+	saturating := make([]net.Conn, 0, testMaxHTTPConns)
+	cleanup := func() {
+		for _, c := range saturating {
+			_ = c.Close()
+		}
+		select {
+		case <-releaseBackend:
+		default:
+			close(releaseBackend)
+		}
+		_ = p.close()
+		select {
+		case <-serveErr:
+		case <-time.After(2 * time.Second):
+		}
+		_ = frontLn.Close()
+	}
+	defer cleanup()
+
+	// Saturate the semaphore with testMaxHTTPConns blocking requests.
+	// Each raw TCP conn sends an HTTP/1.1 request line; the http.Server
+	// parses it, dispatches to the handler, and the handler blocks on
+	// releaseBackend — holding the semaphore slot.
+	sendRequest := func(c net.Conn) {
+		_, _ = c.Write([]byte("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+	}
+
+	// First connection is also the readiness probe.
+	require.Eventually(t, func() bool {
+		c, dialErr := net.DialTimeout("tcp", frontLn.Addr().String(), 200*time.Millisecond)
+		if dialErr != nil {
+			return false
+		}
+		saturating = append(saturating, c)
+		sendRequest(c)
+		return true
+	}, 2*time.Second, 10*time.Millisecond)
+
+	for len(saturating) < testMaxHTTPConns {
+		c, dialErr := net.DialTimeout("tcp", frontLn.Addr().String(), 200*time.Millisecond)
+		require.NoError(t, dialErr)
+		saturating = append(saturating, c)
+		sendRequest(c)
+	}
+
+	// Wait until all testMaxHTTPConns semaphore slots are held.
+	require.Eventually(t, func() bool {
+		return p.activeConns.Load() >= int64(testMaxHTTPConns)
+	}, 2*time.Second, 10*time.Millisecond,
+		"semaphore never saturated: active=%d want>=%d", p.activeConns.Load(), testMaxHTTPConns)
+
+	// Dial the (N+1)th connection. The kernel completes the TCP handshake
+	// (backlog), but the http.Server cannot Accept it because the
+	// limitedListener is blocked acquiring the semaphore.
+	overflow, dialErr := net.DialTimeout("tcp", frontLn.Addr().String(), 500*time.Millisecond)
+	require.NoError(t, dialErr, "kernel should accept the TCP handshake even when semaphore is full")
+	defer overflow.Close()
+
+	// Send a request on the overflow conn. If the semaphore is working,
+	// the server never reads this (Accept is blocked), so we won't get
+	// an HTTP response within the deadline.
+	_ = overflow.SetDeadline(time.Now().Add(300 * time.Millisecond))
+	_, _ = overflow.Write([]byte("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"))
+
+	buf := make([]byte, 128)
+	n, readErr := overflow.Read(buf)
+	require.Error(t, readErr,
+		"BUG: (N+1)th HTTP connection was processed — semaphore did not block overflow. "+
+			"got %d bytes (active=%d, max=%d)", n, p.activeConns.Load(), testMaxHTTPConns)
+}
+
+// ---------------------------------------------------------------------------
+// L2: tcpPort.close() vs startWithListener() startup race.
+// ---------------------------------------------------------------------------
+
+// TestTCPPort_CloseBeforeStart_GoroutineStompsListener_BUG reproduces L2:
+// tcpPort.close() can return before startWithListener() has been scheduled
+// (or while it is in the acceptWg.Add(1) → started.Store(true) window),
+// because started.Load() returns false at that point and close() skips
+// acceptWg.Wait(). The start goroutine then runs AFTER close() returned,
+// stomping p.listener with a non-nil value over already-closed state —
+// violating the shutdown contract that close() waits for start() to finish.
+//
+// This mirrors TestUDPPort_CloseBeforeStart_GoroutineStompsConn at
+// port_test.go:1249. udpPort already solved this with both an early-return
+// on canceled ctx AND mtx-gated Add+Store. tcpPort is missing both guards.
+//
+// The mtx fix alone closes the tiny "close during Add→Store window" race,
+// but to fully prevent the stomping we also add a ctx.Err() early-return
+// in startWithListener (mirroring udpPort's startWithPacketConn).
+//
+// This test calls close() first, then startWithListener, to deterministically
+// simulate the race.
+//
+// After the fix: startWithListener should detect the already-canceled
+// context and NOT set p.listener.
+func TestTCPPort_CloseBeforeStart_GoroutineStompsListener_BUG(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backendLn, backendWg := startEchoBackend(t)
+	defer func() {
+		_ = backendLn.Close()
+		backendWg.Wait()
+	}()
+
+	pconfig := newTestTCPConfig(t, backendLn.Addr().String())
+	tp := newPortTCP(ctx, pconfig, zerolog.Nop(), nil, "", "")
+
+	frontLn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = frontLn.Close() })
+
+	// Close BEFORE startWithListener — deterministically simulates the race
+	// where Proxy.Close() fires before the TCP goroutine gets scheduled.
+	// close() calls p.cancel() and (after the fix) acceptWg.Wait() — but
+	// since the goroutine hasn't done acceptWg.Add(1) yet, started.Load()
+	// is false and Wait() is skipped (counter=0, returns immediately).
+	require.NoError(t, tp.close())
+
+	// Now launch startWithListener. With the bug, this runs even though
+	// close() has already returned, violating the contract.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = tp.startWithListener(frontLn)
+	}()
+
+	select {
+	case <-done:
+		// The goroutine completed — it ran AFTER close() returned.
+	case <-time.After(5 * time.Second):
+		t.Fatal("startWithListener hung — possible deadlock")
+	}
+
+	// With the bug: the goroutine set p.listener to frontLn (stomping the
+	// nil left by close()). With the fix: startWithListener should detect
+	// the already-canceled context and return early without setting
+	// p.listener (mirroring udpPort.startWithPacketConn).
+	tp.mtx.Lock()
+	listenerAfterClose := tp.listener
+	tp.mtx.Unlock()
+
+	if listenerAfterClose != nil {
+		t.Error("BUG: p.listener was set to non-nil after close() returned — " +
+			"startWithListener ran untracked, stomping closed state. " +
+			"Missing ctx.Err() early-return + mtx-gated Add+Store (see " +
+			"udpPort pattern at port.go:538-556)")
 	}
 }

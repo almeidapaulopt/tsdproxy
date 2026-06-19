@@ -40,10 +40,42 @@ const (
 	shutdownTimeout     = 10 * time.Second
 	maxTCPAcceptRetries = 5
 	defaultMaxTCPConns  = 1024
-	canonicalLoopback   = "127.0.0.1"
+	// defaultMaxHTTPConns bounds concurrent HTTP/HTTPS connections per port.
+	// Higher than defaultMaxTCPConns because HTTP connections are typically
+	// short-lived requests (and the dashboard's SSE stream counts as one
+	// connection per viewer). The bound protects against slowloris-style
+	// resource exhaustion from a single tailnet member.
+	defaultMaxHTTPConns = 2048
+	// maxHTTPHeaderBytes caps the total size of request headers accepted by
+	// the reverse proxy. Matches Go stdlib's http.DefaultMaxHeaderBytes but
+	// made explicit so reviewers don't have to know the implicit default.
+	// Protects against memory-amplification via giant headers.
+	maxHTTPHeaderBytes = 1 << 20 // 1 MiB
+	canonicalLoopback  = "127.0.0.1"
 )
 
 var errRateLimited = errors.New("UDP packet rate limited")
+
+// portStartLock acquires mtx and checks ctx.Err(). If ctx is already canceled,
+// it marks started=true, releases mtx, and returns the error — the caller must
+// close the listener/packetConn and return. On nil return, mtx is still held
+// and the caller must assign fields, call wg.Add(1), store started=true,
+// then unlock mtx.
+//
+// Shared by tcpPort.startWithListener and udpPort.startWithPacketConn to
+// guarantee identical ordering: ctx check → field assignment → wg.Add →
+// started.Store, all atomically under mtx. Prevents the start-vs-close race
+// where close() observes a half-initialized state between the ctx check and
+// the mtx.Lock.
+func portStartLock(ctx context.Context, mtx *sync.Mutex, started *atomic.Bool) error {
+	mtx.Lock()
+	if err := ctx.Err(); err != nil {
+		started.Store(true)
+		mtx.Unlock()
+		return err
+	}
+	return nil
+}
 
 // portHandler is the interface implemented by all port types (HTTP proxy, HTTP redirect, TCP forward).
 type portHandler interface {
@@ -52,14 +84,85 @@ type portHandler interface {
 }
 
 type port struct {
-	log        zerolog.Logger
-	ctx        context.Context
-	listener   net.Listener
-	cancel     context.CancelFunc
-	httpServer *http.Server
-	transport  *http.Transport
-	limiter    *ipRateLimiter
-	mtx        sync.Mutex
+	log         zerolog.Logger
+	ctx         context.Context
+	listener    net.Listener
+	cancel      context.CancelFunc
+	httpServer  *http.Server
+	transport   *http.Transport
+	limiter     *ipRateLimiter
+	sem         chan struct{}
+	activeConns atomic.Int64
+	mtx         sync.Mutex
+}
+
+// limitedListener wraps a net.Listener with a semaphore that bounds the number
+// of concurrently-accepted connections. It is the HTTP-side analog of
+// tcpPort.sem: a single tailnet client cannot exhaust the proxy by opening
+// unlimited idle HTTP connections (slowloris-style resource amplification).
+//
+// Accept blocks until a slot is available, then returns a limitedConn that
+// releases the slot on Close. Because http.Server.Serve calls Accept in a
+// serial loop, blocking here naturally applies backpressure on new requests
+// without rejecting in-flight ones — the dial completes at the kernel level
+// but the request is not processed until a slot frees up.
+//
+// Close shuts the done channel so any Accept blocked on the semaphore unblocks
+// immediately and returns net.ErrClosed — without this, http.Server.Shutdown
+// would hang waiting for Serve to exit.
+type limitedListener struct {
+	net.Listener
+	sem    chan struct{}
+	active *atomic.Int64
+	done   chan struct{}
+	once   sync.Once
+}
+
+func (l *limitedListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	// Acquire AFTER Accept returns a real conn. Blocking here holds the
+	// http.Server accept loop (serial), applying natural backpressure.
+	// select on `done` so a Close while blocked on the semaphore wakes us
+	// up — otherwise Shutdown would hang waiting for Serve to exit.
+	select {
+	case l.sem <- struct{}{}:
+		if l.active != nil {
+			l.active.Add(1)
+		}
+		return &limitedConn{Conn: c, sem: l.sem, active: l.active, once: &sync.Once{}}, nil
+	case <-l.done:
+		c.Close()
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *limitedListener) Close() error {
+	l.once.Do(func() { close(l.done) })
+	return l.Listener.Close()
+}
+
+// limitedConn releases the semaphore slot exactly once when the connection is
+// closed. http.Server closes connections for many reasons (idle timeout, shim
+// teardown, client disconnect) so the release is guarded with sync.Once to
+// avoid a double-release that would corrupt the semaphore counter.
+type limitedConn struct {
+	net.Conn
+	sem    chan struct{}
+	active *atomic.Int64
+	once   *sync.Once
+}
+
+func (c *limitedConn) Close() error {
+	c.once.Do(func() {
+		<-c.sem
+		if c.active != nil {
+			c.active.Add(-1)
+		}
+	})
+	return c.Conn.Close()
 }
 
 func proxyErrorHandler(log zerolog.Logger, pconfig model.PortConfig) func(w http.ResponseWriter, r *http.Request, err error) {
@@ -89,7 +192,7 @@ func proxyErrorHandler(log zerolog.Logger, pconfig model.PortConfig) func(w http
 func proxyRewrite(
 	pconfig model.PortConfig,
 	identityHeaders bool,
-	httpPort uint16,
+	httpPortStr string,
 	proxyAuthToken string,
 ) func(r *httputil.ProxyRequest) {
 	return func(r *httputil.ProxyRequest) {
@@ -127,7 +230,7 @@ func proxyRewrite(
 				// server (self-proxy case).  Never expose it to external
 				// backends — a leaked token allows identity spoofing on
 				// the management API.
-				if isManagementTarget(pconfig.GetFirstTarget(), httpPort) {
+				if isManagementTarget(pconfig.GetFirstTarget(), httpPortStr) {
 					r.Out.Header.Set(consts.HeaderAuthToken, proxyAuthToken)
 				}
 			}
@@ -173,6 +276,10 @@ type portProxyParams struct {
 	AccessLog        bool
 	IdentityHeaders  bool
 	RateLimitEnabled bool
+	// MaxHTTPConns bounds concurrent HTTP/HTTPS connections via a semaphore.
+	// 0 means "use defaultMaxHTTPConns". Exposed for testability (small limit)
+	// — mirrors newPortTCPWithLimit. See limitedListener.
+	MaxHTTPConns int
 }
 
 func newPortProxy(p portProxyParams) *port {
@@ -188,11 +295,17 @@ func newPortProxy(p portProxyParams) *port {
 		MaxIdleConnsPerHost: maxIdleConnsPerHost,
 		IdleConnTimeout:     idleConnTimeout,
 	}
+
+	// Pre-compute the management HTTP port as a string. isManagementTarget
+	// runs once per proxied request (proxyRewrite closure below); avoiding
+	// strconv.FormatUint in the hot path saves an allocation per request.
+	httpPortStr := strconv.FormatUint(uint64(p.HTTPPort), 10)
+
 	reverseProxy := &httputil.ReverseProxy{
 		Transport:     tr,
 		FlushInterval: -1,
 		ErrorHandler:  proxyErrorHandler(log, p.PortConfig),
-		Rewrite:       proxyRewrite(p.PortConfig, p.IdentityHeaders, p.HTTPPort, p.ProxyAuthToken),
+		Rewrite:       proxyRewrite(p.PortConfig, p.IdentityHeaders, httpPortStr, p.ProxyAuthToken),
 	}
 
 	var limiter *ipRateLimiter
@@ -222,10 +335,19 @@ func newPortProxy(p portProxyParams) *port {
 		)
 	}
 
+	maxConns := p.MaxHTTPConns
+	if maxConns <= 0 {
+		maxConns = defaultMaxHTTPConns
+	}
+
 	httpServer := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: core.ReadHeaderTimeout,
-		BaseContext:       func(net.Listener) context.Context { return ctxPort },
+		// MaxHeaderBytes explicit (matches Go stdlib default of 1 MiB) so
+		// reviewers don't need to know the implicit default. Guards against
+		// memory amplification via oversized request headers.
+		MaxHeaderBytes: maxHTTPHeaderBytes,
+		BaseContext:    func(net.Listener) context.Context { return ctxPort },
 	}
 
 	return &port{
@@ -235,6 +357,7 @@ func newPortProxy(p portProxyParams) *port {
 		httpServer: httpServer,
 		transport:  tr,
 		limiter:    limiter,
+		sem:        make(chan struct{}, maxConns),
 	}
 }
 
@@ -264,6 +387,12 @@ func newPortRedirect(ctx context.Context, pconfig model.PortConfig, log zerolog.
 }
 
 func (p *port) startWithListener(l net.Listener) error {
+	// p.sem is non-nil for proxy ports (bounded) and nil for redirect ports
+	// (no cap needed — redirect handlers are O(1) per request).
+	if p.sem != nil {
+		l = &limitedListener{Listener: l, sem: p.sem, active: &p.activeConns, done: make(chan struct{})}
+	}
+
 	p.mtx.Lock()
 	p.listener = l
 	p.mtx.Unlock()
@@ -355,14 +484,16 @@ func newPortTCPWithLimit(
 }
 
 func (p *tcpPort) startWithListener(l net.Listener) error {
+	if err := portStartLock(p.ctx, &p.mtx, &p.started); err != nil {
+		l.Close()
+		return fmt.Errorf("tcp port closed before start: %w", err)
+	}
+	p.listener = l
 	p.acceptWg.Add(1)
 	p.started.Store(true)
+	p.mtx.Unlock()
 	defer p.acceptWg.Done()
 	defer p.wg.Wait()
-
-	p.mtx.Lock()
-	p.listener = l
-	p.mtx.Unlock()
 
 	go func() {
 		<-p.ctx.Done()
@@ -529,31 +660,24 @@ func (p *udpPort) startWithListener(_ net.Listener) error {
 }
 
 func (p *udpPort) startWithPacketConn(pc net.PacketConn) error {
-	target := p.pconfig.GetFirstTarget()
-	if target == nil || target.Host == "" {
-		p.started.Store(true)
-		return errors.New("no target configured for UDP port")
-	}
-
-	if err := p.ctx.Err(); err != nil {
-		p.started.Store(true)
+	if err := portStartLock(p.ctx, &p.mtx, &p.started); err != nil {
 		pc.Close()
 		return fmt.Errorf("udp port closed before start: %w", err)
 	}
+	target := p.pconfig.GetFirstTarget()
+	if target == nil || target.Host == "" {
+		p.started.Store(true)
+		p.mtx.Unlock()
+		pc.Close()
+		return errors.New("no target configured for UDP port")
+	}
 
-	// Add(1) MUST precede started.Store(true) so that close() — which gates
-	// wg.Wait() on started.Load() — can never observe started==true while the
-	// WaitGroup counter is still 0. Storing first opens a window where close()
-	// returns without waiting for this goroutine (leaking the relay + conn) and
-	// trips the race detector's "WaitGroup misuse" check. Mirrors tcpPort.
 	p.wg.Add(1)
 	p.started.Store(true)
-	defer p.wg.Done()
-
-	p.mtx.Lock()
 	p.conn = pc
 	p.clientMap = make(map[string]*clientEntry)
 	p.mtx.Unlock()
+	defer p.wg.Done()
 
 	p.wg.Add(1)
 	go func() {
@@ -801,7 +925,12 @@ func (p *udpPort) close() error {
 // The path check ensures only the root management server (no path prefix) is
 // matched, preventing a co-located service at 127.0.0.1:<same-port>/some-path
 // from receiving the token.
-func isManagementTarget(target *url.URL, httpPort uint16) bool {
+//
+// httpPortStr is the pre-formatted decimal representation of the management
+// port. It is pre-computed once per port in newPortProxy (R4 optimization) so
+// the per-request comparison avoids a strconv.FormatUint allocation in the
+// hot path.
+func isManagementTarget(target *url.URL, httpPortStr string) bool {
 	if target == nil {
 		return false
 	}
@@ -811,6 +940,6 @@ func isManagementTarget(target *url.URL, httpPort uint16) bool {
 	if host != "localhost" && host != canonicalLoopback {
 		return false
 	}
-	return target.Port() == strconv.FormatUint(uint64(httpPort), 10) &&
+	return target.Port() == httpPortStr &&
 		(target.Path == "" || target.Path == "/")
 }
