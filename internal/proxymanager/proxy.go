@@ -220,6 +220,11 @@ func (proxy *Proxy) Start() error {
 // Close initiates the proxy shutdown procedure. Safe to call multiple times
 // from concurrent goroutines — closeOnce guarantees the teardown sequence
 // runs exactly once. Subsequent calls return without side effects.
+//
+// NOTE: Close() does NOT clean up DNS records, TLS certs, or stop the cert
+// expiry tracker. Those resources are managed by ProxyManager.teardownProxy,
+// which must be called instead of (or in addition to) Close() for full
+// resource cleanup. All production call paths go through teardownProxy.
 func (proxy *Proxy) Close() {
 	proxy.closeOnce.Do(func() {
 		proxy.closeInternal()
