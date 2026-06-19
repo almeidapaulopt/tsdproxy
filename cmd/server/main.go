@@ -146,6 +146,31 @@ func (app *WebApp) Start() {
 	app.HTTP.Get("/-/grafana/dashboard.json", serveEmbedded(grafana.Content, "dashboard.json", "application/json"))
 	app.HTTP.Get("/-/grafana/datasource.yaml", serveEmbedded(grafana.Content, "datasource.yaml", "text/yaml; charset=utf-8"))
 
+	// Bind before proxy setup: dashboard must be reachable during the
+	// Tailscale OAuth / ACL provisioning phase. Routes are wired above
+	// and ProxyManager has no dependency on the listener.
+	app.Log.Info().Msg("Initializing WebServer")
+
+	addr := fmt.Sprintf("%s:%d", app.Cfg.HTTP.Hostname, app.Cfg.HTTP.Port)
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		app.Log.Fatal().Err(err).Msg("failed to bind listener")
+	}
+
+	srv := http.Server{
+		Handler:           core.LoggerMiddleware(app.Log, app.HTTP.Mux),
+		Addr:              addr,
+		ReadHeaderTimeout: core.ReadHeaderTimeout,
+	}
+	app.httpServer = &srv
+
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			app.Log.Fatal().Err(err).Msg("shutting down the server")
+		}
+	}()
+
 	app.Log.Info().Msg("Setting up proxy proxies")
 
 	if err := app.ProxyManager.Start(); err != nil {
@@ -154,29 +179,9 @@ func (app *WebApp) Start() {
 
 	app.ProxyManager.WatchEvents()
 
-	go func() {
-		app.Log.Info().Msg("Initializing WebServer")
-
-		addr := fmt.Sprintf("%s:%d", app.Cfg.HTTP.Hostname, app.Cfg.HTTP.Port)
-
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			app.Log.Fatal().Err(err).Msg("failed to bind listener")
-		}
-
-		srv := http.Server{
-			Handler:           core.LoggerMiddleware(app.Log, app.HTTP.Mux),
-			Addr:              addr,
-			ReadHeaderTimeout: core.ReadHeaderTimeout,
-		}
-		app.httpServer = &srv
-
-		app.Health.SetReady()
-
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			app.Log.Fatal().Err(err).Msg("shutting down the server")
-		}
-	}()
+	// Only mark ready once all providers are wired, so /health/ready/
+	// reflects actual proxy readiness, not just the listener being bound.
+	app.Health.SetReady()
 }
 
 func (app *WebApp) Stop(force <-chan os.Signal) {
