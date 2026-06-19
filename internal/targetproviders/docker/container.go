@@ -59,6 +59,8 @@ type (
 		rateLimitEnabled         bool
 		healthCheckEnabled       bool
 		autoRestart              bool
+		allowContainerFunnel     bool
+		allowTLSValidateDisable  bool
 	}
 
 	ContainerOption func(*container)
@@ -307,8 +309,18 @@ func (c *container) applyPortOptions(labelKey string, port *model.PortConfig, op
 		opt = strings.TrimSpace(opt)
 		switch opt {
 		case PortOptionNoTLSValidate:
+			if !c.allowTLSValidateDisable {
+				c.log.Warn().Str("option", opt).Str("port", labelKey).
+					Msg("container requested no_tlsvalidate but operator has not enabled allowTLSValidateDisable; ignoring")
+				continue
+			}
 			port.TLSValidate = false
 		case PortOptionTailscaleFunnel:
+			if !c.allowContainerFunnel {
+				c.log.Warn().Str("option", opt).Str("port", labelKey).
+					Msg("container requested tailscale_funnel but operator has not enabled allowContainerFunnel; ignoring")
+				continue
+			}
 			port.Tailscale.Funnel = true
 		case PortOptionNoAutoDetect:
 			port.NoAutoDetect = true
@@ -603,5 +615,17 @@ func withProxyAccessLogDefault(defaultVal bool) ContainerOption {
 func withAssets(assets *web.Assets) ContainerOption {
 	return func(c *container) {
 		c.assets = assets
+	}
+}
+
+func withAllowContainerFunnel(allowed bool) ContainerOption {
+	return func(c *container) {
+		c.allowContainerFunnel = allowed
+	}
+}
+
+func withAllowTLSValidateDisable(allowed bool) ContainerOption {
+	return func(c *container) {
+		c.allowTLSValidateDisable = allowed
 	}
 }

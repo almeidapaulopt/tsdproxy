@@ -26,8 +26,24 @@ func (c *container) getLegacyPort(ctx context.Context) (model.PortConfig, error)
 	if err != nil {
 		return port, err
 	}
-	port.TLSValidate = c.getLabelBool(LabelTLSValidate, model.DefaultTLSValidate)
-	port.Tailscale.Funnel = c.getLabelBool(LabelFunnel, model.DefaultTailscaleFunnel)
+
+	legacyTLSValidate := c.getLabelBool(LabelTLSValidate, model.DefaultTLSValidate)
+	if !legacyTLSValidate && !c.allowTLSValidateDisable {
+		c.log.Warn().
+			Msg("container set legacy tsdproxy.tlsvalidate=false but operator has not enabled allowTLSValidateDisable; ignoring")
+		port.TLSValidate = model.DefaultTLSValidate
+	} else {
+		port.TLSValidate = legacyTLSValidate
+	}
+
+	legacyFunnel := c.getLabelBool(LabelFunnel, model.DefaultTailscaleFunnel)
+	if legacyFunnel && !c.allowContainerFunnel {
+		c.log.Warn().
+			Msg("container set legacy tsdproxy.funnel=true but operator has not enabled allowContainerFunnel; ignoring")
+		port.Tailscale.Funnel = false
+	} else {
+		port.Tailscale.Funnel = legacyFunnel
+	}
 
 	port, err = c.generateTargetFromFirstTarget(ctx, port)
 	if err != nil {

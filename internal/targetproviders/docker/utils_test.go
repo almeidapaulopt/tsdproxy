@@ -205,7 +205,7 @@ func TestGetProxyHostname(t *testing.T) {
 func TestApplyPortOptions(t *testing.T) {
 	t.Parallel()
 
-	c := &container{log: zerolog.Nop()}
+	c := &container{log: zerolog.Nop(), allowTLSValidateDisable: true, allowContainerFunnel: true}
 
 	t.Run("empty options", func(t *testing.T) {
 		t.Parallel()
@@ -276,6 +276,30 @@ func TestApplyPortOptions(t *testing.T) {
 		c.applyPortOptions("port.test", &port, []string{" no_tlsvalidate "})
 		if port.TLSValidate {
 			t.Error("expected TLSValidate=false after trimming whitespace")
+		}
+	})
+}
+
+func TestApplyPortOptions_OperatorGated(t *testing.T) {
+	t.Parallel()
+
+	c := &container{log: zerolog.Nop()}
+
+	t.Run("no_tlsvalidate rejected without allowTLSValidateDisable", func(t *testing.T) {
+		t.Parallel()
+		port := model.PortConfig{TLSValidate: true}
+		c.applyPortOptions("port.test", &port, []string{"no_tlsvalidate"})
+		if !port.TLSValidate {
+			t.Error("expected TLSValidate to remain true when operator has not allowed disable")
+		}
+	})
+
+	t.Run("tailscale_funnel rejected without allowContainerFunnel", func(t *testing.T) {
+		t.Parallel()
+		port := model.PortConfig{TLSValidate: true}
+		c.applyPortOptions("port.test", &port, []string{"tailscale_funnel"})
+		if port.Tailscale.Funnel {
+			t.Error("expected Funnel to remain false when operator has not allowed funnel")
 		}
 	})
 }

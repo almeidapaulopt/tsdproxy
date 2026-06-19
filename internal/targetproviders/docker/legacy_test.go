@@ -210,6 +210,7 @@ func TestGetLegacyPort_Funnel(t *testing.T) {
 		networkMode:           ctypes.NetworkMode("bridge"),
 		defaultTargetHostname: "127.0.0.1",
 		ipAddress:             []netip.Addr{netip.MustParseAddr("127.0.0.1")},
+		allowContainerFunnel:  true,
 	}
 
 	result, err := c.getLegacyPort(context.Background())
@@ -219,6 +220,34 @@ func TestGetLegacyPort_Funnel(t *testing.T) {
 
 	if !result.Tailscale.Funnel {
 		t.Error("Funnel should be true")
+	}
+}
+
+func TestGetLegacyPort_FunnelRejectedWithoutOperatorFlag(t *testing.T) {
+	t.Parallel()
+
+	ln := mustListenTCP(t)
+	defer ln.Close()
+
+	_, port, _ := mustSplitHostPort(ln.Addr().String())
+
+	c := &container{
+		log:                   zerolog.Nop(),
+		name:                  "test-container",
+		labels:                map[string]string{LabelContainerPort: port, LabelFunnel: "true"},
+		ports:                 map[string]string{},
+		networkMode:           ctypes.NetworkMode("bridge"),
+		defaultTargetHostname: "127.0.0.1",
+		ipAddress:             []netip.Addr{netip.MustParseAddr("127.0.0.1")},
+	}
+
+	result, err := c.getLegacyPort(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Tailscale.Funnel {
+		t.Error("Funnel should be false when operator has not enabled allowContainerFunnel")
 	}
 }
 

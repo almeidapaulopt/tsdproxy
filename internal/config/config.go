@@ -108,16 +108,18 @@ type (
 		SSHKnownHostsFile        string `validate:"omitempty,file" yaml:"sshKnownHostsFile,omitempty"`
 		SSHPrivateKeyPassphrase  string `yaml:"sshPrivateKeyPassphrase,omitempty"`
 		Host                     string `validate:"required,uri" default:"unix:///var/run/docker.sock" yaml:"host"`
-		HealthCheckInterval      int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
 		HealthCheckCooldown      int    `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckInterval      int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
 		HealthCheckFailures      int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
+		RateLimitRPS             int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst           int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
 		HealthCheckEnabled       bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
 		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
 		SSHInsecureSkipHostCheck bool   `validate:"boolean" default:"false" yaml:"sshInsecureSkipHostCheck"`
 		TryDockerInternalNetwork bool   `validate:"boolean" default:"false" yaml:"tryDockerInternalNetwork"`
 		RateLimitEnabled         bool   `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
-		RateLimitRPS             int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
-		RateLimitBurst           int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
+		AllowContainerFunnel     bool   `validate:"boolean" default:"false" yaml:"allowContainerFunnel"`
+		AllowTLSValidateDisable  bool   `validate:"boolean" default:"false" yaml:"allowTlsValidateDisable"`
 	}
 
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration

@@ -42,14 +42,16 @@ type (
 		healthCheckInterval      int
 		healthCheckFailures      int
 		healthCheckCooldown      int
+		rateLimitRPS             int
+		rateLimitBurst           int
 		mutex                    sync.Mutex
 		healthCheckEnabled       bool
 		tryDockerInternalNetwork bool
 		autoRestart              bool
 		proxyAccessLogDefault    bool
 		rateLimitEnabled         bool
-		rateLimitRPS             int
-		rateLimitBurst           int
+		allowContainerFunnel     bool
+		allowTLSValidateDisable  bool
 	}
 )
 
@@ -110,6 +112,8 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		rateLimitEnabled:         provider.RateLimitEnabled,
 		rateLimitRPS:             provider.RateLimitRPS,
 		rateLimitBurst:           provider.RateLimitBurst,
+		allowContainerFunnel:     provider.AllowContainerFunnel,
+		allowTLSValidateDisable:  provider.AllowTLSValidateDisable,
 	}
 
 	c.setDefaultBridgeAddress()
@@ -191,6 +195,8 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 		withProviderRateLimit(c.rateLimitEnabled, c.rateLimitRPS, c.rateLimitBurst),
 		withProxyAccessLogDefault(c.proxyAccessLogDefault),
 		withAssets(c.assets),
+		withAllowContainerFunnel(c.allowContainerFunnel),
+		withAllowTLSValidateDisable(c.allowTLSValidateDisable),
 	)
 
 	pcfg, err := ctn.newProxyConfig(ctx)
