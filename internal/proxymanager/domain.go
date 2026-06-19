@@ -51,6 +51,21 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 
 	if err := pm.tlsLifecycle.Provision(p.ctx, tlsProvider, proxyConfig.Domain); err != nil {
 		p.setTLSStatus(tlsproviders.TLSStatusError)
+		// Roll back the DNS record so the CNAME doesn't point at a host
+		// that can't serve a valid cert. Skip when p.ctx is already
+		// canceled (teardown in progress) — cleanupDomainForProxy will
+		// handle it with a fresh context, and calling CleanupDNS on a
+		// canceled context would just fail and log noise.
+		if p.ctx.Err() == nil {
+			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), dnsRollbackTimeout)
+			if cleanupErr := pm.dnsLifecycle.CleanupDNS(rollbackCtx, dnsProvider, proxyConfig.Domain); cleanupErr != nil {
+				pm.log.Error().Err(cleanupErr).
+					Str("domain", proxyConfig.Domain).
+					Msg("dns rollback failed after tls provisioning error")
+			}
+			rollbackCancel()
+		}
+		p.setDNSStatus(dnsproviders.DNSStatusError)
 		return fmt.Errorf("tls provisioning: %w", err)
 	}
 	p.setTLSStatus(tlsproviders.TLSStatusActive)
@@ -67,7 +82,11 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 // tsdproxy_cert_expiry_seconds would go stale after the first cert renewal
 // (Tailscale ~90d, ACME ~30d) and pin at 0 forever, falsely alerting operators.
 //
-// The goroutine exits when p.ctx is canceled (proxy Close).
+// The goroutine exits when p.ctx is canceled (proxy Close) OR when
+// p.certTrackerStop is closed (teardownProxy). The latter prevents the tracker
+// from racing with cleanupDomainForProxy's TLS Cleanup call — without it, the
+// tracker could call tlsProvider.GetCertificate concurrently with TLS resource
+// teardown, causing undefined behavior depending on provider thread safety.
 func (pm *ProxyManager) startCertExpiryTracking(p *Proxy, tlsProvider tlsproviders.Provider, domain string) {
 	pm.updateCertExpiryMetric(p, tlsProvider, domain)
 
@@ -76,9 +95,13 @@ func (pm *ProxyManager) startCertExpiryTracking(p *Proxy, tlsProvider tlsprovide
 		interval = defaultCertExpiryRefreshInterval
 	}
 
+	p.certTrackerStop = make(chan struct{})
+	p.certTrackerDone = make(chan struct{})
+
 	p.eventsWg.Add(1)
 	go func() {
 		defer p.eventsWg.Done()
+		defer close(p.certTrackerDone)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -87,9 +110,27 @@ func (pm *ProxyManager) startCertExpiryTracking(p *Proxy, tlsProvider tlsprovide
 				pm.updateCertExpiryMetric(p, tlsProvider, domain)
 			case <-p.ctx.Done():
 				return
+			case <-p.certTrackerStop:
+				return
 			}
 		}
 	}()
+}
+
+// stopCertTracker signals the cert expiry tracker to exit and blocks until it
+// has done so. Called by teardownProxy BEFORE cleanupDomainForProxy to
+// guarantee no concurrent tlsProvider.GetCertificate calls during TLS cleanup.
+// Safe for concurrent callers: sync.Once ensures the stop channel is closed
+// exactly once even if two teardowns race (e.g. Fix 1's hostLocks scenario).
+// Safe to call when the tracker was never started (nil channels).
+func (pm *ProxyManager) stopCertTracker(p *Proxy) {
+	if p.certTrackerStop == nil {
+		return
+	}
+	p.certTrackerStopOnce.Do(func() {
+		close(p.certTrackerStop)
+	})
+	<-p.certTrackerDone
 }
 
 func (pm *ProxyManager) configureTailscaleTLS(p *Proxy, tlsProvider tlsproviders.Provider, proxyConfig *model.Config) error {
@@ -120,6 +161,11 @@ const (
 	urlPollInterval     = 500 * time.Millisecond
 
 	defaultCertExpiryRefreshInterval = time.Hour
+
+	// dnsRollbackTimeout bounds the DNS cleanup call made when TLS
+	// provisioning fails. Matches cleanupDomainForProxy's timeout so a
+	// slow DNS API can't block proxy startup for more than 30s.
+	dnsRollbackTimeout = 30 * time.Second
 )
 
 func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
@@ -226,36 +272,15 @@ func (pm *ProxyManager) configureProxyDomain(p *Proxy, proxyConfig *model.Config
 		return
 	}
 
-	if err := config.ValidateProxyConfig(
-		proxyConfig.Domain,
-		proxyConfig.DNSProvider,
-		proxyConfig.TLSProvider,
-		pm.cfg.DefaultDNSProvider,
-		pm.cfg.DefaultTLSProvider,
-	); err != nil {
-		p.setupWg.Done()
-		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
-			Msg("invalid domain configuration, proxy starting without custom domain")
-		return
-	}
-
-	if err := pm.resolveAndSetProviders(p, proxyConfig); err != nil {
-		p.setupWg.Done()
-		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
-			Msg("domain provider resolution failed, proxy starting without custom domain")
-		return
-	}
-
-	p.mtx.RLock()
-	hasTLSProvider := p.tlsProvider != nil
-	p.mtx.RUnlock()
-
-	if !hasTLSProvider {
+	// setupWg.Add(1) was called in registerProxy before map insertion.
+	// Every exit path from here must call setupWg.Done() exactly once:
+	//   - prepareDomainSetup returns skip=true → caller calls Done()
+	//   - otherwise the async goroutine calls Done() on completion
+	if skip := pm.prepareDomainSetup(p, proxyConfig); skip {
 		p.setupWg.Done()
 		return
 	}
 
-	// setupWg.Add(1) was already called in newProxy() before map insertion.
 	go func() {
 		defer p.setupWg.Done()
 		if err := pm.setupDomainForProxy(p, p.Config); err != nil {
@@ -265,6 +290,39 @@ func (pm *ProxyManager) configureProxyDomain(p *Proxy, proxyConfig *model.Config
 				Msg("domain setup failed, proxy running without custom domain")
 		}
 	}()
+}
+
+// prepareDomainSetup runs the synchronous portion of domain setup: config
+// validation and DNS/TLS provider resolution. Returns true if the caller
+// should skip the async provisioning goroutine (and thus own the
+// setupWg.Done() call). Returns false when ready for async provisioning.
+//
+// This MUST run synchronously before Start() returns so that the TLS provider
+// is already set when getListenerForPort reads it (avoiding a race where the
+// proxy would fall back to Tailscale certs for a custom-domain HTTPS port).
+func (pm *ProxyManager) prepareDomainSetup(p *Proxy, proxyConfig *model.Config) (skip bool) {
+	if err := config.ValidateProxyConfig(
+		proxyConfig.Domain,
+		proxyConfig.DNSProvider,
+		proxyConfig.TLSProvider,
+		pm.cfg.DefaultDNSProvider,
+		pm.cfg.DefaultTLSProvider,
+	); err != nil {
+		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
+			Msg("invalid domain configuration, proxy starting without custom domain")
+		return true
+	}
+
+	if err := pm.resolveAndSetProviders(p, proxyConfig); err != nil {
+		pm.log.Error().Err(err).Str("proxy", proxyConfig.Hostname).
+			Msg("domain provider resolution failed, proxy starting without custom domain")
+		return true
+	}
+
+	p.mtx.RLock()
+	hasTLSProvider := p.tlsProvider != nil
+	p.mtx.RUnlock()
+	return !hasTLSProvider
 }
 
 func extractHost(rawURL string) string {

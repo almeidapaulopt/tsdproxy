@@ -941,14 +941,16 @@ func TestSetupDomainForProxy_TLSError(t *testing.T) {
 	t.Parallel()
 
 	pm, p := newSetupDomainTestProxy(t)
-	p.SetDNSAndTLSProviders(&mockDNSProvider{name: "cloudflare"}, &tlsErrorProvider{})
+	dnsProv := &trackingDNSProvider{name: "cloudflare"}
+	p.SetDNSAndTLSProviders(dnsProv, &tlsErrorProvider{})
 
 	proxyConfig := &model.Config{Domain: "app.example.com"}
 
 	err := pm.setupDomainForProxy(p, proxyConfig)
 
 	assert.Error(t, err)
-	assert.Equal(t, dnsproviders.DNSStatusActive, p.GetDNSStatus())
+	assert.Equal(t, int64(1), dnsProv.deleteCount.Load(),
+		"DNS record must be rolled back when TLS provisioning fails")
 	assert.Equal(t, tlsproviders.TLSStatusError, p.GetTLSStatus())
 }
 
