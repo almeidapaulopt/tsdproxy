@@ -28,12 +28,10 @@ func (pm *ProxyManager) setupDomainForProxy(p *Proxy, proxyConfig *model.Config)
 
 	if tlsProvider.Name() == model.TLSProviderTailscale {
 		if err := pm.configureTailscaleTLS(p, tlsProvider, proxyConfig); err != nil {
-			return err
+			return fmt.Errorf("tailscale tls setup: %w", err)
 		}
 	}
 
-	// The Tailscale proxy URL is populated asynchronously by watchStatus().
-	// Poll until a non-empty URL is available or the timeout is reached.
 	targetHostname, err := pm.waitForProxyURL(p)
 	if err != nil {
 		return fmt.Errorf("waiting for proxy URL: %w", err)
@@ -104,10 +102,21 @@ func (pm *ProxyManager) startCertExpiryTracking(p *Proxy, tlsProvider tlsprovide
 		defer close(p.certTrackerDone)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		var consecutiveFailures int
 		for {
 			select {
 			case <-ticker.C:
-				pm.updateCertExpiryMetric(p, tlsProvider, domain)
+				if ok := pm.updateCertExpiryMetric(p, tlsProvider, domain); ok {
+					consecutiveFailures = 0
+				} else {
+					consecutiveFailures++
+					if consecutiveFailures == certFailureWarnThreshold {
+						pm.log.Warn().
+							Str("proxy", p.Config.Hostname).
+							Int("consecutive_failures", consecutiveFailures).
+							Msg("cert expiry metric has been stale for multiple refresh cycles")
+					}
+				}
 			case <-p.ctx.Done():
 				return
 			case <-p.certTrackerStop:
@@ -162,14 +171,13 @@ const (
 
 	defaultCertExpiryRefreshInterval = time.Hour
 
-	// dnsRollbackTimeout bounds the DNS cleanup call made when TLS
-	// provisioning fails. Matches cleanupDomainForProxy's timeout so a
-	// slow DNS API can't block proxy startup for more than 30s.
 	dnsRollbackTimeout = 30 * time.Second
+
+	certFailureWarnThreshold = 3
 )
 
 func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
-	if host := extractHost(p.providerProxy.GetURL()); host != "" {
+	if host, err := extractHost(p.providerProxy.GetURL()); err == nil {
 		return host, nil
 	}
 
@@ -180,9 +188,9 @@ func (pm *ProxyManager) waitForProxyURL(p *Proxy) (string, error) {
 	for {
 		select {
 		case <-p.urlReady:
-			return extractHost(p.providerProxy.GetURL()), nil
+			return extractHost(p.providerProxy.GetURL())
 		case <-ticker.C:
-			if host := extractHost(p.providerProxy.GetURL()); host != "" {
+			if host, err := extractHost(p.providerProxy.GetURL()); err == nil {
 				return host, nil
 			}
 		case <-p.ctx.Done():
@@ -223,20 +231,20 @@ func (pm *ProxyManager) cleanupDomainForProxy(p *Proxy) {
 	p.setTLSStatus(tlsproviders.TLSStatusNone)
 }
 
-func (pm *ProxyManager) updateCertExpiryMetric(p *Proxy, tlsProvider tlsproviders.Provider, domain string) {
+func (pm *ProxyManager) updateCertExpiryMetric(p *Proxy, tlsProvider tlsproviders.Provider, domain string) bool {
 	cert, err := tlsProvider.GetCertificate(p.ctx, domain)
 	if err != nil {
 		pm.log.Debug().Err(err).Str("proxy", p.Config.Hostname).Msg("cert expiry: failed to get certificate")
-		return
+		return false
 	}
 	if cert.Leaf == nil {
 		if len(cert.Certificate) == 0 {
-			return
+			return false
 		}
 		leaf, err := x509.ParseCertificate(cert.Certificate[0])
 		if err != nil {
 			pm.log.Debug().Err(err).Str("proxy", p.Config.Hostname).Msg("cert expiry: failed to parse certificate")
-			return
+			return false
 		}
 		cert.Leaf = leaf
 	}
@@ -245,6 +253,7 @@ func (pm *ProxyManager) updateCertExpiryMetric(p *Proxy, tlsProvider tlsprovider
 		remaining = 0
 	}
 	pm.metrics.SetCertExpirySeconds(p.Config.Hostname, remaining)
+	return true
 }
 
 // closeTLSProvider releases background resources held by the TLS provider
@@ -325,10 +334,16 @@ func (pm *ProxyManager) prepareDomainSetup(p *Proxy, proxyConfig *model.Config) 
 	return !hasTLSProvider
 }
 
-func extractHost(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return rawURL
+func extractHost(rawURL string) (string, error) {
+	if rawURL == "" {
+		return "", errors.New("empty URL")
 	}
-	return u.Host
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parsing URL %q: %w", rawURL, err)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("URL %q has no host", rawURL)
+	}
+	return u.Host, nil
 }
