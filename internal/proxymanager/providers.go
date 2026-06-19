@@ -11,6 +11,7 @@ import (
 	"github.com/caddyserver/certmagic"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	"github.com/almeidapaulopt/tsdproxy/internal/dnsproviders"
 	cloudflaredns "github.com/almeidapaulopt/tsdproxy/internal/dnsproviders/cloudflare"
 	magicdns "github.com/almeidapaulopt/tsdproxy/internal/dnsproviders/magicdns"
@@ -245,7 +246,7 @@ func (pm *ProxyManager) resolveProxyProvider(proxyConfig *model.Config) (proxypr
 	if err != nil {
 		return nil, fmt.Errorf("error resolving auth key: %w", err)
 	}
-	proxyConfig.Tailscale.ResolvedAuthKey = authKey
+	proxyConfig.Tailscale.ResolvedAuthKey = secretstring.SecretString(authKey)
 
 	return proxyProvider, nil
 }

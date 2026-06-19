@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
@@ -64,7 +65,7 @@ func TestNewSharedProxy_AcceptsAllProtocols(t *testing.T) {
 				Hostname: "test",
 				Domain:   "test.example.com",
 				Tailscale: model.Tailscale{
-					ResolvedAuthKey: "test-key",
+					ResolvedAuthKey: secretstring.SecretString("test-key"),
 				},
 				Ports: tt.ports,
 			}

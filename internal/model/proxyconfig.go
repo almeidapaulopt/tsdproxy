@@ -43,7 +43,7 @@ type (
 	Tailscale struct {
 		Tags            string                    `yaml:"tags"`
 		AuthKey         secretstring.SecretString `yaml:"authKey"`
-		ResolvedAuthKey string                    `yaml:"-"` // pre-resolved by ResolveAuthKey, skips OAuth in getAuthkey
+		ResolvedAuthKey secretstring.SecretString `yaml:"-"` // pre-resolved by ResolveAuthKey, skips OAuth in getAuthkey
 		Ephemeral       bool                      `default:"false" validate:"boolean" yaml:"ephemeral"`
 		RunWebClient    bool                      `default:"false" validate:"boolean" yaml:"runWebClient"`
 		Verbose         bool                      `default:"false" validate:"boolean" yaml:"verbose"`

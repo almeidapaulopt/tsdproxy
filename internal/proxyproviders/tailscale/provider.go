@@ -293,7 +293,7 @@ func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
 	// Shared and services modes manage their own auth keys during server startup.
 	// Generating a key here wastes one-time OAuth keys and may hit rate limits.
 	if c.shared || c.services {
-		authKey := cfg.Tailscale.ResolvedAuthKey
+		authKey := cfg.Tailscale.ResolvedAuthKey.Value()
 		if authKey == "" {
 			authKey = cfg.Tailscale.AuthKey.Value()
 		}
@@ -307,7 +307,7 @@ func (c *Client) ResolveAuthKey(cfg *model.Config) (string, error) {
 	resolveCtx, resolveCancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer resolveCancel()
 	authKey, err := authMgr.ResolveKey(resolveCtx, AuthConfig{
-		ResolvedAuthKey: cfg.Tailscale.ResolvedAuthKey,
+		ResolvedAuthKey: cfg.Tailscale.ResolvedAuthKey.Value(),
 		ProxyAuthKey:    cfg.Tailscale.AuthKey,
 		ProviderAuthKey: c.AuthKey,
 	}, c.resolveTags(cfg))
@@ -375,7 +375,7 @@ func (c *Client) buildLifecycleConfig(config *model.Config, nodeCfg NodeConfig) 
 	return NodeLifecycleConfig{
 		NodeConfig: nodeCfg,
 		AuthConfig: AuthConfig{
-			ResolvedAuthKey: config.Tailscale.ResolvedAuthKey,
+			ResolvedAuthKey: config.Tailscale.ResolvedAuthKey.Value(),
 			ProxyAuthKey:    config.Tailscale.AuthKey,
 			ProviderAuthKey: c.AuthKey,
 		},

@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/semaphore"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
@@ -204,7 +205,7 @@ func TestNewServiceProxyServiceNameFormat(t *testing.T) {
 	cfg := &model.Config{
 		Hostname: "myapp",
 		Tailscale: model.Tailscale{
-			ResolvedAuthKey: "test-key",
+			ResolvedAuthKey: secretstring.SecretString("test-key"),
 		},
 		Ports: map[string]model.PortConfig{
 			"1": {ProxyProtocol: model.ProtoHTTPS, ProxyPort: 443},
