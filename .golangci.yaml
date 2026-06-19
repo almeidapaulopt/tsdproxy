@@ -73,6 +73,9 @@ linters:
       - linters:
           - goconst
         path: (.+)_test\.go
+      - linters:
+          - revive
+        path: (.+)_test\.go
     paths:
       - third_party$
       - builtin$
