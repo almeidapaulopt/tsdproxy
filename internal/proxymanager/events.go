@@ -6,6 +6,7 @@ package proxymanager
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -32,17 +33,24 @@ func (pm *ProxyManager) WatchEvents() {
 				eventsChan := make(chan targetproviders.TargetEvent)
 				errChan := make(chan error, 1)
 
-				go provider.WatchEvents(ctx, eventsChan, errChan)
+				var providerWg sync.WaitGroup
+				providerWg.Add(1)
+				go func() {
+					defer providerWg.Done()
+					provider.WatchEvents(ctx, eventsChan, errChan)
+				}()
 
 			streamLoop:
 				for {
 					select {
 					case <-pm.ctx.Done():
 						cancel()
+						providerWg.Wait()
 						return
 					case event, ok := <-eventsChan:
 						if !ok {
 							cancel()
+							providerWg.Wait()
 							backoff = pm.reconnectBackoff(provider, backoff, "event stream closed")
 							break streamLoop
 						}
@@ -50,6 +58,7 @@ func (pm *ProxyManager) WatchEvents() {
 						backoff = time.Second
 					case err, ok := <-errChan:
 						cancel()
+						providerWg.Wait()
 						msg := "event stream error"
 						if ok && err != nil {
 							pm.log.Err(err).Str("provider", provider.GetDefaultProxyProviderName()).Msg(msg)
@@ -117,7 +126,7 @@ func (pm *ProxyManager) dispatchProxyEvent(event targetproviders.TargetEvent) {
 // Start() runs OUTSIDE the target lock so a blocking Tailscale login does
 // not prevent stop events for other targets from being processed.
 func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
-	pm.targetLocks.Lock(event.ID)
+	unlock := pm.targetLocks.Lock(event.ID)
 
 	var proxyToStart *Proxy
 	var err error
@@ -134,7 +143,7 @@ func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
 		pm.log.Warn().Str("targetID", event.ID).Msgf("unknown proxy event action: %d", event.Action)
 	}
 
-	pm.targetLocks.Unlock(event.ID)
+	unlock()
 
 	if err != nil {
 		pm.log.Error().Err(err).Str("targetID", event.ID).Msg("Error processing proxy event")
@@ -194,15 +203,14 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 	pm.proxyMu.RUnlock()
 
 	if err := event.TargetProvider.DeleteProxy(event.ID); err != nil {
-		pm.log.Debug().Err(err).Str("targetID", event.ID).Msg("Provider cleanup skipped")
+		pm.log.Warn().Err(err).Str("targetID", event.ID).Msg("provider cleanup failed")
 	}
 
 	if hostname == "" {
 		return
 	}
 
-	pm.hostLocks.Lock(hostname)
-	defer pm.hostLocks.Unlock(hostname)
+	defer pm.hostLocks.Lock(hostname)()
 
 	if removed := pm.removeAndTeardown(hostname, func(p *Proxy) bool { return p.Config.TargetID == event.ID }); removed != nil {
 		pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")

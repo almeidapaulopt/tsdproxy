@@ -683,16 +683,27 @@ func TestExtractHost(t *testing.T) {
 	tests := []struct {
 		input    string
 		expected string
+		wantErr  bool
 	}{
-		{"https://myapp.tailnet.ts.net:443", "myapp.tailnet.ts.net:443"},
-		{"http://example.com", "example.com"},
-		{"https://host.name/path", "host.name"},
-		{"plain-string", "plain-string"},
-		{"", ""},
-		{"://invalid", "://invalid"},
+		{"https://myapp.tailnet.ts.net:443", "myapp.tailnet.ts.net:443", false},
+		{"http://example.com", "example.com", false},
+		{"https://host.name/path", "host.name", false},
+		{"plain-string", "", true},
+		{"", "", true},
+		{"://invalid", "", true},
 	}
 	for _, tc := range tests {
-		got := extractHost(tc.input)
+		got, err := extractHost(tc.input)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("extractHost(%q) expected error, got %q", tc.input, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("extractHost(%q) unexpected error: %v", tc.input, err)
+			continue
+		}
 		if got != tc.expected {
 			t.Errorf("extractHost(%q) = %q, want %q", tc.input, got, tc.expected)
 		}
@@ -729,11 +740,11 @@ func TestGetTargetProvider_NotFound(t *testing.T) {
 func TestTargetLocks_LocksExclusively(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	pm.targetLocks.Lock("lock-test")
+	unlock1 := pm.targetLocks.Lock("lock-test")
 
 	locked := make(chan struct{})
 	go func() {
-		pm.targetLocks.Lock("lock-test")
+		defer pm.targetLocks.Lock("lock-test")()
 		close(locked)
 	}()
 
@@ -743,9 +754,8 @@ func TestTargetLocks_LocksExclusively(t *testing.T) {
 	case <-time.After(10 * time.Millisecond):
 	}
 
-	pm.targetLocks.Unlock("lock-test")
+	unlock1()
 	<-locked
-	pm.targetLocks.Unlock("lock-test")
 }
 
 // -- updateProxyCount / cleanupProxyMetrics ------------------------------------
@@ -786,11 +796,11 @@ func TestCleanupProxyMetrics_NilMetrics(t *testing.T) {
 func TestHostLocks_SameHostname_Serializes(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	pm.hostLocks.Lock("test-host")
+	unlock1 := pm.hostLocks.Lock("test-host")
 
 	locked := make(chan struct{})
 	go func() {
-		pm.hostLocks.Lock("test-host")
+		defer pm.hostLocks.Lock("test-host")()
 		close(locked)
 	}()
 
@@ -800,19 +810,18 @@ func TestHostLocks_SameHostname_Serializes(t *testing.T) {
 	case <-time.After(10 * time.Millisecond):
 	}
 
-	pm.hostLocks.Unlock("test-host")
+	unlock1()
 	<-locked
-	pm.hostLocks.Unlock("test-host")
 }
 
 func TestHostLocks_DifferentHostnames_AreIndependent(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	pm.hostLocks.Lock("host-1")
+	unlock1 := pm.hostLocks.Lock("host-1")
 
 	locked := make(chan struct{})
 	go func() {
-		pm.hostLocks.Lock("host-2")
+		defer pm.hostLocks.Lock("host-2")()
 		close(locked)
 	}()
 
@@ -822,8 +831,7 @@ func TestHostLocks_DifferentHostnames_AreIndependent(t *testing.T) {
 		t.Fatal("different hostname Lock should not block")
 	}
 
-	pm.hostLocks.Unlock("host-1")
-	pm.hostLocks.Unlock("host-2")
+	unlock1()
 }
 
 // -- StopAllProxies concurrency safety -----------------------------------------

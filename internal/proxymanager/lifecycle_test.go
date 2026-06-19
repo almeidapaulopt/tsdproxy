@@ -215,11 +215,11 @@ func TestRestartProxy_NotFound(t *testing.T) {
 func TestTargetLocks_SameIDSerializes(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	pm.targetLocks.Lock("target1")
+	unlock1 := pm.targetLocks.Lock("target1")
 
 	locked := make(chan struct{})
 	go func() {
-		pm.targetLocks.Lock("target1")
+		defer pm.targetLocks.Lock("target1")()
 		close(locked)
 	}()
 
@@ -229,19 +229,18 @@ func TestTargetLocks_SameIDSerializes(t *testing.T) {
 	case <-time.After(10 * time.Millisecond):
 	}
 
-	pm.targetLocks.Unlock("target1")
+	unlock1()
 	<-locked
-	pm.targetLocks.Unlock("target1")
 }
 
 func TestTargetLocks_DifferentIDsAreIndependent(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
-	pm.targetLocks.Lock("target1")
+	unlock1 := pm.targetLocks.Lock("target1")
 
 	locked := make(chan struct{})
 	go func() {
-		pm.targetLocks.Lock("target2")
+		defer pm.targetLocks.Lock("target2")()
 		close(locked)
 	}()
 
@@ -251,8 +250,7 @@ func TestTargetLocks_DifferentIDsAreIndependent(t *testing.T) {
 		t.Fatal("different ID Lock should not block")
 	}
 
-	pm.targetLocks.Unlock("target1")
-	pm.targetLocks.Unlock("target2")
+	unlock1()
 }
 
 // -- removeProxy --------------------------------------------------------------

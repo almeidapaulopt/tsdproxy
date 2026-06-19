@@ -410,7 +410,7 @@ func TestBug3_RestartProxy_AcquiresTargetLock(t *testing.T) {
 		}
 	})
 
-	pm.targetLocks.Lock("containerA")
+	unlock := pm.targetLocks.Lock("containerA")
 
 	restartDone := make(chan error, 1)
 	go func() {
@@ -423,7 +423,7 @@ func TestBug3_RestartProxy_AcquiresTargetLock(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	pm.targetLocks.Unlock("containerA")
+	unlock()
 
 	select {
 	case err := <-restartDone:
@@ -516,8 +516,7 @@ func TestBug4b_HostLocks_ProvideCorrectSerialization(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			pm.hostLocks.Lock("serialkey")
-			defer pm.hostLocks.Unlock("serialkey")
+			defer pm.hostLocks.Lock("serialkey")()
 
 			c := concurrent.Add(1)
 			for {

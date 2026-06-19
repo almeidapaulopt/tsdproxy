@@ -207,8 +207,7 @@ func (pm *ProxyManager) withCurrentProxy(name string, fn func(*Proxy) error) err
 		return fmt.Errorf("proxy %s not found", name)
 	}
 
-	pm.targetLocks.Lock(proxy.Config.TargetID)
-	defer pm.targetLocks.Unlock(proxy.Config.TargetID)
+	defer pm.targetLocks.Lock(proxy.Config.TargetID)()
 
 	pm.proxyMu.RLock()
 	current, exists := pm.Proxies[name]
@@ -325,8 +324,7 @@ func (pm *ProxyManager) closeAndRemoveProxy(hostname string, newProxyProvider ..
 func (pm *ProxyManager) closeProxyIfStillCurrent(target *Proxy) {
 	hostname := target.Config.Hostname
 
-	pm.hostLocks.Lock(hostname)
-	defer pm.hostLocks.Unlock(hostname)
+	defer pm.hostLocks.Lock(hostname)()
 
 	if pm.removeAndTeardown(hostname, func(p *Proxy) bool { return p == target }) == nil {
 		pm.log.Debug().
@@ -369,8 +367,7 @@ func (pm *ProxyManager) newProxy(name string, proxyConfig *model.Config) (*Proxy
 
 	pm.log.Debug().Str("proxy", name).Msg("Creating proxy")
 
-	pm.hostLocks.Lock(proxyConfig.Hostname)
-	defer pm.hostLocks.Unlock(proxyConfig.Hostname)
+	defer pm.hostLocks.Lock(proxyConfig.Hostname)()
 
 	if pm.stopping.Load() {
 		return nil, errors.New("proxy manager is shutting down")
