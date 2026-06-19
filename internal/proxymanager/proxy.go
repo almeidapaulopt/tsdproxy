@@ -64,39 +64,48 @@ type (
 	//   - ctx, cancel (managed via context package)
 	//   - logBuffer (thread-safe LogRingBuffer)
 	//   - eventsWg, setupWg (sync.WaitGroup primitives)
+	//   - certTrackerStop, certTrackerDone (initialized in
+	//     startCertExpiryTracking, read in stopCertTracker; synchronized
+	//     via setupWg — teardownProxy calls setupWg.Wait() before
+	//     stopCertTracker, guaranteeing the channels are initialized)
+	//   - certTrackerStopOnce (zero-value sync.Once, inherently safe)
 	Proxy struct {
-		log             zerolog.Logger
-		startedAt       time.Time
-		tracerProvider  trace.TracerProvider
-		ctx             context.Context
-		tlsProvider     tlsproviders.Provider
-		dnsProvider     dnsproviders.Provider
-		providerProxy   proxyproviders.ProxyInterface
-		logBuffer       *LogRingBuffer
-		urlReady        chan struct{}
-		cancel          context.CancelFunc
-		reResolveConfig func() (*model.Config, error)
-		Config          *model.Config
-		metrics         *metrics.Metrics
-		ports           map[string]portHandler
-		onUpdate        func(event model.ProxyEvent)
-		health          *healthChecker
-		domainError     string
-		lastError       string
-		proxyAuthToken  string
-		healthPortName  string
-		statusHistory   []StatusTransition
-		setupWg         sync.WaitGroup
-		eventsWg        sync.WaitGroup
-		tlsStatus       tlsproviders.TLSStatus
-		dnsStatus       dnsproviders.DNSStatus
-		status          model.ProxyStatus
-		mtx             sync.RWMutex
-		urlOnce         sync.Once
-		opMu            sync.Mutex
-		httpPort        uint16
-		paused          bool
-		metricsReady    bool
+		log                 zerolog.Logger
+		startedAt           time.Time
+		tracerProvider      trace.TracerProvider
+		ctx                 context.Context
+		tlsProvider         tlsproviders.Provider
+		dnsProvider         dnsproviders.Provider
+		providerProxy       proxyproviders.ProxyInterface
+		certTrackerDone     chan struct{}
+		onUpdate            func(event model.ProxyEvent)
+		cancel              context.CancelFunc
+		reResolveConfig     func() (*model.Config, error)
+		Config              *model.Config
+		metrics             *metrics.Metrics
+		ports               map[string]portHandler
+		certTrackerStop     chan struct{}
+		health              *healthChecker
+		logBuffer           *LogRingBuffer
+		urlReady            chan struct{}
+		proxyAuthToken      string
+		healthPortName      string
+		lastError           string
+		domainError         string
+		statusHistory       []StatusTransition
+		eventsWg            sync.WaitGroup
+		setupWg             sync.WaitGroup
+		dnsStatus           dnsproviders.DNSStatus
+		tlsStatus           tlsproviders.TLSStatus
+		status              model.ProxyStatus
+		mtx                 sync.RWMutex
+		certTrackerStopOnce sync.Once
+		urlOnce             sync.Once
+		closeOnce           sync.Once
+		opMu                sync.Mutex
+		httpPort            uint16
+		paused              bool
+		metricsReady        bool
 	}
 )
 
@@ -208,8 +217,16 @@ func (proxy *Proxy) Start() error {
 	return proxy.startListeners()
 }
 
-// Close initiates the proxy shutdown procedure.
+// Close initiates the proxy shutdown procedure. Safe to call multiple times
+// from concurrent goroutines — closeOnce guarantees the teardown sequence
+// runs exactly once. Subsequent calls return without side effects.
 func (proxy *Proxy) Close() {
+	proxy.closeOnce.Do(func() {
+		proxy.closeInternal()
+	})
+}
+
+func (proxy *Proxy) closeInternal() {
 	proxy.opMu.Lock()
 	defer proxy.opMu.Unlock()
 
@@ -223,15 +240,12 @@ func (proxy *Proxy) Close() {
 
 	proxy.cancel()
 
-	// Close log subscribers so SSE handlers unblock.
 	if proxy.logBuffer != nil {
 		proxy.logBuffer.Close()
 	}
 
 	proxy.close()
 
-	// Wait for the event-watching goroutine to exit so no stale
-	// status updates fire after Close() returns.
 	proxy.eventsWg.Wait()
 
 	proxy.setStatus(model.ProxyStatusStopped)
@@ -373,26 +387,34 @@ func (proxy *Proxy) setMetricsReady(ready bool) {
 	}
 }
 
-// collectAndClosePorts extracts port handlers from the proxy under the
-// appropriate lock, closes them, and returns any aggregated error.
-// If clearMap is true, entries are removed from the ports map (requires write lock).
-func (proxy *Proxy) collectAndClosePorts(clearMap bool) error {
+// closeAndClearPorts extracts all port handlers under the write lock, clears
+// the ports map, then closes them. Used by Pause() so Resume() can rebuild
+// the map from scratch.
+func (proxy *Proxy) closeAndClearPorts() error {
 	handlers := make([]portHandler, 0, len(proxy.ports))
-	if clearMap {
-		proxy.mtx.Lock()
-		for k, p := range proxy.ports {
-			handlers = append(handlers, p)
-			delete(proxy.ports, k)
-		}
-		proxy.mtx.Unlock()
-	} else {
-		proxy.mtx.RLock()
-		for _, p := range proxy.ports {
-			handlers = append(handlers, p)
-		}
-		proxy.mtx.RUnlock()
+	proxy.mtx.Lock()
+	for k, p := range proxy.ports {
+		handlers = append(handlers, p)
+		delete(proxy.ports, k)
 	}
+	proxy.mtx.Unlock()
+	return closePortHandlers(handlers)
+}
 
+// closePortsKeepMap closes all port handlers under the read lock but leaves
+// the ports map intact. Used by Close() where the map entries are never read
+// again after return.
+func (proxy *Proxy) closePortsKeepMap() error {
+	proxy.mtx.RLock()
+	handlers := make([]portHandler, 0, len(proxy.ports))
+	for _, p := range proxy.ports {
+		handlers = append(handlers, p)
+	}
+	proxy.mtx.RUnlock()
+	return closePortHandlers(handlers)
+}
+
+func closePortHandlers(handlers []portHandler) error {
 	var errs error
 	for _, p := range handlers {
 		errs = errors.Join(errs, p.close())
@@ -402,7 +424,7 @@ func (proxy *Proxy) collectAndClosePorts(clearMap bool) error {
 
 // closePorts closes all port handlers without closing the providerProxy.
 func (proxy *Proxy) closePorts() {
-	errs := proxy.collectAndClosePorts(true)
+	errs := proxy.closeAndClearPorts()
 
 	if errs != nil && !errors.Is(errs, context.Canceled) && !errors.Is(errs, net.ErrClosed) {
 		proxy.log.Error().Err(errs).Msg("error closing port handlers")
@@ -550,7 +572,7 @@ func (proxy *Proxy) ProviderUserMiddleware(next http.Handler) http.Handler {
 func (proxy *Proxy) close() {
 	proxy.log.Info().Str("name", proxy.Config.Hostname).Msg("stopping proxy")
 
-	errs := proxy.collectAndClosePorts(false)
+	errs := proxy.closePortsKeepMap()
 
 	if proxy.providerProxy != nil {
 		errs = errors.Join(errs, proxy.providerProxy.Close())

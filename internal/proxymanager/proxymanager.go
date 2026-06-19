@@ -48,6 +48,12 @@ type (
 	//
 	// No method acquires more than one of these locks simultaneously,
 	// eliminating the possibility of lock-ordering deadlocks.
+	//
+	// Keyed locks (hostLocks, targetLocks) are per-ID ref-counted mutexes
+	// (see locks.go). Lock hierarchy when both a keyed lock and a struct
+	// lock are needed: keyed lock FIRST, then proxyMu/providerMu/subMu.
+	// This ordering is consistent across all call sites — never reversed —
+	// so no deadlock is possible between keyed and struct locks.
 	ProxyManager struct {
 		log               zerolog.Logger
 		ctx               context.Context
@@ -70,6 +76,7 @@ type (
 		targetLocks       *keyedLocks
 		proxyAuthToken    string
 		eventsWg          sync.WaitGroup
+		eventHandlerWg    sync.WaitGroup
 		certExpiryRefresh time.Duration
 		proxyMu           sync.RWMutex
 		providerMu        sync.RWMutex
@@ -147,6 +154,7 @@ func (pm *ProxyManager) StopAllProxies() {
 	pm.stopping.Store(true)
 	pm.cancel()
 	pm.eventsWg.Wait()
+	pm.eventHandlerWg.Wait()
 
 	pm.proxyMu.RLock()
 	ids := make([]string, 0, len(pm.Proxies))
@@ -243,54 +251,38 @@ func (pm *ProxyManager) MetricsHandler() http.Handler {
 }
 
 // teardownProxy performs the full teardown sequence for a proxy:
-// cancel context → wait for setup goroutines → cleanup DNS/TLS domains →
-// teardownProxy performs the full teardown sequence for a proxy:
-// cancel context → wait for setup goroutines → cleanup DNS/TLS domains →
-// close the proxy → close TLS provider resources → cleanup metrics.
+// cancel context → wait for setup goroutines → stop cert tracker →
+// cleanup DNS/TLS domains → close the proxy → close TLS provider resources →
+// cleanup metrics.
 func (pm *ProxyManager) teardownProxy(p *Proxy) {
 	p.cancelCtx()
 	p.setupWg.Wait()
+	pm.stopCertTracker(p)
 	pm.cleanupDomainForProxy(p)
 	p.Close()
 	pm.closeTLSProvider(p)
 	pm.cleanupProxyMetrics(p.Config.Hostname)
 }
 
-// closeAndRemoveProxy closes and removes any proxy with the given hostname.
-// If newProxyProvider is provided and differs from the old proxy's provider,
-// a warning is logged since the old Tailscale machine may remain in the tailnet.
-func (pm *ProxyManager) closeAndRemoveProxy(hostname string, newProxyProvider ...string) {
-	pm.proxyMu.Lock()
-	old, exists := pm.Proxies[hostname]
-	if exists {
-		delete(pm.Proxies, hostname)
-		if old != nil && pm.targetIndex[old.Config.TargetID] == hostname {
-			delete(pm.targetIndex, old.Config.TargetID)
-		}
-	}
-	pm.proxyMu.Unlock()
-
-	if old != nil {
-		if len(newProxyProvider) > 0 && old.Config.ProxyProvider != newProxyProvider[0] {
-			pm.log.Warn().
-				Str("proxy", hostname).
-				Str("old_provider", old.Config.ProxyProvider).
-				Str("new_provider", newProxyProvider[0]).
-				Msg("Proxy provider changed — the old Tailscale machine may need manual cleanup in the admin console")
-		}
-
-		pm.teardownProxy(old)
-		pm.log.Debug().Str("proxy", hostname).Msg("Closed existing proxy for replacement")
-	}
-}
-
-// removeProxy method removes a Proxy from the ProxyManager.
-func (pm *ProxyManager) removeProxy(hostname string) {
+// removeAndTeardown is the shared primitive for all proxy removal paths.
+// It atomically removes the proxy at hostname from the internal maps
+// if the identity predicate matches, tears it down, and returns it.
+//
+// identity: if non-nil, removal proceeds only when identity(current) is
+// true. nil means "remove whatever is at hostname". Callers that already
+// hold hostLocks (eventStop, closeProxyIfStillCurrent) must NOT acquire
+// them again; callers that don't (closeAndRemoveProxy, removeProxy) rely
+// on proxyMu alone, which is sufficient because removal is keyed by
+// hostname and no concurrent event can produce the same hostname without
+// hostLocks coordination.
+//
+// Returns the removed proxy, or nil if no match was found.
+func (pm *ProxyManager) removeAndTeardown(hostname string, identity func(*Proxy) bool) *Proxy {
 	pm.proxyMu.Lock()
 	proxy, exists := pm.Proxies[hostname]
-	if !exists {
+	if !exists || (identity != nil && !identity(proxy)) {
 		pm.proxyMu.Unlock()
-		return
+		return nil
 	}
 
 	delete(pm.Proxies, hostname)
@@ -300,8 +292,54 @@ func (pm *ProxyManager) removeProxy(hostname string) {
 	pm.proxyMu.Unlock()
 
 	pm.teardownProxy(proxy)
+	return proxy
+}
 
-	pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
+// closeAndRemoveProxy closes and removes any proxy with the given hostname.
+// If newProxyProvider is provided and differs from the old proxy's provider,
+// a warning is logged since the old Tailscale machine may remain in the tailnet.
+func (pm *ProxyManager) closeAndRemoveProxy(hostname string, newProxyProvider ...string) {
+	removed := pm.removeAndTeardown(hostname, nil)
+	if removed != nil {
+		if len(newProxyProvider) > 0 && removed.Config.ProxyProvider != newProxyProvider[0] {
+			pm.log.Warn().
+				Str("proxy", hostname).
+				Str("old_provider", removed.Config.ProxyProvider).
+				Str("new_provider", newProxyProvider[0]).
+				Msg("Proxy provider changed — the old Tailscale machine may need manual cleanup in the admin console")
+		}
+		pm.log.Debug().Str("proxy", hostname).Msg("Closed existing proxy for replacement")
+	}
+}
+
+// closeProxyIfStillCurrent tears down target only if it is still the proxy
+// currently registered for its hostname. Prevents a concurrent replacement
+// (e.g. a start event for a different target ID that mapped to the same
+// hostname) from being destroyed by stale failure cleanup.
+//
+// Acquires hostLocks for the hostname BEFORE the identity check and holds it
+// across teardown. This closes the TOCTOU window that existed when the check
+// was done under RLock and the delete under a separate Lock: a concurrent
+// newProxy (which also acquires hostLocks) cannot interleave between check
+// and teardown.
+func (pm *ProxyManager) closeProxyIfStillCurrent(target *Proxy) {
+	hostname := target.Config.Hostname
+
+	pm.hostLocks.Lock(hostname)
+	defer pm.hostLocks.Unlock(hostname)
+
+	if pm.removeAndTeardown(hostname, func(p *Proxy) bool { return p == target }) == nil {
+		pm.log.Debug().
+			Str("proxy", hostname).
+			Msg("proxy was replaced before failure cleanup — skipping teardown")
+	}
+}
+
+// removeProxy removes a Proxy from the ProxyManager.
+func (pm *ProxyManager) removeProxy(hostname string) {
+	if removed := pm.removeAndTeardown(hostname, nil); removed != nil {
+		pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
+	}
 }
 
 // restartProxyLocked creates a new proxy and starts it synchronously.
@@ -314,7 +352,7 @@ func (pm *ProxyManager) restartProxyLocked(name string, proxyConfig *model.Confi
 	}
 
 	if err := p.Start(); err != nil {
-		pm.closeAndRemoveProxy(proxyConfig.Hostname, proxyConfig.ProxyProvider)
+		pm.closeProxyIfStillCurrent(p)
 		return fmt.Errorf("proxy start failed: %w", err)
 	}
 
@@ -405,16 +443,17 @@ func (pm *ProxyManager) buildProxy(proxyConfig *model.Config, proxyProvider prox
 // incremented — preventing the Add/Wait race where teardownProxy's Wait()
 // returns before configureProxyDomain's Add(1).
 func (pm *ProxyManager) registerProxy(p *Proxy, proxyConfig *model.Config) error {
-	if proxyConfig.Domain != "" {
-		p.setupWg.Add(1)
-	}
-
 	pm.proxyMu.Lock()
 	defer pm.proxyMu.Unlock()
 
 	if pm.stopping.Load() {
 		return errors.New("proxy manager is shutting down")
 	}
+
+	if proxyConfig.Domain != "" {
+		p.setupWg.Add(1)
+	}
+
 	pm.Proxies[proxyConfig.Hostname] = p
 	pm.targetIndex[proxyConfig.TargetID] = proxyConfig.Hostname
 

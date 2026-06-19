@@ -46,7 +46,7 @@ func (pm *ProxyManager) WatchEvents() {
 							backoff = pm.reconnectBackoff(provider, backoff, "event stream closed")
 							break streamLoop
 						}
-						go pm.HandleProxyEvent(event)
+						pm.dispatchProxyEvent(event)
 						backoff = time.Second
 					case err, ok := <-errChan:
 						cancel()
@@ -84,6 +84,30 @@ func (pm *ProxyManager) reconnectBackoff(provider targetproviders.TargetProvider
 		return maxWatchBackoff
 	}
 	return next
+}
+
+// dispatchProxyEvent spawns a tracked goroutine to handle a target event.
+// The goroutine is tracked by eventHandlerWg so StopAllProxies can wait for
+// in-flight handlers before tearing down proxies. Without this tracking,
+// StopAllProxies could return (or the process could exit) while a handler
+// is still mid-cleanup — losing resource teardown or racing with map
+// mutations.
+//
+// The stopping check is a belt-and-suspenders guard: the primary safety
+// comes from eventsWg.Wait() preceding eventHandlerWg.Wait() in
+// StopAllProxies (so WatchEvents goroutines — the only production caller —
+// have already exited). But dispatchProxyEvent is package-visible and tests
+// call it directly; the check prevents untracked goroutines if a caller
+// invokes it after shutdown begins.
+func (pm *ProxyManager) dispatchProxyEvent(event targetproviders.TargetEvent) {
+	if pm.stopping.Load() {
+		return
+	}
+	pm.eventHandlerWg.Add(1)
+	go func() {
+		defer pm.eventHandlerWg.Done()
+		pm.HandleProxyEvent(event)
+	}()
 }
 
 // HandleProxyEvent method handles events from a targetprovider.
@@ -140,7 +164,7 @@ func (pm *ProxyManager) HandleProxyEvent(event targetproviders.TargetEvent) {
 				ErrorMessage: startErr.Error(),
 			})
 
-			pm.closeAndRemoveProxy(proxyToStart.Config.Hostname, proxyToStart.Config.ProxyProvider)
+			pm.closeProxyIfStillCurrent(proxyToStart)
 		}
 	}
 }
@@ -180,18 +204,7 @@ func (pm *ProxyManager) eventStop(event targetproviders.TargetEvent) {
 	pm.hostLocks.Lock(hostname)
 	defer pm.hostLocks.Unlock(hostname)
 
-	pm.proxyMu.Lock()
-	proxy, exists := pm.Proxies[hostname]
-	if exists && proxy.Config.TargetID == event.ID {
-		delete(pm.Proxies, hostname)
-		delete(pm.targetIndex, event.ID)
-	} else {
-		proxy = nil
-	}
-	pm.proxyMu.Unlock()
-
-	if proxy != nil {
-		pm.teardownProxy(proxy)
+	if removed := pm.removeAndTeardown(hostname, func(p *Proxy) bool { return p.Config.TargetID == event.ID }); removed != nil {
 		pm.log.Debug().Str("proxy", hostname).Msg("Removed proxy")
 	}
 }

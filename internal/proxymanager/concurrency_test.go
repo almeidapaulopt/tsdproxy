@@ -594,3 +594,123 @@ func TestBug5_ProxyContext_MustBeChildOfManagerCtx(t *testing.T) {
 			"instead of context.WithCancel(pm.ctx)")
 	}
 }
+
+// ============================================================================
+// Bug 6: HandleProxyEvent Start() failure teardown can hit the wrong proxy.
+// After Start() returns an error, HandleProxyEvent calls closeProxyIfStillCurrent
+// which checks pointer identity before teardown. Without this check,
+// closeAndRemoveProxy(hostname) would destroy whatever proxy currently holds
+// the hostname — including a concurrent replacement inserted after Start() failed.
+// ============================================================================
+
+func TestBug6_CloseProxyIfStillCurrent_PreservesReplacement(t *testing.T) {
+	pm := newConcurrentTestPM(t)
+
+	p1 := newPrebuiltProxyWithDNS("shared", "containerA", "app.example.com",
+		&trackingDNSProvider{name: "tracking"})
+	p2 := newPrebuiltProxyWithDNS("shared", "containerB", "app.example.com",
+		&trackingDNSProvider{name: "tracking2"})
+
+	t.Cleanup(func() {
+		cleanupProxy(t, p1)
+		cleanupProxy(t, p2)
+	})
+
+	pm.proxyMu.Lock()
+	pm.Proxies["shared"] = p2
+	pm.targetIndex["containerB"] = "shared"
+	pm.proxyMu.Unlock()
+
+	p2CloseBefore := p2.providerProxy.(*mockProxyInterface).closeCallCount.Load()
+
+	pm.closeProxyIfStillCurrent(p1)
+
+	p2CloseAfter := p2.providerProxy.(*mockProxyInterface).closeCallCount.Load()
+	require.Equal(t, p2CloseBefore, p2CloseAfter,
+		"BUG 6: closeProxyIfStillCurrent tore down P2 when called with stale pointer P1")
+
+	current, ok := pm.GetProxy("shared")
+	require.True(t, ok, "P2 must remain in the map")
+	require.Equal(t, p2, current, "P2 must be the current proxy")
+	require.Equal(t, "containerB", current.Config.TargetID)
+}
+
+func TestBug6_CloseProxyIfStillCurrent_TearsDownMatch(t *testing.T) {
+	pm := newConcurrentTestPM(t)
+
+	p1 := newPrebuiltProxyWithDNS("shared", "containerA", "app.example.com",
+		&trackingDNSProvider{name: "tracking"})
+
+	t.Cleanup(func() { cleanupProxy(t, p1) })
+
+	pm.proxyMu.Lock()
+	pm.Proxies["shared"] = p1
+	pm.targetIndex["containerA"] = "shared"
+	pm.proxyMu.Unlock()
+
+	pm.closeProxyIfStillCurrent(p1)
+
+	_, ok := pm.GetProxy("shared")
+	require.False(t, ok, "P1 should be removed when it is still current")
+}
+
+// ============================================================================
+// Bug 7: StopAllProxies returns before in-flight HandleProxyEvent goroutines
+// complete. dispatchProxyEvent tracks goroutines via eventHandlerWg; without
+// that tracking, the process could exit mid-cleanup, losing resource teardown.
+// ============================================================================
+
+func TestBug7_StopAllProxies_WaitsForInFlightHandler(t *testing.T) {
+	pm := newConcurrentTestPM(t)
+
+	startReached := make(chan struct{})
+	startContinue := make(chan struct{})
+	var startOnce sync.Once
+	blockingProvider := &mockProxyProvider{
+		startFn: func(_ context.Context) error {
+			startOnce.Do(func() { close(startReached) })
+			// Deliberately do NOT listen on ctx.Done() — we want Start() to
+			// stay blocked until the test explicitly releases it via
+			// startContinue. This verifies that StopAllProxies blocks on
+			// eventHandlerWg.Wait() rather than completing via ctx cancellation.
+			<-startContinue
+			return errors.New("simulated start failure")
+		},
+	}
+	pm.ProxyProviders["default"] = blockingProvider
+
+	cfg := newTestProxyConfig("blockedproxy", "containerBlocked")
+	startProvider := &mockTargetProvider{configs: map[string]*model.Config{"containerBlocked": cfg}}
+
+	pm.dispatchProxyEvent(targetproviders.TargetEvent{
+		ID:             "containerBlocked",
+		Action:         targetproviders.ActionStartProxy,
+		TargetProvider: startProvider,
+	})
+
+	<-startReached
+
+	stopDone := make(chan struct{})
+	go func() {
+		pm.StopAllProxies()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		t.Fatal("BUG 7: StopAllProxies returned before in-flight HandleProxyEvent completed")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	select {
+	case <-startContinue:
+	default:
+		close(startContinue)
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("StopAllProxies didn't complete after handler finished")
+	}
+}
