@@ -1423,14 +1423,11 @@ func TestTCPPort_HasNoConnectionLimit_BUG(t *testing.T) {
 
 // flakyAcceptListener wraps a net.Listener and returns transient errors for
 
-// TestHTTPPort_StartWithListenerAfterClose_ReturnsErrServerClosed is a
-// NEGATIVE confirmation: the originally suspected bug ("startWithListener
-// hangs forever after close()") does NOT exist. Go's http.Server.trackListener
-// mechanism sets s.shutdown=true during Shutdown(), which causes subsequent
-// Serve() calls to return ErrServerClosed immediately.
-//
-// This test documents the WORKING behavior so future contributors don't
-// re-attempt the same "fix". It PASSES today.
+// TestHTTPPort_StartWithListenerAfterClose_ReturnsErrServerClosed verifies
+// that calling startWithListener after close() does not hang. The portStartLock
+// guard detects the canceled context and returns immediately with an error,
+// also closing the listener to prevent fd leaks. This is more robust than
+// relying solely on http.Server.trackListener.
 func TestHTTPPort_StartWithListenerAfterClose_ReturnsErrServerClosed(t *testing.T) {
 	t.Parallel()
 
@@ -1447,12 +1444,11 @@ func TestHTTPPort_StartWithListenerAfterClose_ReturnsErrServerClosed(t *testing.
 		PortName:        "p",
 	})
 
-	// Close BEFORE startWithListener. http.Server.Shutdown sets s.shutdown=true.
+	// Close BEFORE startWithListener. This cancels ctxPort.
 	require.NoError(t, p.close())
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	defer ln.Close()
 
 	done := make(chan error, 1)
 	go func() {
@@ -1460,15 +1456,17 @@ func TestHTTPPort_StartWithListenerAfterClose_ReturnsErrServerClosed(t *testing.
 	}()
 
 	select {
-	case err := <-done:
-		// Go's stdlib returns ErrServerClosed via trackListener, so Serve
-		// never blocks. startWithListener returns nil (the error is filtered
-		// at port.go:272).
-		require.NoError(t, err, "expected nil — ErrServerClosed is filtered")
+	case startErr := <-done:
+		// portStartLock detects the canceled context, closes the listener,
+		// and returns an error. The listener must be closed (no fd leak).
+		require.Error(t, startErr, "expected error from portStartLock when ctx is canceled")
 	case <-time.After(2 * time.Second):
-		t.Fatal("startWithListener should return promptly after close() — " +
-			"http.Server.trackListener returns ErrServerClosed when shutdown flag is set")
+		t.Fatal("startWithListener should return promptly after close()")
 	}
+
+	// Verify the listener was closed by portStartLock's error path.
+	_, err = ln.Accept()
+	require.Error(t, err, "listener must be closed by portStartLock to prevent fd leak")
 }
 
 // flakyAcceptListener wraps a net.Listener and returns transient errors for

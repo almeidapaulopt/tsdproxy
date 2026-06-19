@@ -40,6 +40,11 @@ const (
 	shutdownTimeout     = 10 * time.Second
 	maxTCPAcceptRetries = 5
 	defaultMaxTCPConns  = 1024
+	// tcpIdleTimeout is the maximum idle time allowed on a proxied TCP
+	// connection before it is forcibly closed. Prevents slowloris-style
+	// resource exhaustion where a client opens many connections and sends
+	// minimal data to hold semaphore slots indefinitely.
+	tcpIdleTimeout = 5 * time.Minute
 	// defaultMaxHTTPConns bounds concurrent HTTP/HTTPS connections per port.
 	// Higher than defaultMaxTCPConns because HTTP connections are typically
 	// short-lived requests (and the dashboard's SSE stream counts as one
@@ -93,6 +98,7 @@ type port struct {
 	limiter     *ipRateLimiter
 	sem         chan struct{}
 	activeConns atomic.Int64
+	started     atomic.Bool
 	mtx         sync.Mutex
 }
 
@@ -387,21 +393,34 @@ func newPortRedirect(ctx context.Context, pconfig model.PortConfig, log zerolog.
 }
 
 func (p *port) startWithListener(l net.Listener) error {
+	if err := portStartLock(p.ctx, &p.mtx, &p.started); err != nil {
+		l.Close()
+		return fmt.Errorf("port closed before start: %w", err)
+	}
+
 	// p.sem is non-nil for proxy ports (bounded) and nil for redirect ports
 	// (no cap needed — redirect handlers are O(1) per request).
 	if p.sem != nil {
 		l = &limitedListener{Listener: l, sem: p.sem, active: &p.activeConns, done: make(chan struct{})}
 	}
 
-	p.mtx.Lock()
 	p.listener = l
+	p.started.Store(true)
 	p.mtx.Unlock()
 
 	err := p.httpServer.Serve(l)
+
+	// Always close the listener to prevent fd leaks. In the normal case,
+	// http.Server.Shutdown already closed it (double-close returns
+	// net.ErrClosed, which is harmless). In the start-vs-close race where
+	// Shutdown ran before Serve registered the listener via trackListener,
+	// this is the only close — preventing a permanent fd leak.
+	_ = l.Close()
+
 	defer p.log.Info().Msg("Terminating server")
 
 	if err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("error starting port %w", err)
+		return fmt.Errorf("error starting port: %w", err)
 	}
 	return nil
 }
@@ -448,6 +467,27 @@ type tcpPort struct {
 	activeConns atomic.Int64
 	mtx         sync.Mutex
 	started     atomic.Bool
+}
+
+// idleTimeoutConn wraps a net.Conn, resetting read/write deadlines before
+// each operation so idle connections are forcibly closed after the timeout.
+type idleTimeoutConn struct {
+	net.Conn
+	timeout time.Duration
+}
+
+func (c *idleTimeoutConn) Read(b []byte) (int, error) {
+	_ = c.SetReadDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Read(b)
+}
+
+func (c *idleTimeoutConn) Write(b []byte) (int, error) {
+	_ = c.SetWriteDeadline(time.Now().Add(c.timeout))
+	return c.Conn.Write(b)
+}
+
+func wrapIdleTimeout(c net.Conn, timeout time.Duration) net.Conn {
+	return &idleTimeoutConn{Conn: c, timeout: timeout}
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string) *tcpPort {
@@ -516,6 +556,7 @@ func (p *tcpPort) startWithListener(l net.Listener) error {
 				continue
 			}
 			p.log.Error().Err(err).Msg("error accepting TCP connection after retries")
+			l.Close()
 			return fmt.Errorf("tcp accept: %w", err)
 		}
 		retries = 0
@@ -575,11 +616,9 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}
 	defer closeBackend()
 
-	// Unblock io.Copy on shutdown: canceling p.ctx alone does not interrupt
-	// an idle splice, so close both ends when the port is closed. Without this,
-	// tcpPort.close()'s acceptWg.Wait() can hang indefinitely on idle
-	// long-lived connections. sync.Once guards against double-close when
-	// the shutdown goroutine and the normal exit path race.
+	clientConn = wrapIdleTimeout(clientConn, tcpIdleTimeout)
+	backendConn = wrapIdleTimeout(backendConn, tcpIdleTimeout)
+
 	stop := make(chan struct{})
 	defer close(stop)
 	go func() {
@@ -601,10 +640,17 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 		errChan <- err
 	}()
 
-	<-errChan
+	firstErr := <-errChan
 	closeClient()
 	closeBackend()
-	<-errChan
+	secondErr := <-errChan
+
+	for _, copyErr := range []error{firstErr, secondErr} {
+		if copyErr != nil && !errors.Is(copyErr, net.ErrClosed) && !errors.Is(copyErr, context.Canceled) {
+			p.log.Debug().Err(copyErr).Msg("tcp connection closed with error")
+			break
+		}
+	}
 }
 
 func (p *tcpPort) close() error {
