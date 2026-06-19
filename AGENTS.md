@@ -203,6 +203,7 @@ make test/e2e               # E2E tests with gotestsum -tags=e2e (needs TSDPROXY
 # Quality
 make audit                  # Full audit: golangci-lint, staticcheck, go vet, deadcode, govulncheck, gosec
 make ci                     # Destructive clean rebuild + test (CI equivalent)
+golangci-lint run --fix     # Run golangci-lint and auto-fix issues where possible
 
 # Frontend
 cd web && bun run dev       # Vite dev server (proxies to Go backend on :8080)
