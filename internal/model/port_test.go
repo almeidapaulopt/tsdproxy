@@ -282,6 +282,122 @@ func TestPortConfig_GetFirstTargetString_Empty(t *testing.T) {
 	}
 }
 
+func TestPortConfig_SelectTarget_RoundRobin(t *testing.T) {
+	cfg := PortConfig{}
+	for _, raw := range []string{
+		"http://backend-0:8080",
+		"http://backend-1:8080",
+		"http://backend-2:8080",
+	} {
+		cfg.AddTarget(urlMustParse(raw))
+	}
+
+	for i, want := range []string{
+		"backend-0:8080",
+		"backend-1:8080",
+		"backend-2:8080",
+		"backend-0:8080",
+	} {
+		target := cfg.SelectTarget(LoadBalanceRoundRobin)
+		if target == nil {
+			t.Fatalf("call %d: got nil target", i)
+		}
+		if target.Host != want {
+			t.Errorf("call %d: got host %q, want %q", i, target.Host, want)
+		}
+	}
+}
+
+func TestPortConfig_SelectTarget_SingleTargetAlwaysFirst(t *testing.T) {
+	cfg := PortConfig{}
+	cfg.AddTarget(urlMustParse("http://backend:8080"))
+
+	for i := 0; i < 3; i++ {
+		target := cfg.SelectTarget(LoadBalanceRoundRobin)
+		if target == nil {
+			t.Fatalf("call %d: got nil target", i)
+		}
+		if target.Host != "backend:8080" {
+			t.Errorf("call %d: got host %q, want backend:8080", i, target.Host)
+		}
+	}
+}
+
+func TestPortConfig_SelectTarget_EmptyTargets(t *testing.T) {
+	cfg := PortConfig{}
+	if target := cfg.SelectTarget(LoadBalanceRoundRobin); target != nil {
+		t.Errorf("empty config: got %v, want nil", target)
+	}
+}
+
+func TestPortConfig_SelectTarget_UnknownStrategyDefaultsToFirst(t *testing.T) {
+	cfg := PortConfig{}
+	cfg.AddTarget(urlMustParse("http://backend-0:8080"))
+	cfg.AddTarget(urlMustParse("http://backend-1:8080"))
+
+	for i := 0; i < 3; i++ {
+		target := cfg.SelectTarget("unknown")
+		if target == nil {
+			t.Fatalf("call %d: got nil target", i)
+		}
+		if target.Host != "backend-0:8080" {
+			t.Errorf("call %d: got host %q, want backend-0:8080", i, target.Host)
+		}
+	}
+}
+
+func TestPortConfig_SelectTarget_ReturnsDeepCopy(t *testing.T) {
+	cfg := PortConfig{}
+	cfg.AddTarget(urlMustParse("http://backend-0:8080"))
+	cfg.AddTarget(urlMustParse("http://backend-1:8080"))
+
+	target := cfg.SelectTarget(LoadBalanceRoundRobin)
+	if target == nil {
+		t.Fatal("got nil target")
+	}
+	target.Host = "mutated:8080"
+
+	_ = cfg.SelectTarget(LoadBalanceRoundRobin)
+	target = cfg.SelectTarget(LoadBalanceRoundRobin)
+	if target == nil {
+		t.Fatal("got nil target after mutation")
+	}
+	if target.Host != "backend-0:8080" {
+		t.Errorf("stored target was mutated: got host %q, want backend-0:8080", target.Host)
+	}
+}
+
+func TestPortConfig_SelectTarget_ConcurrentRoundRobin(t *testing.T) {
+	cfg := PortConfig{}
+	for _, raw := range []string{
+		"http://backend-0:8080",
+		"http://backend-1:8080",
+		"http://backend-2:8080",
+	} {
+		cfg.AddTarget(urlMustParse(raw))
+	}
+
+	var nilCount int64
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 500 {
+				target := cfg.SelectTarget(LoadBalanceRoundRobin)
+				if target == nil {
+					atomic.AddInt64(&nilCount, 1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := atomic.LoadInt64(&nilCount); got != 0 {
+		t.Errorf("SelectTarget returned nil %d times", got)
+	}
+}
+
 func TestPortConfig_ReplaceTarget(t *testing.T) {
 	cfg, _ := NewPortLongLabel("443/https:80/http")
 

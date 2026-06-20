@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 type (
@@ -20,6 +21,7 @@ type (
 		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
 		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
 		NoAutoDetect  bool          `validate:"boolean" yaml:"noAutoDetect"`
+		LoadBalance   string        `validate:"string" yaml:"loadBalance"`
 		IsRedirect    bool          `validate:"boolean" yaml:"isRedirect"`
 		Tailscale     TailscalePort `validate:"dive" yaml:"tailscale"`
 	}
@@ -29,8 +31,9 @@ type (
 	}
 
 	targetState struct {
-		targets []*url.URL
-		mtx     sync.RWMutex
+		targets   []*url.URL
+		nextIndex atomic.Uint64
+		mtx       sync.RWMutex
 	}
 )
 
@@ -52,6 +55,9 @@ const (
 
 	DNSProviderCloudflare = "cloudflare"
 	DNSProviderMagicDNS   = "magicdns"
+
+	LoadBalanceFirst      = "first"
+	LoadBalanceRoundRobin = "roundrobin"
 
 	rangeKeyPrefix = "range_0"
 )
@@ -151,6 +157,7 @@ func defaultPortConfig(name string) PortConfig {
 		ProxyProtocol: ProtoHTTPS,
 		ProxyPort:     defaultProxyPort,
 		TLSValidate:   DefaultTLSValidate,
+		LoadBalance:   LoadBalanceFirst,
 		IsRedirect:    false,
 		targets:       &targetState{},
 	}
@@ -263,6 +270,24 @@ func (p *PortConfig) GetFirstTarget() *url.URL {
 	return p.targets.getFirst()
 }
 
+func (p *PortConfig) SelectTarget(strategy string) *url.URL {
+	if p.targets == nil {
+		return nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "", LoadBalanceFirst:
+		return p.targets.getFirst()
+	case LoadBalanceRoundRobin:
+		if p.targets.count() <= 1 {
+			return p.targets.getFirst()
+		}
+		return p.targets.next()
+	default:
+		return p.targets.getFirst()
+	}
+}
+
 func (p *PortConfig) GetFirstTargetString() string {
 	t := p.GetFirstTarget()
 	if t == nil {
@@ -301,9 +326,35 @@ func (ts *targetState) getFirst() *url.URL {
 	if len(ts.targets) == 0 {
 		return nil
 	}
+	return cloneTargetURL(ts.targets[0])
+}
+
+func (ts *targetState) next() *url.URL {
+	ts.mtx.RLock()
+	defer ts.mtx.RUnlock()
+	if len(ts.targets) == 0 {
+		return nil
+	}
+	if len(ts.targets) == 1 {
+		return cloneTargetURL(ts.targets[0])
+	}
+	idx := ts.nextIndex.Add(1) - 1
+	return cloneTargetURL(ts.targets[idx%uint64(len(ts.targets))])
+}
+
+func (ts *targetState) count() int {
+	ts.mtx.RLock()
+	defer ts.mtx.RUnlock()
+	return len(ts.targets)
+}
+
+func cloneTargetURL(target *url.URL) *url.URL {
+	if target == nil {
+		return nil
+	}
 	// Deep copy via round-trip through Parse to avoid sharing pointer fields
 	// (e.g. url.User) with the stored target.
-	cp, _ := url.Parse(ts.targets[0].String())
+	cp, _ := url.Parse(target.String())
 	if cp == nil {
 		return nil
 	}

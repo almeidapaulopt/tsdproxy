@@ -307,6 +307,18 @@ func (c *container) getPorts(ctx context.Context) model.PortConfigList {
 func (c *container) applyPortOptions(labelKey string, port *model.PortConfig, options []string) {
 	for _, opt := range options {
 		opt = strings.TrimSpace(opt)
+		if strings.HasPrefix(opt, PortOptionLoadBalance+"=") {
+			strategy := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(opt, PortOptionLoadBalance+"=")))
+			switch strategy {
+			case model.LoadBalanceFirst, model.LoadBalanceRoundRobin:
+				port.LoadBalance = strategy
+			default:
+				c.log.Warn().Str("option", opt).Str("port", labelKey).Str("strategy", strategy).
+					Msg("unknown loadbalance strategy; defaulting to first")
+				port.LoadBalance = model.LoadBalanceFirst
+			}
+			continue
+		}
 		switch opt {
 		case PortOptionNoTLSValidate:
 			if !c.allowTLSValidateDisable {
@@ -326,7 +338,7 @@ func (c *container) applyPortOptions(labelKey string, port *model.PortConfig, op
 			port.NoAutoDetect = true
 		default:
 			c.log.Warn().Str("option", opt).Str("port", labelKey).
-				Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect)")
+				Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect, loadbalance=first|roundrobin)")
 		}
 	}
 }
