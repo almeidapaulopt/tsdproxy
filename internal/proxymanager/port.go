@@ -202,7 +202,7 @@ func proxyRewrite(
 	proxyAuthToken string,
 ) func(r *httputil.ProxyRequest) {
 	return func(r *httputil.ProxyRequest) {
-		target := pconfig.GetFirstTarget()
+		target := pconfig.SelectTarget(pconfig.LoadBalance)
 		if target != nil {
 			r.SetURL(target)
 		}
@@ -235,8 +235,10 @@ func proxyRewrite(
 				// Forward the auth token only to the internal management
 				// server (self-proxy case).  Never expose it to external
 				// backends — a leaked token allows identity spoofing on
-				// the management API.
-				if isManagementTarget(pconfig.GetFirstTarget(), httpPortStr) {
+				// the management API. Check the target selected for THIS
+				// request (round-robin may route to a non-management backend
+				// even when the first target is the self-proxy).
+				if isManagementTarget(target, httpPortStr) {
 					r.Out.Header.Set(consts.HeaderAuthToken, proxyAuthToken)
 				}
 			}
