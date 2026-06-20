@@ -18,6 +18,7 @@ const (
 	LabelContainerAccessLog = LabelPrefix + "containeraccesslog"
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
 	LabelPort               = LabelPrefix + "port."
+	LabelLoadBalance        = LabelPrefix + "loadbalance"
 	// Tailscale
 	LabelEphemeral    = LabelPrefix + "ephemeral"
 	LabelRunWebClient = LabelPrefix + "runwebclient"

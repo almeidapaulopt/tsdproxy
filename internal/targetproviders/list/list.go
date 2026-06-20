@@ -51,6 +51,7 @@ type (
 	port struct {
 		Targets     []string            `yaml:"targets,omitempty"`
 		Tailscale   model.TailscalePort `validate:"dive" yaml:"tailscale"`
+		LoadBalance string              `yaml:"loadBalance"`
 		IsRedirect  bool                `default:"false" validate:"boolean" yaml:"isRedirect,omitempty"`
 		TLSValidate bool                `validate:"boolean" default:"true" yaml:"tlsValidate"`
 	}
@@ -77,6 +78,7 @@ type (
 
 	PortAPI struct {
 		Targets     []string         `yaml:"targets"`
+		LoadBalance string           `yaml:"loadBalance,omitempty"`
 		TLSValidate bool             `yaml:"tlsValidate"`
 		IsRedirect  bool             `yaml:"isRedirect,omitempty"`
 		Tailscale   TailscalePortAPI `yaml:"tailscale,omitempty"`
@@ -398,6 +400,7 @@ func (c *Client) processPortRange(ports model.PortConfigList, k string, v port) 
 
 		cfg.TLSValidate = v.TLSValidate
 		cfg.Tailscale = v.Tailscale
+		cfg.LoadBalance = v.LoadBalance
 
 		expandedKey := k + "." + rangeKey
 		ports[expandedKey] = cfg
@@ -419,6 +422,7 @@ func (c *Client) processSinglePort(ports model.PortConfigList, k string, v port)
 
 	port.TLSValidate = v.TLSValidate
 	port.Tailscale = v.Tailscale
+	port.LoadBalance = v.LoadBalance
 
 	ports[k] = port
 }
