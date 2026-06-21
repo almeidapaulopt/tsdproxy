@@ -81,5 +81,5 @@ Special: `"tailscale"` → `tailscaletls.New(nil)` inline (no map lookup).
 
 - **Per-proxy ACME bypass**: If `addTLSProviders()` skips ACME (no global DNS default), `resolveAndSetProviders()` creates a per-proxy ACME instance using the proxy's own DNS provider. Tests assert this as a known BUG.
 - **`tailscaletls.New(nil)`**: TLS provider created with nil local client. Must call `UpdateLocalClient()` after proxy starts or `GetCertificate()` will fail.
-- **`CleanupDNS` config flag**: When `false`, TLS `Cleanup()` is a no-op — certs persist across restarts (avoids Let's Encrypt rate limits).
+- **`CleanupTLS` config flag**: When `false`, TLS `Cleanup()` is a no-op — certs persist across restarts (avoids Let's Encrypt rate limits). Independent from `CleanupDNS` (which gates DNS record deletion separately).
 - **ACME tests use `context.TODO()`**: Should be `context.Background()` per project conventions.
