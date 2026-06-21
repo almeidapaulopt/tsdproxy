@@ -18,10 +18,10 @@ type (
 		targets       *targetState
 		name          string        `validate:"string" yaml:"name"`
 		ProxyProtocol string        `validate:"string" yaml:"proxyProtocol"`
+		LoadBalance   string        `validate:"string" yaml:"loadBalance"`
 		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
 		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
 		NoAutoDetect  bool          `validate:"boolean" yaml:"noAutoDetect"`
-		LoadBalance   string        `validate:"string" yaml:"loadBalance"`
 		IsRedirect    bool          `validate:"boolean" yaml:"isRedirect"`
 		Tailscale     TailscalePort `validate:"dive" yaml:"tailscale"`
 	}

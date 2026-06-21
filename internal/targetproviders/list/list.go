@@ -49,9 +49,9 @@ type (
 	}
 
 	port struct {
+		LoadBalance string              `yaml:"loadBalance"`
 		Targets     []string            `yaml:"targets,omitempty"`
 		Tailscale   model.TailscalePort `validate:"dive" yaml:"tailscale"`
-		LoadBalance string              `yaml:"loadBalance"`
 		IsRedirect  bool                `default:"false" validate:"boolean" yaml:"isRedirect,omitempty"`
 		TLSValidate bool                `validate:"boolean" default:"true" yaml:"tlsValidate"`
 	}
@@ -77,8 +77,8 @@ type (
 	}
 
 	PortAPI struct {
-		Targets     []string         `yaml:"targets"`
 		LoadBalance string           `yaml:"loadBalance,omitempty"`
+		Targets     []string         `yaml:"targets"`
 		TLSValidate bool             `yaml:"tlsValidate"`
 		IsRedirect  bool             `yaml:"isRedirect,omitempty"`
 		Tailscale   TailscalePortAPI `yaml:"tailscale,omitempty"`
