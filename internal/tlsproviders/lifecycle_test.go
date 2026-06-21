@@ -43,7 +43,7 @@ func (m *mockTLSProvider) Cleanup(_ context.Context, _ string) error {
 
 func TestTLSLifecycle_Provision_Success(t *testing.T) {
 	p := &mockTLSProvider{}
-	lm := NewTLSLifecycleManager(true)
+	lm := NewLifecycleManager(true)
 
 	err := lm.Provision(context.Background(), p, "app.example.com")
 	require.NoError(t, err)
@@ -53,7 +53,7 @@ func TestTLSLifecycle_Provision_Success(t *testing.T) {
 
 func TestTLSLifecycle_Provision_Fails(t *testing.T) {
 	p := &mockTLSProvider{provisionErr: errors.New("cert error")}
-	lm := NewTLSLifecycleManager(true)
+	lm := NewLifecycleManager(true)
 
 	err := lm.Provision(context.Background(), p, "app.example.com")
 	require.Error(t, err)
@@ -62,7 +62,7 @@ func TestTLSLifecycle_Provision_Fails(t *testing.T) {
 
 func TestTLSLifecycle_Cleanup(t *testing.T) {
 	p := &mockTLSProvider{}
-	lm := NewTLSLifecycleManager(true)
+	lm := NewLifecycleManager(true)
 
 	require.NoError(t, lm.Provision(context.Background(), p, "app.example.com"))
 	require.NoError(t, lm.Cleanup(context.Background(), p, "app.example.com"))
@@ -71,7 +71,7 @@ func TestTLSLifecycle_Cleanup(t *testing.T) {
 
 func TestTLSLifecycle_Cleanup_Skipped(t *testing.T) {
 	p := &mockTLSProvider{}
-	lm := NewTLSLifecycleManager(false)
+	lm := NewLifecycleManager(false)
 
 	require.NoError(t, lm.Provision(context.Background(), p, "app.example.com"))
 	require.NoError(t, lm.Cleanup(context.Background(), p, "app.example.com"))
@@ -79,6 +79,6 @@ func TestTLSLifecycle_Cleanup_Skipped(t *testing.T) {
 }
 
 func TestTLSLifecycle_GetStatus_Unknown(t *testing.T) {
-	lm := NewTLSLifecycleManager(true)
+	lm := NewLifecycleManager(true)
 	assert.Equal(t, TLSStatusNone, lm.GetStatus("unknown.example.com"))
 }

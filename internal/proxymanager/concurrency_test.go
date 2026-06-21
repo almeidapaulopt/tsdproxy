@@ -192,7 +192,7 @@ func newConcurrentTestPM(t *testing.T) *ProxyManager {
 	cfg := newTestConfig(t)
 	pm := newTestProxyManager(cfg)
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(true)
 	pm.ProxyProviders["default"] = &mockProxyProvider{}
 	return pm
 }

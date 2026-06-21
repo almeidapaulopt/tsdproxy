@@ -7,7 +7,7 @@ TLS certificate provider interface + implementations + lifecycle management.
 | File | Role |
 |------|------|
 | `tlsproviders.go` | `Provider` interface: `Name()`, `Provision()`, `GetCertificate()`, `Cleanup()`. `TLSStatus` type alias for `lifecycle.Status`. Status constants: None/Pending/Active/Error. |
-| `lifecycle.go` | `TLSLifecycleManager` — wraps provision/cleanup with status tracking via `lifecycle.StateTracker`. Optional cleanup skip (`cleanup` bool). |
+| `lifecycle.go` | `LifecycleManager` — wraps provision/cleanup with status tracking via `lifecycle.StateTracker`. Optional cleanup skip (`cleanup` bool). |
 | `acme/acme.go` | ACME (Let's Encrypt) TLS provider via `certmagic`. DNS-01 challenge support (requires DNS provider implementing `certmagic.DNSProvider`). Configurable CA, email, cert storage path. |
 | `acme/acme_test.go` | ACME provider tests. |
 | `tailscale/tailscale.go` | Tailscale TLS provider — wraps `tsnet.Server.GetCertificate()`. No-op `Provision()` (Tailscale handles cert provisioning internally). `nil` local client accepted initially (replaced after proxy starts). |
@@ -41,7 +41,7 @@ Cleanup(ctx, provider, domain)
   → tracker.Delete(domain)
 ```
 
-`TLSLifecycleManager` wraps `lifecycle.StateTracker` (thread-safe map with `sync.RWMutex`).
+`LifecycleManager` wraps `lifecycle.StateTracker` (thread-safe map with `sync.RWMutex`).
 
 ## PROVIDER DETAILS
 

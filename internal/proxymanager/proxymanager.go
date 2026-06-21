@@ -58,7 +58,7 @@ type (
 		log               zerolog.Logger
 		ctx               context.Context
 		tracerProvider    trace.TracerProvider
-		tlsLifecycle      *tlsproviders.TLSLifecycleManager
+		tlsLifecycle      *tlsproviders.LifecycleManager
 		webhookSender     *webhook.Sender
 		cfg               *config.Data
 		assets            *web.Assets
@@ -118,7 +118,7 @@ func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken str
 	}
 
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(cfg.CleanupDNS)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(cfg.CleanupTLS)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(cfg.CleanupTLS)
 
 	return pm
 }

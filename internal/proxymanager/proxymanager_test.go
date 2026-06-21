@@ -899,7 +899,7 @@ func newSetupDomainTestProxy(t *testing.T) (*ProxyManager, *Proxy) {
 
 	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -1103,7 +1103,7 @@ func TestCleanupDomainForProxy_EmptyDomainSkipsCleanup(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel() })
@@ -1124,7 +1124,7 @@ func TestCleanupDomainForProxy_NilProvidersResetsStatus(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel() })
@@ -1148,7 +1148,7 @@ func TestCleanupDomainForProxy_TLSCleanupErrorLogged(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel() })
@@ -1170,7 +1170,7 @@ func TestCleanupDomainForProxy_DNSCleanupErrorLogged(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel() })
@@ -1192,7 +1192,7 @@ func TestCleanupDomainForProxy_HappyPathResetsStatuses(t *testing.T) {
 	t.Parallel()
 	pm := newTestProxyManager(newTestConfig(t))
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(true)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewLifecycleManager(true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel() })

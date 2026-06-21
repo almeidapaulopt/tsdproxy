@@ -10,19 +10,19 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/lifecycle"
 )
 
-type TLSLifecycleManager struct {
+type LifecycleManager struct {
 	tracker *lifecycle.StateTracker
 	cleanup bool
 }
 
-func NewTLSLifecycleManager(cleanup bool) *TLSLifecycleManager {
-	return &TLSLifecycleManager{
+func NewLifecycleManager(cleanup bool) *LifecycleManager {
+	return &LifecycleManager{
 		tracker: lifecycle.NewStateTracker(),
 		cleanup: cleanup,
 	}
 }
 
-func (lm *TLSLifecycleManager) Provision(ctx context.Context, provider Provider, domain string) error {
+func (lm *LifecycleManager) Provision(ctx context.Context, provider Provider, domain string) error {
 	lm.tracker.Set(domain, TLSStatusPending)
 
 	if err := provider.Provision(ctx, domain); err != nil {
@@ -34,7 +34,7 @@ func (lm *TLSLifecycleManager) Provision(ctx context.Context, provider Provider,
 	return nil
 }
 
-func (lm *TLSLifecycleManager) Cleanup(ctx context.Context, provider Provider, domain string) error {
+func (lm *LifecycleManager) Cleanup(ctx context.Context, provider Provider, domain string) error {
 	if !lm.cleanup {
 		return nil
 	}
@@ -47,6 +47,6 @@ func (lm *TLSLifecycleManager) Cleanup(ctx context.Context, provider Provider, d
 	return nil
 }
 
-func (lm *TLSLifecycleManager) GetStatus(domain string) TLSStatus {
+func (lm *LifecycleManager) GetStatus(domain string) TLSStatus {
 	return lm.tracker.Get(domain)
 }
