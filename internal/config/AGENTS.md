@@ -7,16 +7,12 @@ Config loading, validation, secrets, key normalization, fsnotify live-reload, le
 | File | Role |
 |------|------|
 | `config.go` | `ConfigData` struct (all YAML config types), `InitializeConfig()` returns `(*ConfigData, error)` so callers inject it into constructors. Secrets loading from files, env overrides for Tailscale auth. |
-| `configfile.go` | `File` — YAML I/O with fsnotify. `NewFile()` loads+decodes, `Watch()` debounces reload (100ms). `onChange` callback receives `fsnotify.Event`. |
+| `configfile.go` | `File` — YAML I/O with fsnotify. `NewFile()` loads+decodes, `Watch()` debounces reload (500ms via `configReloadDebounce`). `onChange` callback receives `fsnotify.Event`. |
 | `generateproviders.go` | Legacy env-based config generation (`generateDefaultProviders`). Creates Docker + Tailscale provider configs from `DOCKER_HOST`, auth key env vars. |
 | `validator.go` | `ValidateConfig()` — `go-playground/validator` + custom validators. Checks: default proxy provider exists, DNS/TLS provider references valid, domain+FQDN rules, Tailscale config consistency. Custom error types: `DefaultProxyProviderNotFoundError`, `DomainProviderError`. |
 | `keynormalizer.go` | YAML key case-insensitivity: `normalizeNodeKeys()` walks YAML AST, rewrites keys to canonical camelCase via reflect-based lookup. Levenshtein distance suggestions for unknown keys. Handles nested structs, maps, slices. |
 | `testconfig.go` | `NewTestData()` — creates a minimal `*ConfigData` for tests (single Tailscale provider, empty Docker/Lists maps). |
-| `secrets_test.go` | Secret loading tests: file-based auth keys, client secrets, API tokens. `saveEnv`/`writeFile` helpers. |
-| `config_test.go` | Config loading integration tests. |
-| `generateproviders_test.go` | Legacy env generation tests. |
-| `keynormalizer_test.go` | Key normalization: case folding, underscore/hyphen stripping, Levenshtein suggestions, nested struct/map/slice traversal. |
-| `validator_test.go` | Validation rule tests. |
+| Test files | `secrets_test.go` (file-based secret loading), `keynormalizer_test.go` (case folding, Levenshtein, nested traversal), `config_test.go` / `generateproviders_test.go` / `validator_test.go` (integration + unit coverage). |
 
 ## CONFIG ACCESS
 
@@ -66,4 +62,4 @@ File-based secrets replace their inline counterparts:
 - **`generateproviders.go` swallows `defaults.Set()` errors**: prints to stderr but continues with possibly uninitialized structs. Lines 37, 61.
 - **Case-sensitive YAML keys** — mitigated by keynormalizer, but raw `yaml.Unmarshal` without normalization will fail on casing mismatches.
 - **`fmt.Fprintf(os.Stderr, ...)` instead of zerolog**: used in `generateDefaultProviders()` because logger may not exist yet.
-- **`File.Watch()` debounces at 100ms** (`//nolint:mnd`) — rapid successive writes may coalesce.
+- **`File.Watch()` debounces at 500ms** (`configReloadDebounce` const, no nolint needed) — rapid successive writes may coalesce.

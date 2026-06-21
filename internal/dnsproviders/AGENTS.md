@@ -7,10 +7,9 @@ DNS provider interface + implementations + lifecycle management with retry.
 | File | Role |
 |------|------|
 | `dnsproviders.go` | `Provider` interface: `Name()`, `CreateRecord()`, `DeleteRecord()`, `ValidateRecord()`. `DNSStatus` enum (None/Pending/Active/Error). |
-| `lifecycle.go` | `LifecycleManager` — wraps DNS operations with retry + status tracking. `SetupDNS()` creates record + validates, `CleanupDNS()` deletes record. |
-| `retry.go` | `retryWithBackoff()` — generic retry with exponential backoff for DNS operations. |
-| `validator.go` | DNS record validation logic. Polls until record appears or timeout. |
-| `cloudflare/` | Cloudflare DNS implementation. ACME DNS-01 challenge support via `certmagic.DNSProvider` interface. |
+| `lifecycle.go` | `LifecycleManager` — wraps DNS operations with retry + status tracking. `SetupDNS()` creates record + validates, `CleanupDNS()` deletes record. Validation is inline (polls via `Retry()`). |
+| `retry.go` | `Retry()` — generic retry with exponential backoff (max 30s) for DNS operations. Overflow guard on duration arithmetic. |
+| `cloudflare/` | Cloudflare DNS implementation. Full CRUD via Cloudflare API. ACME DNS-01 challenge support via `certmagic.DNSProvider` interface. |
 | `magicdns/` | MagicDNS (Tailscale built-in) — no-op for create/delete (MagicDNS is automatic). |
 
 ## LIFECYCLE PATTERN

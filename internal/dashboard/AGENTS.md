@@ -30,7 +30,7 @@ SSE-powered real-time dashboard: streaming proxy updates, log viewer, user prefe
 
 ## SSE STREAMING
 
-`streamProxyUpdates()` — long-running goroutine started in `NewDashboard()` constructor:
+`streamProxyUpdates()` — long-running goroutine started in `Start()` (not the constructor):
 1. Subscribes to `ProxyManager.SubscribeStatusEvents()` 
 2. On each status event: renders HTML fragment via templ
 3. Broadcasts to all connected SSE clients (`sseClients` map)
@@ -42,7 +42,7 @@ SSE-powered real-time dashboard: streaming proxy updates, log viewer, user prefe
 
 ## PREFERENCES
 
-Identity resolution: `ResolveWhois(r).ID` → fallback `__localhost__`.
+Identity key: `dashboardSubject(r)` (see GOTCHAS for full cascade).
 
 Persisted as JSON. Schema:
 ```go
@@ -67,15 +67,18 @@ type Preferences struct {
 
 ## PROXY ACTIONS
 
-All use `hx-post` with `hx-swap="none"` — SSE drives the UI update:
+All use `hx-post` with `hx-target="#actions-panel-{SafeID(name)}"` and `hx-swap="outerHTML"` — handler renders `ActionsPanel(...)` directly into the panel. SSE then independently broadcasts card/modal-badge updates as status propagates:
 - **restart**: `pm.RestartProxy()` — stop then start
 - **pause**: `pm.PauseProxy()` — stops proxy, keeps config
 - **resume**: `pm.ResumeProxy()` — restarts from paused state
 - **reauth**: cleans Tailscale auth state, triggers restart
 
+Note: `hx-swap="none"` IS used elsewhere (e.g. dashboard.templ lines ~202, ~348) for cases where only SSE drives refresh, but NOT for proxy actions.
+
 ## GOTCHAS
 
-- **SSE goroutine starts in constructor**: `go dash.streamProxyUpdates()` fires in `NewDashboard()` before routes are registered. Early events may be missed.
+- **SSE goroutine starts in `Start()` not constructor**: `go dash.streamProxyUpdates()` fires in `Dashboard.Start()`, after `NewDashboard()` returns. Constructor only sets up the struct; routes register via `AddRoutes()` separately.
 - **`sseClients` map not thread-safe**: Protected by `d.mtx` mutex. All access must hold the lock.
 - **Proxy action errors return JSON**: `writeJSONError()` used for action failures, not SSE events. Frontend must handle both SSE and JSON error responses.
 - **HTMX header check**: `hxRequestHeader` constant checks for `HX-Request` header to distinguish HTMX from direct browser requests.
+- **Identity resolution cascade**: `dashboardSubject(r)` returns `ResolveWhois(r).ID` → `__localhost__` (trusted source) → `__apikey__` (valid API key) → `__remote__` (rejected, prefs forbidden).
