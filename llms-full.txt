@@ -1,16 +1,10 @@
-# TSDProxy — Full Documentation
+# TSDProxy Full Documentation
+
+TSDProxy is a reverse proxy built in Go 1.26 that exposes services on a Tailscale tailnet with automatic HTTPS. It supports two target providers: Docker containers (exposed via `tsdproxy.*` labels) and non-Docker services (exposed via YAML list files). Each service gets its own Tailscale machine via tsnet. Beyond basic HTTP proxying it supports TCP and UDP proxying, port ranges, health monitoring with automatic recovery, webhook notifications, a REST API, role-based access, and three Tailscale deployment modes (per-proxy, shared SNI, and VIP Services).
 
 ---
 
-## README
-
-# TSDProxy - Tailscale Docker Proxy
-
-**The easiest way to expose Docker containers on your Tailscale network. One label. Zero sidecars.**
-
 ## Quick Start
-
-Get running in under a minute. One compose file, one label.
 
 **Step 1: Create `docker-compose.yml`**
 
@@ -46,55 +40,37 @@ docker compose up -d
 
 TSDProxy creates a default config at `/config/tsdproxy.yaml` on first run. Open the dashboard at `http://localhost:8080`, click the proxy card, and authenticate with Tailscale.
 
-Your container is now available at `https://myapp.<tailnet-name>.ts.net` with automatic HTTPS.
+Your service is now available at `https://myapp.<tailnet-name>.ts.net` with automatic HTTPS.
 
-For automated (headless) setup, configure an AuthKey or OAuth before adding services.
+For automated (headless) setup, configure an [AuthKey or OAuth](https://almeidapaulopt.github.io/tsdproxy/docs/advanced/tailscale/) before adding services.
 
 ## Key Features
 
 | Feature | Description |
 |---------|-------------|
 | Zero sidecars | No Tailscale container needed per service. One proxy handles everything. |
-| Label-based config | Add `tsdproxy.enable=true` to any container. Done. |
+| Docker and YAML config | Docker containers via `tsdproxy.enable=true` labels, or non-Docker services via YAML list files. |
 | Automatic HTTPS | Tailscale provisions Let's Encrypt certs for every machine. |
-| Multi-port support | Expose multiple ports per container with granular protocol control. |
-| TCP proxying | Proxy TCP traffic (SSH, databases) alongside HTTP/HTTPS services. |
+| Multi-port support | Expose multiple ports per service with granular protocol control. |
+| TCP & UDP proxying | Proxy TCP (SSH, databases) and UDP traffic alongside HTTP/HTTPS services. |
+| Port ranges | Define ranges of ports in a single label, e.g. `2222-2230/tcp`. |
 | Funnel support | Expose services to the public internet with `tailscale_funnel` option. |
-| Dynamic lifecycle | Containers start and stop. Tailscale machines appear and disappear. |
+| Health monitoring | Automatic backend health probes with recovery and target re-resolution. |
+| Webhook notifications | Push proxy events to ntfy, Discord, Slack, Gotify, or generic webhooks. |
+| REST API | Programmatic control over proxies: pause, resume, and manage via API. |
+| Role-based access | Admin and viewer roles with optional admin allowlist. |
+| Dynamic lifecycle | Services start and stop. Tailscale machines appear and disappear. |
 | Live config reload | Change settings without restarting TSDProxy. |
-| Dashboard | Real-time web UI with SSE streaming to monitor all your proxies. |
-| List provider | Expose non-Docker services via a simple YAML file. |
+| Dashboard | Real-time web UI with SSE streaming, access logs, and status timeline. |
 
 ## How It Works
 
-1. **Container Scanning** - TSDProxy watches your Docker daemon for containers tagged with `tsdproxy.enable=true`.
-2. **Machine Creation** - When a tagged container appears, TSDProxy spins up a Tailscale machine via `tsnet`.
-3. **Hostname Assignment** - The machine gets a hostname from the `tsdproxy.name` label or the container name.
-4. **Port Mapping** - TSDProxy maps the container's internal port to the Tailscale machine.
-5. **Traffic Routing** - Incoming requests to `https://myapp.<tailnet>.ts.net` are reverse-proxied to the container.
-6. **Dynamic Cleanup** - When a container stops, its Tailscale machine and routes are removed automatically.
+TSDProxy exposes services from two sources:
 
-## Port Configuration
+- **Docker containers**: TSDProxy watches your Docker daemon for containers tagged with `tsdproxy.enable=true`. When a tagged container starts, TSDProxy spins up a Tailscale machine via `tsnet`, assigns a hostname from the `tsdproxy.name` label (or container name), maps the configured ports, and reverse-proxies traffic. When the container stops, the Tailscale machine and routes are removed automatically.
+- **List (YAML) targets**: For services not running in Docker (bare-metal apps, VMs, remote hosts), define them in a YAML file referenced by the `files` config section. Each entry specifies the target URL, ports, and Tailscale options. Changes to the YAML file are detected and applied live.
 
-Expose multiple ports with per-port protocol and options:
-
-```yaml
-labels:
-  tsdproxy.enable: "true"
-  tsdproxy.name: "myservice"
-
-  # HTTPS on 443 -> container port 80
-  tsdproxy.port.1: "443/https:80/http"
-
-  # HTTP on 80 -> container port 8080
-  tsdproxy.port.2: "80/http:8080/http"
-
-  # HTTP redirect to HTTPS
-  tsdproxy.port.3: "81/http->https://myservice.tailnet.ts.net"
-
-  # TCP proxy for SSH
-  tsdproxy.port.4: "22/tcp:22/tcp"
-```
+In both cases, the service becomes available at `https://<name>.<tailnet>.ts.net` with automatic HTTPS via Tailscale's built-in Let's Encrypt integration.
 
 ## Docker Images
 
@@ -105,452 +81,698 @@ labels:
 | `almeidapaulopt/tsdproxy:dev` | Latest development build |
 | `almeidapaulopt/tsdproxy:vx.x.x` | Specific version |
 
-## License
+---
 
-MIT License. See the LICENSE file for details.
+## Configuration: tsdproxy.yaml
+
+The main config file is loaded from `/config/tsdproxy.yaml` by default (configurable via `-config` flag). It is watched for changes and live-reloaded without restart. YAML keys are case-insensitive (auto-normalized to camelCase with suggestions for typos).
+
+```yaml
+# ---- Docker target providers ----
+docker:
+  local:                                  # name of this Docker provider
+    host: unix:///var/run/docker.sock     # Docker socket or daemon URL
+    targetHostname: 172.31.0.1            # IP/hostname Docker containers resolve to
+    defaultProxyProvider: default         # optional: override proxy provider
+    # Health monitoring (optional)
+    healthCheckEnabled: true              # default: true
+    healthCheckInterval: 30               # default: 30 (seconds)
+    healthCheckFailures: 3                # default: 3
+    healthCheckCooldown: 0                # default: 0 (exponential backoff)
+    # Rate limiting (optional)
+    rateLimitEnabled: true                # default: true
+    rateLimitRps: 100                     # default: 100
+    rateLimitBurst: 200                   # default: 200
+    # Security
+    autoRestart: true                     # default: true
+    allowContainerFunnel: false           # default: false
+    allowTlsValidateDisable: false        # default: false
+    # Docker networking
+    tryDockerInternalNetwork: false       # default: false
+    # SSH tunnel (for remote Docker hosts)
+    # sshPrivateKeyFile: /path/to/key
+    # sshAgentSocket: $SSH_AUTH_SOCK
+    # sshKnownHostsFile: /path/to/known_hosts
+    # sshInsecureSkipHostCheck: false
+
+# ---- List (YAML) target providers ----
+files:
+  critical:                               # name of this list provider
+    filename: /config/critical.yaml       # path to the YAML file
+    defaultProxyProvider: default         # optional
+    defaultProxyAccessLog: true           # optional
+    # Same health/rate-limit options as docker
+
+# ---- Tailscale proxy providers ----
+tailscale:
+  providers:
+    default:                              # name of this Tailscale provider
+      authkey: ""                         # static auth key (plaintext)
+      authkeyfile: ""                     # load auth key from file (overrides authkey)
+      clientId: ""                        # OAuth client ID
+      clientSecret: ""                    # OAuth client secret
+      clientSecretFile: ""                # load from file
+      tags: ""                            # comma-separated ACL tags (e.g. "tag:server")
+      controlUrl: https://controlplane.tailscale.com
+      hostname: ""                        # shared/services mode only
+      # Mode (pick one)
+      shared: false                       # shared SNI mode
+      services: false                     # VIP Services mode
+      # Device management
+      preventDuplicates: false            # delete stale offline devices before startup
+      autoRemoveConflicts: false          # delete conflicting ONLINE devices (aggressive)
+      autoApproveDevices: false           # auto-approve device registration
+      autoProvisionAcl: false             # auto-provision ACL tags and Funnel attribute
+      # Cert throttling
+      maxCertConcurrency: 2               # max concurrent cert provisioning
+      # Retry
+      authRetry:
+        enabled: true
+        maxAttempts: 3                    # 1-10
+        initialBackoff: 2s
+        maxBackoff: 30s
+      # Periodic reconciliation
+      reconcileInterval: "0"              # 0 = disabled
+  dataDir: /data/                         # Tailscale state directory
+
+# ---- DNS providers (for custom domains) ----
+dnsProviders:
+  cloudflare:                             # name
+    provider: cloudflare
+    apiToken: ""                          # Cloudflare API token
+    apiTokenFile: ""                      # load from file
+
+# ---- TLS providers (for custom certs) ----
+tlsProviders:
+  acme:                                   # name
+    provider: acme
+    email: ""                             # Let's Encrypt account email
+    ca: https://acme-v02.api.letsencrypt.org/directory
+    certStorage: ""                       # cert storage path
+
+# ---- HTTP server ----
+http:
+  hostname: 0.0.0.0                       # default: 127.0.0.1 in Docker: 0.0.0.0
+  port: 8080                              # default: 8080
+
+# ---- Logging ----
+log:
+  level: info                             # debug, info, warn, error, fatal, panic, trace
+  json: false                             # JSON formatted logs
+
+# ---- Access ----
+proxyAccessLog: true                      # global access logging
+adminAllowLocalhost: false                # allow localhost admin access (bootstrap)
+admins: []                                # list of Tailscale user IDs with admin access
+apiKey: ""                                # API key for REST API auth
+apiKeyFile: ""                            # load from file
+
+# ---- Cleanup ----
+cleanupDNS: true                          # delete DNS records on proxy stop
+cleanupTLS: true                          # delete TLS certs on proxy stop
+
+# ---- Webhooks ----
+webhooks: []
+  # - url: https://ntfy.sh/my-topic
+  #   type: ntfy                           # ntfy | gotify | discord | slack | generic
+  #   events: [Running, Stopped, Error]
+
+# ---- Telemetry (OpenTelemetry) ----
+telemetry:
+  enabled: false
+  endpoint: localhost:4317
+  insecure: false
+
+# ---- Defaults ----
+defaultProxyProvider: default
+# defaultDNSProvider: cloudflare           # uncomment if using custom domains
+# defaultTLSProvider: acme                 # uncomment if using ACME certs
+```
+
+### Secret Loading
+
+All secret fields support a `*File` variant that loads from a file path (overrides the inline value):
+- `authkey` / `authkeyfile`
+- `clientSecret` / `clientSecretFile`
+- `apiKey` / `apiKeyFile`
+- `apiToken` / `apiTokenFile`
+
+Files are read at startup. Content is wrapped in `SecretString` to prevent accidental logging.
 
 ---
 
-## Contributing Guide
+## Docker Labels Reference
 
-# Contributing to TSDProxy
-
-Thanks for your interest in contributing. TSDProxy is open source because people like you are willing to pitch in, and every contribution matters. Bug reports, documentation fixes, code, and ideas are all welcome.
-
-## Getting Started
-
-You will need these tools installed:
-
-- **Go 1.26** or later
-- **Bun** (JavaScript runtime for frontend builds)
-- **Docker** (for running containers during development)
-- **git**
-
-### Using mise (optional)
-
-[mise](https://mise.jdx.dev) can manage all required tools automatically. The project includes a `mise.toml` that pins Go, Bun, templ, golangci-lint, gotestsum, Hugo, Vite, and Air.
-
-```bash
-# Install mise (if not already installed)
-curl https://mise.run | sh
-
-# Activate mise in your shell
-eval "$(mise activate bash)"  # or zsh/fish
-
-# Install all project tools
-mise install
-```
-
-### Bootstrap
-
-Clone the repository and run the bootstrap target to build frontend assets and generate templ templates:
-
-```bash
-git clone https://github.com/almeidapaulopt/tsdproxy.git
-cd tsdproxy
-make bootstrap
-```
-
-### Common Make Targets
-
-| Target | What it does |
-|--------|-------------|
-| `make bootstrap` | First-time setup. Builds frontend and generates templ files. |
-| `make dev` | Starts Docker containers, frontend dev server, and hot-reload backend. |
-| `make build` | Compiles the Go binary to `./tmp/tsdproxy`. |
-| `make test` | Runs the unit test suite. |
-| `make test/e2e` | Runs end-to-end tests (requires Docker and a Tailscale auth key). |
-| `make audit` | Full quality check: golangci-lint, staticcheck, go vet, deadcode, govulncheck, gosec, and tests. |
-| `make docs` | Starts the Hugo docs site locally on port 1313. |
-
-## Project Structure
-
-```
-cmd/server/main.go        Main server binary
-cmd/healthcheck/main.go   Docker HEALTHCHECK binary
-internal/
-  config/                 Configuration loading and file watching
-  core/                   HTTP server, logging, health, sessions
-  dashboard/              SSE dashboard routes and streaming
-  model/                  Shared types (Config, PortConfig, ProxyStatus)
-  proxymanager/           Central orchestrator wiring targets to proxies
-  proxyproviders/         Proxy provider interface and Tailscale implementation
-  targetproviders/        Target provider interface and Docker/List implementations
-  ui/                     templ-generated UI components
-web/                      Frontend: Vite + Bun, embedded in the binary via go:embed
-docs/                     Hugo documentation site (separate go.mod)
-e2e/                      End-to-end tests (build tag: e2e)
-```
-
-## Code Style
-
-- **SPDX headers are required** on every `.go` file:
-  ```go
-  // SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
-  // SPDX-License-Identifier: MIT
-  ```
-  This is enforced by golangci-lint. Missing headers will fail CI.
-- **Error wrapping**: use `fmt.Errorf("context: %w", err)` to add context to errors.
-- **Logging**: use zerolog with structured fields: `log.With().Str("key", val).Logger()`.
-- **Follow existing patterns**. When in doubt, look at how nearby code handles the same situation.
-
-## Submitting Changes
-
-1. Fork the repository.
-2. Create a feature branch from `main`.
-3. Make your changes with clear, descriptive commit messages.
-4. Run `make audit` locally and fix any issues before pushing.
-5. Open a pull request against `main` with a description of what changed and why.
-
-CI runs on every PR. If checks fail, push a follow-up commit to the same branch to re-trigger them.
-
-## Reporting Issues
-
-Found a bug? Open a [bug report](https://github.com/almeidapaulopt/tsdproxy/issues/new?template=bug_report.md).
-
-For troubleshooting help, check the [documentation](https://almeidapaulopt.github.io/tsdproxy/) first. Many common issues are covered there.
-
-Have an idea? Open a [feature request](https://github.com/almeidapaulopt/tsdproxy/issues/new?template=feature_request.md).
-
-## Ways to Contribute
-
-- **Bug fixes**: pick an open issue tagged `bug` and submit a PR.
-- **Documentation**: typos, missing examples, unclear explanations. The docs live in `docs/`.
-- **Examples**: share Docker Compose configs, label setups, or deployment patterns.
-- **Tests**: more coverage is always welcome, especially for `internal/` packages.
-- **Feature requests**: describe the problem you are trying to solve, not just the solution you want.
-
----
-
-## Architecture
-
-### Data Flow
-
-```
-Docker containers --labels--> TargetProvider (Docker/List)
-                                    |
-                                    v
-                              ProxyManager <-- config
-                                    |
-                                    v
-                              ProxyProvider (Tailscale)
-                                    |
-                                    v
-                              tsnet.Server (per-container Tailscale node)
-                                    |
-                                    v
-                              HTTP reverse proxy -> container port
-```
-
-TargetProvider watches containers, emits TargetEvent, ProxyManager creates Proxy, Proxy spins up Tailscale tsnet.Server, which reverse-proxies traffic to the container.
-
-### Key Symbols
-
-| Symbol | Type | Location | Role |
-|--------|------|----------|------|
-| `WebApp` | Struct | `cmd/server/main.go` | Root app container, owns all subsystems |
-| `InitializeApp` | Func | `cmd/server/main.go` | Bootstrap: config, logger, HTTP, health, proxy, dashboard |
-| `TargetProvider` | Interface | `internal/targetproviders/targetproviders.go` | Contract for Docker/List providers |
-| `Provider` / `ProxyInterface` | Interfaces | `internal/proxyproviders/proxyproviders.go` | Contract for Tailscale proxy provider |
-| `ProxyManager` | Struct | `internal/proxymanager/proxymanager.go` | Orchestrator: watches events, manages proxy lifecycle |
-| `Proxy` | Struct | `internal/proxymanager/proxy.go` | Per-container proxy: start/stop/status/ports |
-| `HTTPServer` | Struct | `internal/core/http.go` | HTTP mux + middleware chain |
-| `Config` (global) | Var | `internal/config/config.go` | Singleton config accessed globally |
-| `Config` (per-proxy) | Struct | `internal/model/proxyconfig.go` | Per-proxy config: hostname, ports, tailscale, dashboard |
-| `PortConfig` | Struct | `internal/model/port.go` | Port mapping: target, proxy port, TLS, redirect |
-| `Dashboard` | Struct | `internal/dashboard/dash.go` | SSE streaming dashboard |
-| `ConfigFile` | Struct | `internal/config/configfile.go` | YAML I/O with fsnotify live-reload |
-
-### TargetProvider Interface
-
-```go
-type TargetProvider interface {
-    WatchEvents(ctx context.Context, eventsChan chan TargetEvent, errChan chan error)
-    GetDefaultProxyProviderName() string
-    Close()
-    AddTarget(id string) (*model.Config, error)
-    DeleteProxy(id string) error
-}
-```
-
-Events emitted by TargetProvider:
-
-- `ActionStartProxy` - Start a new proxy for a target
-- `ActionStopProxy` - Stop the proxy for a target
-- `ActionRestartProxy` - Restart the proxy (config changed)
-- `ActionStartPort` - Start an additional port
-- `ActionStopPort` - Stop a port
-- `ActionRestartPort` - Restart a port
-
-### ProxyProvider Interface
-
-```go
-type Provider interface {
-    NewProxy(cfg *model.Config) (ProxyInterface, error)
-}
-
-type ProxyInterface interface {
-    Start(context.Context) error
-    Close() error
-    GetListener(port string) (net.Listener, error)
-    GetURL() string
-    GetAuthURL() string
-    WatchEvents() chan model.ProxyEvent
-    Whois(r *http.Request) model.Whois
-}
-```
-
----
-
-## Docker Label Reference
-
-All container labels start with `tsdproxy.`. These are defined in `internal/targetproviders/docker/consts.go`.
+All container labels start with `tsdproxy.`. Defined in `internal/targetproviders/docker/consts.go`.
 
 ### Core Labels
 
 | Label | Description |
 |-------|-------------|
-| `tsdproxy.enable` | Set to `"true"` to expose this container |
-| `tsdproxy.name` | Tailscale hostname for this container |
-| `tsdproxy.containeraccesslog` | Enable/disable access logging for this container |
-| `tsdproxy.proxyprovider` | Name of the proxy provider to use |
-| `tsdproxy.port.N` | Port configuration (N is a sequence number, e.g. `tsdproxy.port.1`) |
+| `tsdproxy.enable` | **Required**. Set to `"true"` to expose this container. |
+| `tsdproxy.name` | Tailscale hostname for this proxy. Falls back to container name. |
+| `tsdproxy.proxyprovider` | Override the proxy provider name. |
+| `tsdproxy.containeraccesslog` | Enable/disable per-proxy access logging. |
+| `tsdproxy.autodetect` | Enable IP probing fallback for target resolution. |
+| `tsdproxy.auto_restart` | Auto-restart proxy on failure (default: true). |
+| `tsdproxy.identity_headers` | Inject Tailscale identity headers into proxied requests (default: true). |
+
+### Port Labels
+
+| Label | Description |
+|-------|-------------|
+| `tsdproxy.port.<key>` | Port mapping. `<key>` is an arbitrary identifier (e.g. `1`, `web`), NOT a port number. |
+
+**Format**: `<proxy_port>/<proxy_protocol>:<target_port>/<target_protocol>[,<option>]`
+
+**Examples**:
+
+| Label value | What it does |
+|---|---|
+| `443/https:80/http` | HTTPS on 443 proxying to HTTP on port 80 |
+| `443:80` | Short form: defaults to HTTPS proxy, HTTP target |
+| `81/http->https://myservice.tailnet.ts.net` | HTTP redirect to HTTPS URL |
+| `22/tcp:22/tcp` | TCP proxy for SSH |
+| `5060/udp:5060/udp` | UDP proxy (e.g. VoIP, game server) |
+| `2222-2230/tcp:2222-2230/tcp` | Port range (expands to 9 individual ports) |
+
+**Port options** (comma-separated suffix):
+
+| Option | Description |
+|--------|-------------|
+| `no_tlsvalidate` | Skip TLS certificate validation for this port. |
+| `tailscale_funnel` | Expose this port publicly via Tailscale Funnel. |
+| `no_autodetect` | Skip IP-probing fallback for this port. |
 
 ### Tailscale Labels
 
 | Label | Description |
 |-------|-------------|
-| `tsdproxy.ephemeral` | Create ephemeral Tailscale node (removed when offline) |
-| `tsdproxy.runwebclient` | Enable Tailscale web client for this node |
-| `tsdproxy.tsnet_verbose` | Enable verbose tsnet logging |
-| `tsdproxy.authkey` | Tailscale auth key for this container |
-| `tsdproxy.authkeyfile` | Path to file containing Tailscale auth key |
-| `tsdproxy.autodetect` | Auto-detect container port |
-| `tsdproxy.tags` | Tailscale ACL tags for this node |
+| `tsdproxy.ephemeral` | Create ephemeral Tailscale node (removed when offline). |
+| `tsdproxy.runwebclient` | Enable Tailscale web client on this node. |
+| `tsdproxy.tsnet_verbose` | Enable verbose tsnet logging. |
+| `tsdproxy.authkey` | Tailscale auth key for this container. |
+| `tsdproxy.authkeyfile` | Path to file containing Tailscale auth key. |
+| `tsdproxy.tags` | Comma-separated Tailscale tags (e.g. `"tag:server,tag:prod"`). |
 
-### Legacy Labels
+### Health Check Labels
+
+| Label | Description | Bounds |
+|-------|-------------|--------|
+| `tsdproxy.health_check_enabled` | Enable backend health probing. | - |
+| `tsdproxy.health_check_interval` | Seconds between probes. | 1-86400 |
+| `tsdproxy.health_check_failures` | Consecutive failures before re-resolution. | 1-100 |
+| `tsdproxy.health_check_cooldown` | Seconds to wait between re-resolution attempts. 0 = exponential. | 0-86400 |
+
+### Rate Limiting Labels
+
+| Label | Description | Bounds |
+|-------|-------------|--------|
+| `tsdproxy.ratelimit.enabled` | Enable per-proxy rate limiting. | - |
+| `tsdproxy.ratelimit.rps` | Max requests per second. | 1-10000 |
+| `tsdproxy.ratelimit.burst` | Burst capacity (token bucket). | 1-100000 |
+
+### DNS / TLS Labels
 
 | Label | Description |
 |-------|-------------|
-| `tsdproxy.container_port` | (Legacy) Container port to proxy |
-| `tsdproxy.scheme` | (Legacy) Target scheme |
-| `tsdproxy.tlsvalidate` | (Legacy) TLS certificate validation |
-| `tsdproxy.funnel` | (Legacy) Enable Tailscale Funnel |
+| `tsdproxy.domain` | FQDN for this proxy. Required for external DNS, ACME, and shared Tailscale mode. |
+| `tsdproxy.dnsprovider` | Override DNS provider (e.g. `cloudflare`, `magicdns`). |
+| `tsdproxy.tlsprovider` | Override TLS provider (e.g. `acme`, `tailscale`). |
 
 ### Dashboard Labels
 
 | Label | Description |
 |-------|-------------|
-| `tsdproxy.dash.visible` | Show/hide this proxy on the dashboard |
-| `tsdproxy.dash.label` | Display label for the dashboard card |
-| `tsdproxy.dash.icon` | Icon name for the dashboard card |
+| `tsdproxy.dash.visible` | Show/hide this proxy on the dashboard (default: true). |
+| `tsdproxy.dash.label` | Display name for the dashboard card. |
+| `tsdproxy.dash.icon` | Icon identifier (default: `tsdproxy`). |
+| `tsdproxy.dash.category` | Grouping category for the card. |
 
-### Port Label Format
+### Legacy Labels
 
-Port labels use the format `tsdproxy.port.N` where N is an arbitrary sequence number. The value follows one of these formats:
-
-1. **Full format**: `<proxy_port>/<proxy_protocol>:<target_port>/<target_protocol>`
-   - Example: `"443/https:80/http"` - HTTPS on 443 proxying to HTTP on port 80
-
-2. **Short format**: `<proxy_port>:<target_port>`
-   - Example: `"443:80"` - defaults to HTTPS proxy, HTTP target
-
-3. **Redirect format**: `<proxy_port>/<proxy_protocol>-><target_url>`
-   - Example: `"81/http->https://myservice.tailnet.ts.net"` - HTTP redirect to HTTPS
-
-4. **TCP format**: `<proxy_port>/tcp:<target_port>/tcp`
-   - Example: `"22/tcp:22/tcp"` - TCP proxy for SSH
-
-### Port Options
-
-The following options can be appended to port configuration (checked in consts.go):
-
-| Option | Description |
-|--------|-------------|
-| `no_tlsvalidate` | Skip TLS certificate validation |
-| `tailscale_funnel` | Expose this port via Tailscale Funnel (public internet) |
-| `no_autodetect` | Disable automatic port detection |
+| Label | Description |
+|-------|-------------|
+| `tsdproxy.container_port` | (Legacy) Single port mapping. Use `tsdproxy.port.*` instead. |
+| `tsdproxy.scheme` | (Legacy) Target scheme. Use port format instead. |
+| `tsdproxy.tlsvalidate` | (Legacy) TLS validation toggle. Use `no_tlsvalidate` port option instead. |
+| `tsdproxy.funnel` | (Legacy) Funnel toggle. Use `tailscale_funnel` port option instead. |
 
 ---
 
-## Configuration Reference
+## List Provider (Non-Docker Services)
 
-### Global Configuration (tsdproxy.yaml)
+Expose services not running in Docker: bare-metal apps, VMs, remote hosts, or anything with a URL.
 
-The main config file is loaded from `/config/tsdproxy.yaml` by default (configurable via `-config` flag). It is watched for changes and live-reloaded without restart.
+### Setup
+
+1. Reference the YAML file in `tsdproxy.yaml`:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+files:
+  critical:
+    filename: /config/critical.yaml
+    defaultProxyProvider: default
+    defaultProxyAccessLog: true
+    # Same health/rate-limit options as Docker providers
+```
+
+2. Define proxies in the list file:
+
+```yaml {filename="/config/critical.yaml"}
+nas1:
+  ports:
+    443/https:
+      targets:
+        - http://nas1.local:5001
+    80/http:
+      targets:
+        - nas1.funny-name.ts.net
+      isRedirect: true
+
+host-ssh:
+  ports:
+    22/tcp:
+      targets:
+        - tcp://192.168.1.10:22
+
+neko:
+  ports:
+    443/https:
+      targets:
+        - http://192.168.1.10:8080
+    56000-56002/udp:
+      targets:
+        - udp://192.168.1.10:56000
+```
+
+### Per-Proxy Options in List File
+
+```yaml {filename="/config/filename.yaml"}
+proxyname:
+  proxyProvider: default              # optional: override proxy provider
+  domain: myapp.example.com           # optional: custom FQDN (requires external DNS + TLS)
+  dnsProvider: cloudflare             # optional: override DNS provider
+  tlsProvider: acme                   # optional: override TLS provider
+  tailscale:                          # optional
+    authKey: ""                       # per-proxy auth key
+    ephemeral: false                  # ephemeral mode
+    runWebClient: false               # Tailscale web client
+    verbose: false                    # tsnet verbose
+    tags: "tag:example"               # ACL tags
+  ports:
+    port/protocol:                    # e.g. 443/https, 80/http, 22/tcp, 56000-56002/udp
+      targets:
+        - http://host:port            # target URL
+      isRedirect: false               # optional: redirect instead of proxy
+      tlsValidate: true              # optional: validate target TLS cert
+      tailscale:                      # optional
+        funnel: false                 # enable Tailscale Funnel
+  dashboard:                          # optional
+    visible: true                     # show on dashboard
+    label: ""                         # display name
+    icon: ""                          # icon name
+    category: ""                      # grouping category
+```
+
+Changes to the list file are detected and applied live. No restart needed.
+
+---
+
+## Tailscale Deployment Modes
+
+TSDProxy supports three Tailscale deployment modes, configured per provider in `tsdproxy.yaml`:
+
+### Per-Proxy (default)
+
+Each service gets its own Tailscale machine. Simplest setup. DNS via MagicDNS, TLS via Tailscale certs.
 
 ```yaml
-# Default proxy provider name
-defaultproxyprovider: default
-
-# Docker target providers
-docker:
-  local:                              # name of the docker provider
-    host: unix:///var/run/docker.sock # Docker socket or daemon URL
-    targethostname: 172.31.0.1        # hostname or IP of Docker server
-    defaultproxyprovider: default     # proxy provider to use
-    tryDockerInternalNetwork: false   # try Docker's internal network
-
-# List (file) target providers
-files:
-  file1:
-    filename: /config/file1.yaml
-    defaultproxyprovider: default
-    defaultproxyaccesslog: true
-
-# Tailscale proxy providers
 tailscale:
   providers:
-    default:                                       # name of the provider
-      authkey: your-authkey                        # auth key
-      authkeyfile: "/run/secrets/authkey"          # load auth key from file (overrides authkey)
-      clientid: ""                                 # OAuth client ID
-      clientsecret: ""                             # OAuth client secret
-      tags: ""                                     # ACL tags
-      controlurl: https://controlplane.tailscale.com  # control plane URL
-      preventduplicates: false                     # prevent duplicate machines
-  datadir: /data/                                  # Tailscale data directory
-
-# HTTP server
-http:
-  hostname: 0.0.0.0
-  port: 8080
-
-# Logging
-log:
-  level: info     # debug, info, warn, error, fatal, panic, trace
-  json: false     # enable JSON logging
-
-# Global proxy access log
-proxyaccesslog: true
+    default:
+      authkey: tskey-auth-xxx
 ```
 
-### Per-Proxy Configuration (Config struct)
+### Shared SNI
 
-Each proxy gets its own configuration derived from labels and defaults:
+Multiple services share one Tailscale machine. Each service gets a custom domain routed via TLS SNI. Requires external DNS (e.g. Cloudflare) and ACME TLS.
 
-```go
-type Config struct {
-    Ports          PortConfigList  // Port configurations
-    TargetProvider string          // Name of the target provider
-    TargetID       string          // Target identifier
-    ProxyProvider  string          // Name of the proxy provider
-    Hostname       string          // Tailscale hostname
-    Dashboard      Dashboard       // Dashboard display options
-    Tailscale      Tailscale       // Tailscale-specific settings
-    ProxyAccessLog bool            // Enable access logging (default: true)
-}
+```yaml
+tailscale:
+  providers:
+    shared:
+      authkey: tskey-auth-xxx
+      shared: true
+      hostname: shared-node          # required: hostname for the shared machine
 
-type Tailscale struct {
-    Tags         string // ACL tags
-    AuthKey      string // Auth key
-    Ephemeral    bool   // Ephemeral node (default: false)
-    RunWebClient bool   // Enable web client (default: false)
-    Verbose      bool   // Verbose logging (default: false)
-}
+dnsProviders:
+  cloudflare:
+    provider: cloudflare
+    apiToken: your-cloudflare-token
 
-type Dashboard struct {
-    Label   string // Display label
-    Icon    string // Icon name (default: "tsdproxy")
-    Visible bool   // Show on dashboard (default: true)
-}
+tlsProviders:
+  acme:
+    provider: acme
+    email: you@example.com
+
+defaultDNSProvider: cloudflare
+defaultTLSProvider: acme
 ```
 
-### Port Configuration (PortConfig struct)
+Each service requires `tsdproxy.domain` to route SNI correctly. Only HTTPS ports supported for multi-domain routing.
 
-```go
-type PortConfig struct {
-    ProxyProtocol string         // Protocol: http, https, tcp
-    ProxyPort     int            // Port on the Tailscale side (default: 443)
-    TLSValidate   bool           // Validate TLS certificates (default: true)
-    NoAutoDetect  bool           // Disable auto port detection
-    IsRedirect    bool           // This port redirects to another URL
-    Tailscale     TailscalePort  // Tailscale-specific port options
-}
+### Services (VIP)
 
-type TailscalePort struct {
-    Funnel bool  // Expose via Tailscale Funnel (default: false)
-}
+Multiple services share one Tailscale machine using Tailscale VIP Services. Each service gets an auto-assigned FQDN from Tailscale. No custom domain support. No UDP support.
+
+```yaml
+tailscale:
+  providers:
+    services:
+      clientId: your-oauth-client-id       # requires OAuth
+      clientSecret: your-oauth-secret
+      services: true
+      hostname: services-node              # required
+      autoApproveDevices: true             # optional: auto-approve device registration
 ```
 
-### Default Values
+---
 
-| Constant | Default |
-|----------|---------|
-| `DefaultProxyAccessLog` | `true` |
-| `DefaultProxyProvider` | `""` (uses global default) |
-| `DefaultTLSValidate` | `true` |
-| `DefaultTailscaleEphemeral` | `false` |
-| `DefaultTailscaleRunWebClient` | `false` |
-| `DefaultTailscaleVerbose` | `false` |
-| `DefaultTailscaleFunnel` | `false` |
-| `DefaultDashboardVisible` | `true` |
-| `DefaultDashboardIcon` | `"tsdproxy"` |
-| `DefaultTargetScheme` (Docker) | `"http"` |
+## DNS Providers
 
-### HTTP Configuration
+DNS providers manage the hostname resolution for proxies using custom domains.
 
-```go
-type HTTPConfig struct {
-    Hostname string  // Bind address (default: "0.0.0.0")
-    Port     uint16  // Bind port (default: 8080, range: 1-65535)
-}
+### MagicDNS (default, no config needed)
+
+Tailscale's built-in DNS. Handles `.ts.net` domains automatically. No-op for create/delete (MagicDNS is automatic). Used by default in per-proxy mode.
+
+### Cloudflare (custom domains)
+
+For custom domains (e.g. `myapp.example.com`), configure Cloudflare DNS:
+
+```yaml
+dnsProviders:
+  cloudflare:
+    provider: cloudflare
+    apiToken: your-cloudflare-api-token
+    # OR load from file:
+    # apiTokenFile: /run/secrets/cloudflare-token
 ```
 
-### Docker Target Provider Configuration
+Requires a DNS provider for ACME TLS DNS-01 challenges.
 
-```go
-type DockerTargetProviderConfig struct {
-    Host                     string // Docker daemon URL (default: "unix:///var/run/docker.sock")
-    TargetHostname           string // IP/hostname of Docker host (default: "172.31.0.1")
-    DefaultProxyProvider     string // Override proxy provider for this Docker host
-    TryDockerInternalNetwork bool   // Use Docker internal networking (default: false)
-}
+---
+
+## TLS Providers
+
+TLS providers manage certificate provisioning for proxies.
+
+### Tailscale (default, no config needed)
+
+Tailscale's built-in ACME. Provisions Let's Encrypt certs automatically. No configuration needed. Used by default in per-proxy mode.
+
+### ACME / Let's Encrypt (custom domains)
+
+For custom domains, configure ACME TLS:
+
+```yaml
+tlsProviders:
+  acme:
+    provider: acme
+    email: you@example.com
+    ca: https://acme-v02.api.letsencrypt.org/directory    # default
+    certStorage: /data/certs                               # optional
 ```
 
-### List Target Provider Configuration
+Requires a DNS provider (Cloudflare) for DNS-01 challenges.
 
-```go
-type ListTargetProviderConfig struct {
-    Filename              string // Path to the YAML file with proxy definitions
-    DefaultProxyProvider  string // Override proxy provider
-    DefaultProxyAccessLog bool   // Default access log setting (default: true)
-}
+---
+
+## Health Monitoring
+
+TSDProxy has two layers of health checking.
+
+### Server Health Endpoint
+
+```
+GET /health/ready/    -> 200 {"status":"OK"} or 503 {"status":"NOK"}
+GET /health/live/     -> 200 {"status":"OK"}
 ```
 
-### Tailscale Proxy Provider Configuration
+The Docker image includes a HEALTHCHECK that calls `/health/ready/` automatically.
 
-```go
-type TailscaleProxyProviderConfig struct {
-    Providers map[string]*TailscaleServerConfig  // Named provider configs
-    DataDir   string                              // Data directory (default: "/data/")
-}
-
-type TailscaleServerConfig struct {
-    AuthKey           string // Auth key string
-    AuthKeyFile       string // Path to auth key file (overrides AuthKey)
-    ClientID          string // OAuth client ID
-    ClientSecret      string // OAuth client secret
-    Tags              string // ACL tags
-    ControlURL        string // Control plane URL (default: "https://controlplane.tailscale.com")
-    PreventDuplicates bool   // Prevent duplicate machines (default: false)
-}
+```bash
+curl -f http://tsdproxy:8080/health/ready/
 ```
 
-### Logging Configuration
+### Backend Health Monitoring
 
-```go
-type LogConfig struct {
-    Level string // Log level: debug, info, warn, error, fatal, panic, trace (default: "info")
-    JSON  bool   // JSON formatted logs (default: false)
-}
+TSDProxy continuously probes each proxy's backend target. When a container restarts and gets a new IP, TSDProxy detects the failure and **automatically re-resolves the target** without proxy restart or Tailscale teardown.
+
+**How it works**: HTTP/HTTPS targets checked with GET request, TCP targets with connection attempt, UDP targets with probe packet. On consecutive failures reaching the threshold, target resolution re-runs. If the resolved target differs, it's hot-swapped in place.
+
+**Backoff** (default settings: 30s interval, 3 failures, 0 cooldown):
+
+| Re-resolution attempt | Delay |
+|---|---|
+| 1st | ~90s (3 x 30s failures) |
+| 2nd | 30s |
+| 3rd | 60s |
+| 4th | 2min |
+| 5th+ | 4min, 8min, 16min... capped at 24h |
+
+A successful health check resets all counters. Use `healthCheckCooldown` for fixed interval instead of exponential.
+
+**Configuration** (per-provider in `tsdproxy.yaml` or per-container via labels):
+
+| Setting | YAML key | Docker label | Default |
+|---------|----------|-------------|---------|
+| Enable probes | `healthCheckEnabled` | `tsdproxy.health_check_enabled` | `true` |
+| Re-resolve on failure | `autoRestart` | `tsdproxy.auto_restart` | `true` |
+| Probe interval (sec) | `healthCheckInterval` | `tsdproxy.health_check_interval` | `30` |
+| Failure threshold | `healthCheckFailures` | `tsdproxy.health_check_failures` | `3` |
+| Cooldown (sec, 0=exp) | `healthCheckCooldown` | `tsdproxy.health_check_cooldown` | `0` |
+
+---
+
+## Webhooks
+
+Send alerts when proxies change status.
+
+### Configuration
+
+```yaml {filename="/config/tsdproxy.yaml"}
+webhooks:
+  - url: "https://ntfy.sh/your-topic"
+    type: ntfy                         # ntfy | gotify | discord | slack | generic
+    events:                            # optional: filter by event (omit = all events)
+      - Running
+      - Stopped
+      - Error
+    headers:                           # optional custom HTTP headers
+      Authorization: "Bearer token123"
+      Priority: "high"                 # ntfy-specific
 ```
+
+### Available Events
+
+| Event | Meaning |
+|-------|---------|
+| `Initializing` | Proxy is being created |
+| `Starting` | Tailscale node is starting up |
+| `Authenticating` | Waiting for Tailscale authentication |
+| `Running` | Proxy is up and serving traffic |
+| `Stopping` | Proxy is shutting down |
+| `Stopped` | Proxy has been stopped |
+| `Error` | Proxy encountered an error |
+| `Paused` | Proxy is paused |
+
+Event names are case-insensitive. If `events` is omitted, all status changes are sent.
+
+### Provider Types
+
+| Type | URL format | Notes |
+|------|-----------|-------|
+| `ntfy` | `https://ntfy.sh/topic` | Plain text body. Supports Title, Priority, Tags headers. |
+| `gotify` | `https://gotify.example.com/message?token=xxx` | Self-hosted notification server. |
+| `discord` | `https://discord.com/api/webhooks/xxx/xxx` | Rich embeds with color-coded status. |
+| `slack` | `https://hooks.slack.com/services/xxx` | Block Kit formatted messages. |
+| `generic` | Any URL | JSON payload with proxy name, status, previous status. |
+
+### Multiple Webhooks
+
+```yaml
+webhooks:
+  - url: "https://ntfy.sh/alerts"
+    type: ntfy
+    events: [Running, Error, Stopped]
+
+  - url: "https://discord.com/api/webhooks/123/abc"
+    type: discord
+    events: [Error]
+```
+
+### Testing
+
+```bash
+curl -X POST http://localhost:8080/api/webhook/test \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+Sends a test event (proxy name `test-proxy`, status `Running`, previous `Stopped`) to all configured webhooks.
+
+---
+
+## REST API
+
+TSDProxy exposes a REST API on the same HTTP server as the dashboard (port 8080 by default). All endpoints return JSON.
+
+### Authentication
+
+| Method | How | Access level |
+|--------|-----|-------------|
+| Tailscale identity | Automatic for connections through Tailscale. Admin if user ID in `admins` list. | Viewer or Admin |
+| API key | `Authorization: Bearer <key>` header. | Full admin |
+| Localhost | Requests from `127.0.0.0/8` when `adminAllowLocalhost: true`. | Admin (bootstrap) |
+
+### Proxy Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/v1/proxies` | viewer | List all visible proxies with status, health, ports. |
+| GET | `/api/v1/proxies/{name}` | viewer | Get a single proxy. |
+| GET | `/api/v1/proxies/{name}/ports` | viewer | Get port configuration for a proxy. |
+
+### Admin Actions
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/proxy/{name}/restart` | Stop and re-create the proxy. |
+| POST | `/api/proxy/{name}/pause` | Close port listeners, keep Tailscale node alive. |
+| POST | `/api/proxy/{name}/resume` | Reopen port listeners on a paused proxy. |
+| POST | `/api/proxy/{name}/reauth` | Trigger Tailscale re-authentication (alias for restart). |
+| POST | `/api/webhook/test` | Send a test event to all configured webhooks. |
+
+All admin actions return `{"status":"ok"}` on success.
+
+### Dashboard Endpoints
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/dashboard/pin/{name}` | viewer | Toggle proxy pin (pinned appear at top). |
+| PUT | `/api/dashboard/preferences` | viewer | Save user preferences (dark, view, sort, filters, pinned). |
+
+### Health and Version
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/health` | viewer | Aggregated health summary (total, running, stopped, error, paused, unhealthy). |
+| GET | `/api/version` | viewer | Build info (version, author, isDirty). |
+| GET | `/api/whoami` | viewer | Current caller's Tailscale identity. |
+| GET | `/metrics` | admin | Prometheus metrics endpoint. |
+
+### Examples
+
+```bash
+# List all proxies
+curl http://localhost:8080/api/v1/proxies \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# Pause a proxy
+curl -X POST http://localhost:8080/api/proxy/myapp/pause \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# Get health summary
+curl http://localhost:8080/api/health
+
+# Test webhooks
+curl -X POST http://localhost:8080/api/webhook/test \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### SSE Streams
+
+The dashboard UI uses Server-Sent Events for real-time updates:
+
+| Endpoint | Description |
+|---|---|
+| `GET /stream` | Proxy status stream (htmx SSE). |
+| `GET /stream/{name}/logs` | Per-proxy access log stream (admin only). |
+
+---
+
+## Dashboard
+
+Real-time web UI at `http://localhost:8080` with SSE streaming.
+
+**Features**: Proxy cards with status, health, ports, and access logs. Sorting (name/status/health/provider), filtering (by status and health), grouping (by category). Dark mode. Pinned proxies. Keyboard navigation (j/k to move, i for info, Enter for modal, Esc to close, / for search).
+
+**Preferences** are persisted per Tailscale user at `{DataDir}/dashboard/preferences/{userID}.json`.
+
+**Proxy actions** (admin only): restart, pause, resume, re-authenticate. Available via card buttons or REST API.
+
+---
+
+## Security
+
+### Role-Based Access
+
+| Role | Access |
+|------|--------|
+| Viewer | Dashboard, proxy list, SSE streams, preferences, pin toggle |
+| Admin | All viewer actions plus proxy actions (restart/pause/resume/reauth), log streams, webhooks test, metrics |
+
+### Admin Allowlist
+
+Configure which Tailscale users have admin access:
+
+```yaml
+admins:                              # list of Tailscale user IDs
+  - "12345"                          # find your ID via: curl http://localhost:8080/api/whoami
+adminAllowLocalhost: false           # allow localhost admin access (bootstrap only)
+```
+
+### API Key
+
+For programmatic access (CI/CD, monitoring scripts):
+
+```yaml
+apiKey: "your-secret-api-key"
+# OR load from file:
+# apiKeyFile: /run/secrets/api-key
+```
+
+API keys grant full admin access. Use `Authorization: Bearer <key>` header.
+
+### Tailscale Funnel
+
+Expose services to the public internet (no Tailscale login required by visitors):
+
+```yaml
+# Per-port via Docker label:
+tsdproxy.port.1: "443/https:80/http,tailscale_funnel"
+
+# Per-port via List provider YAML:
+ports:
+  443/https:
+    targets:
+      - http://localhost:8080
+    tailscale:
+      funnel: true
+```
+
+Funnel must be explicitly allowed in the provider config: `allowContainerFunnel: true`.
+
+### Identity Headers
+
+TSDProxy injects Tailscale identity headers into proxied requests (controllable via `tsdproxy.identity_headers` label). These headers are stripped from unauthenticated requests to prevent spoofing.
 
 ---
 
 ## Example Configurations
 
-### Basic Docker Compose with Auth Key
+### Basic Docker with Auth Key
 
 ```yaml
 services:
@@ -583,7 +805,7 @@ volumes:
   tsdproxy-data:
 ```
 
-### Multi-Port Service
+### Multi-Port with TCP and UDP
 
 ```yaml
 services:
@@ -592,72 +814,144 @@ services:
     labels:
       tsdproxy.enable: "true"
       tsdproxy.name: "myservice"
-      # Main web interface
       tsdproxy.port.1: "443/https:8080/http"
-      # API endpoint on different port
       tsdproxy.port.2: "8443/https:9090/http"
-      # SSH access via TCP
       tsdproxy.port.3: "2222/tcp:22/tcp"
-      # Redirect HTTP to HTTPS
-      tsdproxy.port.4: "80/http->https://myservice.tailnet.ts.net"
+      tsdproxy.port.4: "5060/udp:5060/udp"
+      tsdproxy.port.5: "2222-2230/tcp:2222-2230/tcp"
+      tsdproxy.port.6: "80/http->https://myservice.tailnet.ts.net"
 ```
 
-### TCP Proxy for Database
+### Health Check and Rate Limit via Labels
 
 ```yaml
 services:
-  tsdproxy:
-    image: almeidapaulopt/tsdproxy:2
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - tsdproxy-data:/data
-      - ./config:/config
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_PASSWORD: secret
+  api:
+    image: myapi:latest
     labels:
       tsdproxy.enable: "true"
-      tsdproxy.name: "postgres"
-      tsdproxy.port.1: "5432/tcp:5432/tcp"
+      tsdproxy.name: "api"
+      tsdproxy.port.1: "443/https:3000/http"
+      tsdproxy.health_check_enabled: "true"
+      tsdproxy.health_check_interval: "15"
+      tsdproxy.health_check_failures: "5"
+      tsdproxy.health_check_cooldown: "60"
+      tsdproxy.ratelimit.enabled: "true"
+      tsdproxy.ratelimit.rps: "50"
+      tsdproxy.ratelimit.burst: "100"
+      tsdproxy.dash.category: "Production"
+      tsdproxy.dash.icon: "sh/api"
 ```
 
-### List Provider (YAML file)
+### Custom Domain with Cloudflare DNS and ACME TLS
 
-The List provider exposes services that aren't running in Docker. Define proxies in a separate YAML file:
+```yaml {filename="/config/tsdproxy.yaml"}
+dnsProviders:
+  cloudflare:
+    provider: cloudflare
+    apiTokenFile: /run/secrets/cloudflare-token
 
-```yaml
-# /config/services.yaml
-my-local-app:
-  ports:
-    "443/https":
-      targets:
-        - "http://localhost:3000"
+tlsProviders:
+  acme:
+    provider: acme
+    email: admin@example.com
 
-home-assistant:
-  ports:
-    "443/https":
-      targets:
-        - "http://192.168.1.100:8123"
-    "80/http":
-      isRedirect: true
-      targets:
-        - "https://home-assistant.tailnet.ts.net"
+defaultDNSProvider: cloudflare
+defaultTLSProvider: acme
 ```
 
-Reference it in `tsdproxy.yaml`:
+```yaml
+services:
+  public-app:
+    image: myapp:latest
+    labels:
+      tsdproxy.enable: "true"
+      tsdproxy.name: "public-app"
+      tsdproxy.domain: "app.example.com"
+      tsdproxy.port.1: "443/https:8080/http"
+```
+
+### Shared Tailscale Mode
+
+Multiple services on one Tailscale machine with custom domains:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+tailscale:
+  providers:
+    shared:
+      authkey: tskey-auth-xxx
+      shared: true
+      hostname: shared-node
+
+dnsProviders:
+  cloudflare:
+    provider: cloudflare
+    apiToken: your-token
+
+tlsProviders:
+  acme:
+    provider: acme
+    email: you@example.com
+
+defaultDNSProvider: cloudflare
+defaultTLSProvider: acme
+```
 
 ```yaml
+services:
+  app1:
+    labels:
+      tsdproxy.enable: "true"
+      tsdproxy.name: "app1"
+      tsdproxy.domain: "app1.example.com"
+      tsdproxy.proxyprovider: "shared"
+
+  app2:
+    labels:
+      tsdproxy.enable: "true"
+      tsdproxy.name: "app2"
+      tsdproxy.domain: "app2.example.com"
+      tsdproxy.proxyprovider: "shared"
+```
+
+### List Provider with Webhooks
+
+```yaml {filename="/config/tsdproxy.yaml"}
 files:
   services:
     filename: /config/services.yaml
+
+webhooks:
+  - url: "https://ntfy.sh/tsdproxy-alerts"
+    type: ntfy
+    events: [Running, Error, Stopped]
+  - url: "https://discord.com/api/webhooks/123/abc"
+    type: discord
+    events: [Error]
 ```
 
-### Tailscale Funnel (Public Internet Access)
+```yaml {filename="/config/services.yaml"}
+home-assistant:
+  ports:
+    443/https:
+      targets:
+        - http://192.168.1.100:8123
+    80/http:
+      targets:
+        - https://home-assistant.tailnet.ts.net
+      isRedirect: true
+
+media-server:
+  ports:
+    443/https:
+      targets:
+        - http://192.168.1.100:8096
+  dashboard:
+    category: "Media"
+    icon: "sh/jellyfin"
+```
+
+### Tailscale Funnel (Public Internet)
 
 ```yaml
 services:
@@ -666,28 +960,55 @@ services:
     labels:
       tsdproxy.enable: "true"
       tsdproxy.name: "public-api"
-      tsdproxy.port.1: "443/https:8080/http tailscale_funnel"
+      tsdproxy.port.1: "443/https:8080/http,tailscale_funnel"
 ```
 
-The `tailscale_funnel` option exposes the service publicly through Tailscale's Funnel feature.
+Requires `allowContainerFunnel: true` in the Docker provider config.
 
 ---
 
-## Conventions and Notes
+## Troubleshooting
 
-- **SPDX headers required**: Every `.go` file must have `SPDX-FileCopyrightText` and `SPDX-License-Identifier: MIT`. Enforced by golangci-lint.
-- **Global config singleton**: `config.Config` is a package-level var set during init, accessed everywhere.
-- **Provider pattern**: Target providers (source of containers) and proxy providers (Tailscale) are pluggable via interfaces.
-- **Zero-value defaults**: `github.com/creasty/defaults` for struct defaults.
-- **Error wrapping**: Use `fmt.Errorf("context: %w", err)` consistently.
-- **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context.
-- **Unit tests**: Co-located `*_test.go` files, run with `go test ./...`.
-- **E2E tests**: Build tag `//go:build e2e`, run with `go test -tags=e2e ./e2e/`. Requires `TSDPROXY_E2E_AUTHKEY` or `TSDPROXY_E2E_AUTHKEY_FILE`.
-- **Frontend build**: `web/` uses Bun + Vite. Output goes to `web/dist/`, embedded in binary via `statigz` + brotli.
-- **UI framework**: `templ` for server-rendered components. `datastar` for client-side SSE DOM merging.
-- **Config live-reload**: `internal/config/configfile.go` uses fsnotify to watch config file changes.
-- **Health check**: Separate `healthcheck` binary pings `http://127.0.0.1:8080/health/ready/`, used as Docker HEALTHCHECK.
-- **Docker labels**: All container labels start with `tsdproxy.` (see `internal/targetproviders/docker/consts.go`).
-- **Docs site**: Hugo docs site at `docs/` is an independent Go module.
-- **Config case sensitivity**: YAML config keys are case-sensitive.
-- **Version embedding**: Build ldflags inject `AppVersion`, `BuildDate`, `GitCommit`, `GitTreeState`, `GoVersion` into `internal/core` vars.
+### Log Levels
+
+```yaml
+log:
+  level: debug    # debug | info | warn | error | fatal | panic | trace
+  json: false     # set true for structured JSON logs
+```
+
+Use `debug` or `trace` when diagnosing connectivity, auth, or port resolution issues.
+
+### Health Endpoints
+
+```bash
+# Is TSDProxy ready?
+curl http://localhost:8080/health/ready/
+
+# Is it alive?
+curl http://localhost:8080/health/live/
+
+# Aggregated proxy health
+curl http://localhost:8080/api/health
+```
+
+### Common Issues
+
+**Proxy stuck on "Authenticating"**: The Tailscale node needs auth. Either set `authkey`/`authkeyfile` in config, or open the dashboard and click the proxy card to get the auth URL.
+
+**Container not appearing**: Verify the container has `tsdproxy.enable=true` label and TSDProxy can reach the Docker socket (`/var/run/docker.sock`).
+
+**Port resolution fails**: TSDProxy tries 5 strategies to find the container: self-host detection, IP probing, published port, network gateway, container IP. For host-network containers, only the first 3 apply. Set `tsdproxy.autodetect: "false"` to skip slow probing.
+
+**Custom domain not working**: Ensure `dnsProvider` and `tlsProvider` are configured. DNS record creation and validation can take seconds to minutes. Check logs for DNS propagation errors.
+
+**Cert rate limits**: If `cleanupTLS: false`, TLS certs persist across restarts to avoid Let's Encrypt rate limits. Only set `cleanupTLS: true` if you want full cleanup on every proxy stop.
+
+**Shared mode rejects TCP/HTTP ports**: Shared SNI mode only supports HTTPS for multi-domain routing. TCP gets a direct listener (one domain per port). Use per-proxy mode for TCP/HTTP multi-domain.
+
+### Useful Links
+
+- [Full Documentation](https://almeidapaulopt.github.io/tsdproxy/docs/)
+- [Troubleshooting Guide](https://almeidapaulopt.github.io/tsdproxy/docs/troubleshooting/)
+- [FAQ](https://almeidapaulopt.github.io/tsdproxy/docs/faq/)
+- [GitHub Issues](https://github.com/almeidapaulopt/tsdproxy/issues)
