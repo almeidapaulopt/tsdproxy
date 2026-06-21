@@ -811,35 +811,112 @@ func closeAllClients(clientMap map[string]*clientEntry, mapMtx *sync.Mutex) {
 	mapMtx.Unlock()
 }
 
-// getOrCreateBackendConn returns an existing or new backend UDP connection for the client.
-// Caller must NOT hold mapMtx.
+// getOrCreateBackendConn returns an existing or new backend UDP connection for
+// the client.
+//
+// The slow operations (target resolution + UDP dial) happen OUTSIDE the
+// per-port clientMap mutex to avoid head-of-line blocking: when target.Host
+// is a hostname rather than a raw IP, the DNS lookup can take noticeable time,
+// and holding the lock across it would also block concurrent udpPort.close()
+// (closeAllClients) and relayBackendToClient's deferred map mutation for other
+// clients.
+//
+// Three-phase pattern:
+//
+//  1. Fast path (under lock): return existing entry if present.
+//  2. Resolve + dial (no lock): slow operations allowed to race with other
+//     map users.
+//  3. Install (under lock): double-check no concurrent winner, then create
+//     entry, run rate-limit accounting, evict if needed, start relay goroutine.
+//
+// Caller must NOT hold mapMtx. The function internally releases and
+// re-acquires the lock.
 func (p *udpPort) getOrCreateBackendConn(
 	clientAddr net.Addr,
 	clientMap map[string]*clientEntry,
 	mapMtx *sync.Mutex,
 	pc net.PacketConn,
 ) (*net.UDPConn, error) {
-	mapMtx.Lock()
-	defer mapMtx.Unlock()
-
 	key := clientAddr.String()
-	if entry, ok := clientMap[key]; ok {
+
+	// Phase 1: fast path — return existing entry under the lock.
+	mapMtx.Lock()
+	if entry, ok := clientMap[key]; ok && entry.conn != nil {
 		entry.lastSeen = time.Now()
 		if !entry.limiter.Allow() {
+			mapMtx.Unlock()
 			p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
 			return nil, errRateLimited
 		}
+		mapMtx.Unlock()
 		return entry.conn, nil
+	}
+	mapMtx.Unlock()
+
+	// Phase 2: resolve target and dial backend WITHOUT holding the lock.
+	// target.Host may require DNS resolution; net.DialUDP may block on the
+	// OS resolver. Re-resolving per new client lets target re-resolution
+	// take effect without restarting the port.
+	target := p.pconfig.GetFirstTarget()
+	if target == nil || target.Host == "" {
+		return nil, errors.New("no target configured for UDP port")
+	}
+
+	backendAddr, err := net.ResolveUDPAddr(model.ProtoUDP, target.Host)
+	if err != nil {
+		return nil, fmt.Errorf("error resolving backend UDP address: %w", err)
+	}
+
+	conn, err := net.DialUDP(model.ProtoUDP, nil, backendAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Phase 3: install under the lock with a double-check.
+	mapMtx.Lock()
+	defer mapMtx.Unlock()
+
+	// If the port is shutting down (closeAllClients ran between Phase 2 and
+	// Phase 3, or udpPort.close() was called), do not install a new entry —
+	// its relay goroutine would never be observed by a subsequent close and
+	// the conn would leak.
+	if p.ctx.Err() != nil {
+		conn.Close()
+		return nil, errors.New("udp port closed during backend dial")
+	}
+
+	// Defensive double-check: if another caller installed an entry for the
+	// same key while we were dialing, close our loser conn and return the
+	// existing one. In production relayPackets is single-threaded per port,
+	// so this branch is unreachable today; the check is cheap insurance
+	// against future callers and against the close-race window above.
+	if existing, ok := clientMap[key]; ok && existing.conn != nil {
+		existing.lastSeen = time.Now()
+		if !existing.limiter.Allow() {
+			p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
+			conn.Close()
+			return nil, errRateLimited
+		}
+		conn.Close()
+		return existing.conn, nil
 	}
 
 	entry := &clientEntry{
+		conn:     conn,
 		lastSeen: time.Now(),
 		limiter:  rate.NewLimiter(udpPerSourceRate, udpPerSourceBurst),
 	}
 	clientMap[key] = entry
 
 	if !entry.limiter.Allow() {
+		// Defensive: with udpPerSourceBurst=1000 the first Allow() always
+		// succeeds, so this branch is currently unreachable. Keep the conn
+		// cleanup consistent with the Phase-3 double-check path (line 900)
+		// so a future constants tweak can't introduce a socket leak — the
+		// relay goroutine that would otherwise close this conn hasn't been
+		// started yet.
 		p.log.Debug().Str("client", clientAddr.String()).Msg("UDP packet rate limited")
+		conn.Close()
 		delete(clientMap, key)
 		p.updateClientMetric(len(clientMap))
 		return nil, errRateLimited
@@ -849,29 +926,6 @@ func (p *udpPort) getOrCreateBackendConn(
 		evictOldestClient(clientMap)
 	}
 
-	// Resolve target for each new client connection so re-resolution takes effect.
-	target := p.pconfig.GetFirstTarget()
-	if target == nil || target.Host == "" {
-		delete(clientMap, key)
-		p.updateClientMetric(len(clientMap))
-		return nil, errors.New("no target configured for UDP port")
-	}
-
-	backendAddr, err := net.ResolveUDPAddr(model.ProtoUDP, target.Host)
-	if err != nil {
-		delete(clientMap, key)
-		p.updateClientMetric(len(clientMap))
-		return nil, fmt.Errorf("error resolving backend UDP address: %w", err)
-	}
-
-	conn, err := net.DialUDP(model.ProtoUDP, nil, backendAddr)
-	if err != nil {
-		delete(clientMap, key)
-		p.updateClientMetric(len(clientMap))
-		return nil, err
-	}
-
-	entry.conn = conn
 	p.updateClientMetric(len(clientMap))
 
 	p.wg.Add(1)

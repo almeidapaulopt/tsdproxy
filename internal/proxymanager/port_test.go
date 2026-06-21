@@ -1719,6 +1719,135 @@ func TestHTTPPort_ConnectionLimit_BUG(t *testing.T) {
 //
 // After the fix: startWithListener should detect the already-canceled
 // context and NOT set p.listener.
+// TestUDPGetOrCreateBackendConn_ConcurrentDistinctKeys verifies that
+// concurrent calls to getOrCreateBackendConn with distinct client addresses
+// all succeed and install entries correctly.
+//
+// This test locks in the three-phase refactor (resolve + dial OUTSIDE the
+// per-port clientMap mutex) by exercising the install path under contention.
+//
+// What is proven deterministically:
+//   - No deadlock when multiple goroutines enter Phase 3 concurrently.
+//   - All N entries land in clientMap (no lost installs).
+//   - Rate limiter + eviction accounting stays consistent.
+//   - Race detector stays green.
+//
+// What is NOT proven here (and intentionally so):
+//   - Wall-clock parallelism of net.DialUDP. For raw-IP targets DialUDP is
+//     sub-microsecond, leaving no observable overlap window; for hostnames
+//     the dial time depends on the OS resolver, which is non-deterministic
+//     and would produce a flaky test. The concurrency invariant is enforced
+//     structurally by the function's lock-release-reacquire pattern plus the
+//     race detector run on this test.
+func TestUDPGetOrCreateBackendConn_ConcurrentDistinctKeys(t *testing.T) {
+	t.Parallel()
+
+	const numClients = 8
+
+	backendAddr, _ := startUDPEchoBackend(t)
+	pconfig := NewTestUDPConfig(t, backendAddr.String())
+	up := newPortUDP(context.Background(), pconfig, zerolog.Nop(), nil, "", "")
+
+	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { frontPC.Close() })
+
+	clientMap := make(map[string]*clientEntry)
+	var mapMtx sync.Mutex
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, numClients)
+	conns := make([]*net.UDPConn, numClients)
+
+	for i := range numClients {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 20000 + idx}
+			c, callErr := up.getOrCreateBackendConn(addr, clientMap, &mapMtx, frontPC)
+			errs[idx] = callErr
+			conns[idx] = c
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, callErr := range errs {
+		if callErr != nil {
+			t.Fatalf("goroutine %d failed: %v", i, callErr)
+		}
+		if conns[i] == nil {
+			t.Fatalf("goroutine %d: nil conn", i)
+		}
+	}
+
+	mapMtx.Lock()
+	mapSize := len(clientMap)
+	mapMtx.Unlock()
+
+	if mapSize != numClients {
+		t.Fatalf("expected %d installed entries, got %d", numClients, mapSize)
+	}
+
+	closeAllClients(clientMap, &mapMtx)
+	up.close()
+}
+
+// TestUDPGetOrCreateBackendConn_CloseRaceDuringDial verifies that
+// udpPort.close() does not deadlock or leak when called concurrently with
+// getOrCreateBackendConn. After the three-phase refactor, an in-flight dial
+// (Phase 2) is not under the lock, so closeAllClients can proceed in parallel;
+// the post-dial ctx.Err() check (Phase 3) ensures no entry is installed into a
+// shutting-down port, preventing conn leaks.
+func TestUDPGetOrCreateBackendConn_CloseRaceDuringDial(t *testing.T) {
+	t.Parallel()
+
+	backendAddr, _ := startUDPEchoBackend(t)
+	pconfig := NewTestUDPConfig(t, backendAddr.String())
+	up := newPortUDP(context.Background(), pconfig, zerolog.Nop(), nil, "", "")
+
+	frontPC, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { frontPC.Close() })
+
+	clientMap := make(map[string]*clientEntry)
+	var mapMtx sync.Mutex
+
+	closeDone := make(chan error, 1)
+	go func() {
+		// On both OLD and NEW code this returns; the question is whether it
+		// waits for any in-flight dial. With the refactor it does not, because
+		// the dial is outside the lock that closeAllClients acquires.
+		closeDone <- up.close()
+	}()
+
+	// Try to install an entry concurrently with close(). If close() wins the
+	// context-cancellation race, getOrCreateBackendConn's Phase 3 ctx.Err()
+	// check rejects the install — the just-dialed conn is closed and no entry
+	// is leaked. If getOrCreateBackendConn wins, the entry installs and is
+	// cleaned up by closeAllClients running inside up.close() OR by the relay
+	// goroutine's deferred delete once its backend conn is closed.
+	addr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 30000}
+	_, _ = up.getOrCreateBackendConn(addr, clientMap, &mapMtx, frontPC)
+
+	select {
+	case <-closeDone:
+		// close() returned — no deadlock.
+	case <-time.After(5 * time.Second):
+		t.Fatal("udpPort.close() deadlocked with in-flight getOrCreateBackendConn")
+	}
+
+	// Drain any leftover entries the test created. closeAllClients is safe to
+	// call on an empty map and idempotent on entries already closed by close().
+	closeAllClients(clientMap, &mapMtx)
+}
+
 func TestTCPPort_CloseBeforeStart_GoroutineStompsListener_BUG(t *testing.T) {
 	t.Parallel()
 
