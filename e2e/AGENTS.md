@@ -8,32 +8,17 @@ Integration tests against real Tailscale infrastructure. All gated behind `//go:
 
 ```
 e2e/
-├── e2e_test.go              # TestMain: build binary, clean containers, run suite
-├── helpers.go               # Test infrastructure: TSDProxyInstance, TSNetClient, config gen
-├── basic_test.go            # Start/stop/restart, hostname, ephemeral, multi-container
-├── labels_test.go           # Legacy + modern label parsing, dashboard, access log
-├── ports_test.go            # Port formats, multi-port, redirect, TLS validate
-├── tcp_test.go              # Basic TCP forwarding
-├── tcp_advanced_test.go     # Large transfer, concurrent connections
-├── funnel_test.go           # Tailscale Funnel exposure
-├── health_test.go           # /health/ready/ lifecycle
-├── health_liveness_test.go  # /health/live/ endpoint
-├── persistence_test.go      # Identity survives restart
-├── reload_test.go           # List provider live-reload
-├── discovery_test.go        # Cold start discovery
-├── network_test.go          # Bridge, host, auto-detect, custom hostname
-├── custom_network_test.go   # Custom Docker network
-├── ssh_test.go              # SSH TCP proxy
-├── websocket_test.go        # WebSocket forwarding
-├── providers_test.go        # Docker vs list, provider override, OAuth
-├── tags_test.go             # Tags propagation
-├── authkey_labels_test.go   # Per-container authKey/authKeyFile
-├── duplicates_test.go       # Duplicate hostname recovery
-├── multiprovider_test.go    # Multi-provider selection
-├── methods_test.go          # HTTP method forwarding
-├── negative_test.go         # Missing labels, no ports, invalid targets
-├── shared_test.go           # Shared Tailscale mode tests
-└── runwebclient_test.go     # runWebClient label
+├── e2e_test.go     # TestMain: build binary, clean containers, run suite
+├── helpers.go      # TSDProxyInstance, TSNetClient, config gen, testcontainers wrappers
+└── *_test.go — one file per scenario, grouped by theme:
+    Lifecycle:     basic, persistence, reload, discovery, duplicates
+    Networking:    network, custom_network, websocket
+    Ports & TCP:   ports, tcp, tcp_advanced, ssh
+    Funnel:        funnel
+    Health:        health, health_liveness
+    Labels & auth: labels, tags, authkey_labels, providers, multiprovider, methods, runwebclient
+    Shared mode:   shared
+    Negative:      negative (missing labels, no ports, invalid targets)
 ```
 
 ## RUNNING
