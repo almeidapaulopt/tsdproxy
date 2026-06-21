@@ -163,7 +163,8 @@ Steps 4–5 skipped for host-network containers.
 - **Zero-value defaults**: `github.com/creasty/defaults` for struct defaults; `model/default.go` for constants
 - **Error handling**: Three-tier: `fmt.Errorf("context: %w", err)` wrapping → sentinel `ErrFoo` vars → custom `XxxError` types
 - **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context. `"module"` or `"component"` key. Trace for function boundaries, Debug for lifecycle, Info for state changes, Error with `.Err(err)`.
-- **Unit tests**: Co-located `*_test.go` files, run with `go test ./...` (or `make test` using gotestsum)
+- **Unit tests**: Co-located `*_test.go` files, run with `go test ./...` (or `make test` using gotestsum). `t.Parallel()` is default; exceptions must carry a `// NOTE:` comment explaining why (e.g. global state mutation). Stdlib `t.Fatalf`/`t.Errorf` only — no testify in unit tests (e2e tests may use testify).
+- **Goroutine leak verification**: Every package with concurrent code ships a `goleak_test.go` calling `goleak.VerifyTestMain(m)` in `TestMain`. Use `goleak.IgnoreTopFunction(...)` / `IgnoreAnyFunction(...)` for known long-lived goroutines (e.g. webhook worker, http2 readLoop).
 - **E2E tests**: `e2e/` — `//go:build e2e`, testcontainers + real Tailscale. Env vars: `TSDPROXY_E2E_AUTHKEY`/`TSDPROXY_E2E_AUTHKEY_FILE`, `TSDPROXY_E2E_CLIENTID`/`TSDPROXY_E2E_CLIENTSECRET`, `TS_TAGS`
 - **Bug-fix TDD protocol (MANDATORY)**: When fixing a bug, follow this sequence:
   1. **Reproduce first** — Write a failing test that reproduces the bug. Run it and confirm it FAILS. This proves the bug exists and that your test actually exercises it.
@@ -171,6 +172,7 @@ Steps 4–5 skipped for host-network containers.
   3. **Verify the test passes** — Run the same test again and confirm it PASSES.
   4. **If the test itself needs changes during the fix** — Run the updated test WITHOUT the fix applied first (it MUST fail), then run it WITH the fix applied (it MUST pass). This guards against tests that pass for the wrong reason or that no longer actually exercise the bug.
   - Never skip step 1. A fix without a failing test first is not a verified fix — it is a guess.
+  - **Bug-regression artifacts**: `*_bug_test.go` filename suffix for dedicated regression files; `TestXxx_BUG` function suffix for tests designed to FAIL today (encoding invariants not yet enforced). Header block: ID, description, attack scenario, expected post-fix behavior, "Today: this test fails because…" line. GHSA references in test names/comments for security regressions.
 - **Frontend build**: `web/` uses Bun + Vite; `web/dist/` embedded via `go:embed` + statigz + brotli
 - **UI framework**: `templ` for server-rendered HTML; htmx 4 + `hx-sse` for live updates
 - **Import aliases**: Descriptive when packages collide: `cloudflaredns`, `magicdns`, `acmetls`, `tailscaletls`, `tsproxy`
