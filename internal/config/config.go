@@ -68,6 +68,7 @@ type (
 		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
 		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
 		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"` //nolint:tagliatelle
+		CleanupTLS           bool                                   `default:"true" yaml:"cleanupTLS"` //nolint:tagliatelle
 		ShutdownDrainSeconds int                                    `validate:"numeric,min=0,max=300" default:"0" yaml:"shutdownDrainSeconds"`
 	}
 

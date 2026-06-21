@@ -118,7 +118,7 @@ func NewProxyManager(logger zerolog.Logger, cfg *config.Data, proxyAuthToken str
 	}
 
 	pm.dnsLifecycle = dnsproviders.NewLifecycleManager(cfg.CleanupDNS)
-	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(true)
+	pm.tlsLifecycle = tlsproviders.NewTLSLifecycleManager(cfg.CleanupTLS)
 
 	return pm
 }

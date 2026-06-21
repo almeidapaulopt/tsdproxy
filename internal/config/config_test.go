@@ -23,6 +23,7 @@ func TestConfig_Defaults(t *testing.T) {
 	require.NoError(t, defaults.Set(c))
 	assert.Equal(t, "default", c.DefaultProxyProvider)
 	assert.True(t, c.CleanupDNS)
+	assert.True(t, c.CleanupTLS)
 }
 
 func TestDNSProviderConfig_Validation(t *testing.T) {
