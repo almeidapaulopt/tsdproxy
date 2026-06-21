@@ -207,6 +207,7 @@ tlsProviders:
 defaultDNSProvider: cloudflare
 defaultTLSProvider: acme
 cleanupDNS: true
+cleanupTLS: true
 
 docker:
   local:
@@ -268,6 +269,16 @@ cleanupDNS: true
 Defaults to `true`. When enabled, the CNAME record is deleted when the proxy
 shuts down. Set to `false` to keep DNS records after the proxy stops. TLS
 certificates are cached by certmagic and reused on next start.
+
+TLS certificate cleanup is controlled independently via `cleanupTLS`:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+cleanupTLS: true
+```
+
+Defaults to `true`. Set to `false` to preserve TLS certificates across proxy
+restarts (useful to avoid Let's Encrypt rate limits or when certificates are
+managed externally).
 
 ## Troubleshooting
 

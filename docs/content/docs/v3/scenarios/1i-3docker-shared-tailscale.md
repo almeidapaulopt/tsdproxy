@@ -22,6 +22,7 @@ tlsProviders:
 defaultDNSProvider: cloudflare
 defaultTLSProvider: acme
 cleanupDNS: true
+cleanupTLS: true
 
 docker:
   local:

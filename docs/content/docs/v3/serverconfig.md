@@ -28,6 +28,7 @@ defaultProxyProvider: default
 defaultDNSProvider: cloudflare
 defaultTLSProvider: acme
 cleanupDNS: true
+cleanupTLS: true
 dnsProviders:
   cloudflare:
     provider: cloudflare
@@ -632,6 +633,17 @@ Defaults to `true`.
 
 ```yaml {filename="/config/tsdproxy.yaml"}
 cleanupDNS: true
+```
+
+#### cleanupTLS
+
+When set to `true`, TSDProxy removes TLS certificates when a proxy stops.
+Defaults to `true`. Set to `false` to preserve certs across restarts (e.g.
+when using externally-managed certificates, or to avoid Let's Encrypt rate
+limits). Independent from `cleanupDNS` — each flag controls its own resource.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+cleanupTLS: true
 ```
 
 #### http Section
