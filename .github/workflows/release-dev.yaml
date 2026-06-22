@@ -21,7 +21,7 @@ jobs:
       tailscale_version: ${{ steps.meta.outputs.tailscale_version }}
       git_commit: ${{ steps.meta.outputs.git_commit }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
@@ -82,7 +82,7 @@ jobs:
           - { goarch: arm, goarm: "7", platform: armv7,  docker_platform: linux/arm/v7 }
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
@@ -137,7 +137,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
