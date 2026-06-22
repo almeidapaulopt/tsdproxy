@@ -40,9 +40,7 @@ RUN GOARM=${TARGETVARIANT#v} go build \
         -X tailscale.com/version.shortStamp=${TAILSCALE_VERSION} \
         -X tailscale.com/version.longStamp=${TAILSCALE_VERSION}-TSDProxy \
         -X tailscale.com/version.gitCommitStamp=${GIT_COMMIT}" \
-      -o /tsdproxyd ./cmd/server/main.go
-
-RUN GOARM=${TARGETVARIANT#v} go build -ldflags "-s -w" -o /healthcheck ./cmd/healthcheck/main.go
+      -o /tsdproxyd ./cmd/server/
 
 FROM alpine:latest AS certs
 RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
@@ -51,8 +49,7 @@ FROM scratch
 
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /tsdproxyd /tsdproxyd
-COPY --from=builder /healthcheck /healthcheck
 
 ENTRYPOINT ["/tsdproxyd"]
 EXPOSE 8080
-HEALTHCHECK --interval=1m --timeout=2s CMD [ "/healthcheck" ]
+HEALTHCHECK --interval=1m --timeout=2s CMD [ "/tsdproxyd", "healthcheck" ]

@@ -121,10 +121,9 @@ jobs:
               -X tailscale.com/version.shortStamp=${TS_VER} \
               -X tailscale.com/version.longStamp=${TS_VER}-TSDProxy \
               -X tailscale.com/version.gitCommitStamp=${COMMIT}" \
-            -o "$out/tsdproxyd" ./cmd/server/main.go
+            -o "$out/tsdproxyd" ./cmd/server/
 
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} \
-            go build -ldflags "-s -w" -o "$out/healthcheck" ./cmd/healthcheck/main.go
+
 
       - name: Upload binaries
         uses: actions/upload-artifact@v7
@@ -164,7 +163,7 @@ jobs:
 
       - name: Restore executable permissions
         run: |
-          find docker-binaries \( -name tsdproxyd -o -name healthcheck \) -exec chmod +x {} +
+          find docker-binaries -name tsdproxyd -exec chmod +x {} +
 
       - name: Build and push
         id: push

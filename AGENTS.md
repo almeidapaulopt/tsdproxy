@@ -9,8 +9,7 @@ TSDProxy — Go reverse proxy that auto-exposes Docker containers via Tailscale.
 ```
 tsdproxy/
 ├── cmd/
-│   ├── server/main.go          # Main server binary (WebApp, InitializeApp)
-│   └── healthcheck/main.go     # Docker HEALTHCHECK binary (GET /health/ready/)
+│   └── server/main.go          # Main binary; also handles `healthcheck` subcommand for Docker HEALTHCHECK
 ├── internal/
 │   ├── api/                    # REST API routes (JSON endpoints)
 │   ├── config/                 # Config loading, validation, fsnotify file watching
@@ -228,7 +227,7 @@ make docs                   # Hugo docs server (localhost:1313)
 - **Version embedding**: CI ldflags inject `internal/core.version`. Makefile ldflags match — `make build` shows real version when `VERSION` is set
 - **Tailscale version injection**: CI overwrites `tailscale.com/version.*` vars via ldflags to stamp Tailscale with TSDProxy context
 - **Config live-reload**: `internal/config/configfile.go` uses fsnotify to watch config file changes
-- **Health check**: Separate `healthcheck` binary pings `http://127.0.0.1:8080/health/ready/` — Docker HEALTHCHECK
+- **Health check**: The server binary's `healthcheck` subcommand pings `http://127.0.0.1:8080/health/ready/` — Docker HEALTHCHECK
 - **Docker labels**: All container labels start with `tsdproxy.` (see `internal/targetproviders/docker/consts.go`)
 - **docs/ is separate Go module**: `github.com/imfing/hextra-starter-template` — `go test ./...` at root ignores it
 - **Three Dockerfiles**: `Dockerfile` (local multi-stage build from source), `Dockerfile.ci` (CI release images from pre-built binaries), `dev/Dockerfile.dev` (hot-reload dev)

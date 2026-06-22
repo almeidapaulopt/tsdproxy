@@ -56,8 +56,7 @@ make bootstrap
 ## Project Structure
 
 ```
-cmd/server/main.go        Main server binary
-cmd/healthcheck/main.go   Docker HEALTHCHECK binary
+cmd/server/main.go        Main server binary (also handles `healthcheck` subcommand)
 internal/
   config/                 Configuration loading and file watching
   core/                   HTTP server, logging, health, sessions

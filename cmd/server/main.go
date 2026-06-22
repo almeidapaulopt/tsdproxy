@@ -58,7 +58,7 @@ func InitializeApp() (*WebApp, error) {
 		return nil, err
 	}
 
-	// Write HTTP port to data dir for the healthcheck binary to read.
+	// Write HTTP port to data dir for the healthcheck subcommand to read.
 	portFile := filepath.Join(cfg.Tailscale.DataDir, ".http-port")
 	if err := os.MkdirAll(cfg.Tailscale.DataDir, dirPermission); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
@@ -113,6 +113,10 @@ func InitializeApp() (*WebApp, error) {
 }
 
 func main() {
+	if isHealthcheckSubcommand() {
+		os.Exit(runHealthcheck())
+	}
+
 	fmt.Fprintf(os.Stderr, "Initializing server\nVersion %s\n", core.GetVersion())
 
 	app, err := InitializeApp()

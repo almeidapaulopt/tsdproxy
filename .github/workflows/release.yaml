@@ -179,10 +179,9 @@ jobs:
               -X tailscale.com/version.shortStamp=${TS_VER} \
               -X tailscale.com/version.longStamp=${TS_VER}-TSDProxy \
               -X tailscale.com/version.gitCommitStamp=${COMMIT}" \
-            -o "dist/tsdproxyd${ext}" ./cmd/server/main.go
+            -o "dist/tsdproxyd${ext}" ./cmd/server/
 
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} \
-            go build -ldflags "-s -w" -o "dist/healthcheck${ext}" ./cmd/healthcheck/main.go
+
 
       - name: Create archive
         env:
@@ -237,7 +236,7 @@ jobs:
             mkdir -p "docker-binaries/linux/${dst}"
             tmp=$(mktemp -d)
             tar xzf "dist/tsdproxy_${VERSION}_linux_${src}.tar.gz" -C "$tmp/"
-            cp "$tmp/tsdproxyd" "$tmp/healthcheck" "docker-binaries/linux/${dst}/"
+            cp "$tmp/tsdproxyd" "docker-binaries/linux/${dst}/"
             rm -rf "$tmp"
           done
 
@@ -290,7 +289,7 @@ jobs:
 
       - name: Restore executable permissions
         run: |
-          find docker-binaries \( -name tsdproxyd -o -name healthcheck \) -exec chmod +x {} +
+          find docker-binaries -name tsdproxyd -exec chmod +x {} +
 
       - name: Docker metadata
         id: meta

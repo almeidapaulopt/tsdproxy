@@ -13,8 +13,12 @@ import (
 
 const healthCheckTimeout = 5 * time.Second
 
-func main() {
-	port := readPort()
+func isHealthcheckSubcommand() bool {
+	return len(os.Args) > 1 && os.Args[1] == "healthcheck"
+}
+
+func runHealthcheck() int {
+	port := readHealthcheckPort()
 	if port == "" {
 		port = "8080"
 	}
@@ -24,16 +28,17 @@ func main() {
 	}
 	resp, err := client.Get("http://127.0.0.1:" + port + "/health/ready/") //nolint:gosec // G704: port is from file/env, not user input
 	if err != nil {
-		os.Exit(1)
+		return 1
 	}
 	resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
-func readPort() string {
+func readHealthcheckPort() string {
 	dataDir := os.Getenv("TSDPROXY_DATADIR")
 	if dataDir == "" {
 		dataDir = "/data"

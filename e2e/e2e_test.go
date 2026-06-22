@@ -87,7 +87,7 @@ func TestMain(m *testing.M) {
 
 	buildCmd := exec.CommandContext(ctx, "go", "build",
 		"-o", tsdproxyBinPath,
-		"./cmd/server/main.go",
+		"./cmd/server/",
 	)
 	buildCmd.Dir = projectRoot
 	buildCmd.Stdout = os.Stdout

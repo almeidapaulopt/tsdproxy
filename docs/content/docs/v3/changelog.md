@@ -57,6 +57,8 @@ weight: 500
 
 - Unified node lifecycle architecture — decomposed the Tailscale provider into lifecycle, auth, state, and status modules with a shared event loop state machine used by both shared and services modes
 - TLS certificate caching and deduplication across exposure types
+- **Merged healthcheck into server binary** — the separate `cmd/healthcheck` binary is removed. Docker HEALTHCHECK now runs `tsdproxyd healthcheck` (a subcommand of the main binary)
+- **Removed `cmd/healthcheck/main.go`** — healthcheck logic is now part of the server binary, eliminating the separate 5.7 MB healthcheck binary from Docker images
 
 ### 2.3.0
 
