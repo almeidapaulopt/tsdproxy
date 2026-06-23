@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/caddyserver/certmagic v0.25.3
+	github.com/caddyserver/certmagic v0.25.4
 	github.com/creasty/defaults v1.8.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-playground/validator/v10 v10.30.3
