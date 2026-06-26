@@ -4,8 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "download-icons": "bun scripts/download-icons.js",
-    "build": "bun scripts/download-icons.js && vite build",
+    "build": "vite build",
     "dev": "vite",
     "preview": "vite preview"
   },
@@ -14,7 +13,6 @@
     "@vite-pwa/assets-generator": "^1.0.2",
     "daisyui": "^5.5.23",
     "tailwindcss": "^4.3.1",
-    "tar": "^7.5.16",
     "vite": "^8.0.16",
     "vite-plugin-compression2": "^2.5.3",
     "vite-plugin-pwa": "^1.3.0"

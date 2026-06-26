@@ -75,13 +75,8 @@ run: build/all
 
 ## dev: start dev server
 .PHONY: dev
-dev: download-icons docker_start
+dev: docker_start
 	make -j2 assets server_start
-
-## download-icons: download icon sets to web/public/icons/
-.PHONY: download-icons
-download-icons:
-	bun run --cwd web download-icons
 
 ## bootstrap: full build from clean checkout (for CI and first-time setup)
 .PHONY: bootstrap
@@ -92,7 +87,7 @@ bootstrap:
 ## ci: clean-checkout verification — deletes all generated assets and rebuilds from scratch
 .PHONY: ci
 ci:
-	rm -rf web/dist web/public/icons/si web/public/icons/mdi web/public/icons/sh web/scripts/.download-cache.json
+	rm -rf web/dist
 	bun run --cwd web build
 	templ generate
 	gotestsum -- -race ./...
