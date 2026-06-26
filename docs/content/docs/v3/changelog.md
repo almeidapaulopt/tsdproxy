@@ -32,9 +32,14 @@ weight: 500
   - `rateLimitBurst` — burst capacity per client IP (default: `200`, range: 1–100000)
   - Per-container Docker labels: `tsdproxy.ratelimit.enabled`, `tsdproxy.ratelimit.rps`, `tsdproxy.ratelimit.burst`
 - **`shutdownDrainSeconds` config option** — configurable drain period after health endpoint goes not-ready before HTTP server shutdown. Gives load balancers time to converge. Range: 0–300 seconds. See [Server Configuration]({{< ref "/docs/v3/serverconfig#shutdowndrainseconds" >}}) for details.
+- **On-demand icon download** — icons are no longer bundled in the TSDProxy binary. They are fetched from upstream GitHub repositories on first request and cached to disk, reducing binary size by ~25 MB. Configurable via `icons.download` (default: `true`). See [Dashboard Icons]({{< ref "/docs/v3/advanced/icons" >}}).
+- **Custom user icons** — drop any SVG, PNG, or WebP file into the icons directory for immediate use. Icons without a set prefix (e.g. `my-icon.png`) resolve from the icons root. No restart required. See [Custom Icons]({{< ref "/docs/v3/advanced/icons#custom-icons" >}}).
+- **`icons` server config section** — configure icon directory (`dir`), on-demand download toggle (`download`), and default auto-detection set (`defaultSet`). See [Server Configuration]({{< ref "/docs/v3/serverconfig#icons-section" >}}).
+- **`tsdproxy icons download` CLI command** — pre-seed the icon cache for airgapped (offline) deployments. Downloads all three icon sets with SHA256 verification. Idempotent. See [Airgapped Deployments]({{< ref "/docs/v3/advanced/icons#airgapped--offline-deployments" >}}).
 
 #### Fixes
 
+- Fix `si/` icons not getting `dark:invert` in dark mode — Simple Icons now invert alongside Material Design Icons
 - Fix HTTP port listener fd leak when `close()` runs before `Serve()` registers the listener — now uses `portStartLock` guard consistent with TCP/UDP ports
 - Fix TCP listener fd leak when `Accept()` exhausts retries — listener is now explicitly closed on permanent error
 - Fix TCP proxy missing idle timeout — connections now have a 5-minute read/write deadline to prevent slowloris-style resource exhaustion
@@ -55,6 +60,7 @@ weight: 500
 
 #### Changes
 
+- Removed bundled icon assets from binary — icons are now fetched on-demand from upstream GitHub repositories, reducing binary size by ~25 MB
 - Unified node lifecycle architecture — decomposed the Tailscale provider into lifecycle, auth, state, and status modules with a shared event loop state machine used by both shared and services modes
 - TLS certificate caching and deduplication across exposure types
 - **Merged healthcheck into server binary** — the separate `cmd/healthcheck` binary is removed. Docker HEALTHCHECK now runs `tsdproxyd healthcheck` (a subcommand of the main binary)

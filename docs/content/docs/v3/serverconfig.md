@@ -689,6 +689,26 @@ shutdownDrainSeconds: 30
 > Set this when running TSDProxy behind a load balancer (e.g. Docker Swarm
 > or a reverse proxy health-checking `/health/ready/`).
 
+#### icons Section
+
+Configures how icons are resolved and served on the dashboard.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+icons:
+  dir: /data/icons
+  download: true
+  defaultSet: sh
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `dir` | `{dataDir}/icons` | Path to the icons directory. Useful for sharing a volume with custom icon files. |
+| `download` | `true` | Enable on-demand icon download from GitHub. Set to `false` for airgapped deployments. |
+| `defaultSet` | `sh` | The default icon set used when auto-detecting from the container image name. |
+
+See the [Dashboard Icons]({{< ref "/docs/v3/advanced/icons" >}}) page for
+details on available icon sets, custom icons, and airgapped deployment.
+
 #### log Section
 
 ##### level

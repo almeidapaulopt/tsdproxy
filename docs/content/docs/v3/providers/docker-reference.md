@@ -55,7 +55,7 @@ See [Custom Domains]({{< ref "/docs/v3/advanced/custom-domains" >}}) for full se
 |-------|---------|-------------|
 | `tsdproxy.dash.visible` | `"true"` | Show this proxy in the dashboard |
 | `tsdproxy.dash.label` | proxy name | Display label in the dashboard |
-| `tsdproxy.dash.icon` | auto-detected | Icon in `library/name` format. See [icons]({{< ref "/docs/v3/advanced/icons" >}}) |
+| `tsdproxy.dash.icon` | auto-detected | Icon in `prefix/name` format (e.g. `mdi/music-box`, `si/nginx`, `sh/adguard-home`). See [icons]({{< ref "/docs/v3/advanced/icons" >}}) |
 | `tsdproxy.dash.category` | — | Category for grouping proxies in the dashboard |
 
 ## Port Configuration
