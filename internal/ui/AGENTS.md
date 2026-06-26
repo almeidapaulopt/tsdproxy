@@ -34,12 +34,12 @@ Server-rendered HTML via templ (`*.templ` source → `*_templ.go` generated). Co
 - `pages.ProxyCard(item pages.ProxyData)` is the per-proxy render contract — fields drive icon, label, status badge, port entries, action buttons, health dot, domain badges. Built by `dashboard.buildProxyDataFromProxy()`.
 - Any new field on the dashboard must be added to `pages.ProxyData` (or `pages.DashboardData`) AND populated by the dashboard builder AND consumed by the templ template that renders it.
 
-## ICON HELPER
+## ICON HELPERS
 
-- `components.IconURL(name)` returns `/icons/<name>.svg`. The `name` argument includes the set prefix — e.g. `"mdi/star"`, `"sh/github"`, or plain `"tsdproxy"`. Empty `name` falls back to `"tsdproxy"`.
-- `components.InlineIcon(name, class)` returns `templ.Component` wrapping `web.IconSVG(name)` in `<span class="...">`. The SVG has `fill="currentColor"` injected by `web.IconSVG` for theme-aware coloring.
-- Icons resolved from `web.IconSVG` at runtime; icon index built at startup by `web.buildIconIndex` walking `dist/icons/{mdi,sh,si}`.
-- Icon sets: `mdi` (Material), `sh` (Simple Icons), `si` (Spectrum). Manifest: `web/scripts/icons.json`.
+- `components.IconURL(name)` returns the `/icons/` URL path for an icon. Preserves explicit extensions (`.png`, `.webp`), appends `.svg` otherwise. Empty name → `/icons/tsdproxy.svg`.
+- `components.IconImg(name, class)` renders an `<img>` tag for proxy icons. The browser drives the HTTP request, which triggers on-demand download via the `/icons/` handler. Use for proxy icons (user-facing container icons).
+- `components.InlineIcon(name, class)` renders an inline `<svg>` for chrome glyphs that need `fill="currentColor"` theming (copy/star/info). Reads from cache or returns embedded default. Does NOT trigger downloads — used synchronously during templ render.
+- Proxy cards now use `IconImg` (on-demand via `<img>`). Chrome glyphs stay as `InlineIcon`.
 
 ## GOTCHAS
 
