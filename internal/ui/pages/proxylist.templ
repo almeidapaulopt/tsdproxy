@@ -294,7 +294,7 @@ templ ProxyCardInner(item ProxyData) {
 			@components.InlineIcon("mdi/star", "size-3.5")
 		</button>
 		<figure>
-			@components.InlineIcon(item.Icon, "size-10 object-contain")
+			@components.IconImg(item.Icon, "size-10 object-contain")
 		</figure>
 	</div>
 
@@ -366,7 +366,7 @@ templ ProxyModalContent(item ProxyData) {
 
 		<div class="flex items-center gap-3 mb-5">
 			<div class="size-14 rounded-xl bg-base-200/80 flex items-center justify-center shrink-0 border border-base-content/8">
-				@components.InlineIcon(item.Icon, "size-9 object-contain")
+				@components.IconImg(item.Icon, "size-9 object-contain")
 			</div>
 			<div class="min-w-0 flex-1">
 				<h3 class="text-lg font-bold leading-tight text-base-content">{ item.Label }</h3>
@@ -535,7 +535,7 @@ templ ProxyListRow(item ProxyData) {
 
 		<div class="row-icon">
 			<figure>
-				@components.InlineIcon(item.Icon, "size-5 object-contain")
+				@components.IconImg(item.Icon, "size-5 object-contain")
 			</figure>
 		</div>
 
