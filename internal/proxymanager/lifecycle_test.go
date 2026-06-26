@@ -19,7 +19,7 @@ import (
 // -- NewProxyManager -----------------------------------------------------------
 
 func TestNewProxyManager(t *testing.T) {
-	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil, web.NewAssets())
+	pm := NewProxyManager(zerolog.Nop(), config.NewTestData("", ""), "test-token", nil, web.NewAssets("", "", "sh", false))
 
 	if pm.Proxies == nil {
 		t.Fatal("expected Proxies map to be initialized")

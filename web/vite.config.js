@@ -16,6 +16,7 @@ export default defineConfig({
 
   server: {
     proxy: {
+      '/icons': 'http://localhost:8080',
       '/dashboard': 'http://localhost:8080',
       '/stream': 'http://localhost:8080',
       '/api': 'http://localhost:8080'
@@ -43,7 +44,6 @@ export default defineConfig({
     compression({
       algorithms: ['gzip', 'brotliCompress'],
       include: /\.(js|css|html|ico|json|txt|woff2?|ttf)$/,
-      exclude: /icons\//,
     }),
 
     tailwindcss(),
