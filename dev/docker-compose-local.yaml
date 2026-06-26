@@ -67,6 +67,17 @@ services:
       - tsdproxy.dash.label=Standalone App
       - tsdproxy.dash.icon=mdi/application
 
+  # --- Auto-detected icon demo (no explicit dash.icon) ---
+  autoicon:
+    image: nginx:alpine
+    ports:
+      - 89:80
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=auto-icon-demo
+      - tsdproxy.dash.label=Auto-Detected Icon
+      - tsdproxy.container_port=80
+
   # --- Auto-restart / re-resolution demo ---
   # Starts healthy (nginx on port 80). To trigger health-triggered re-resolution:
   #   docker compose -f dev/docker-compose-local.yaml exec autorestart-demo nginx -s stop
@@ -97,6 +108,31 @@ services:
       - tsdproxy.dash.label=UDP Range Test
       - tsdproxy.port.1=443/https:80/http
       - tsdproxy.port.2=56000-56002/udp:56000-56002/udp
+
+  # --- Simple Icons (si/) demo ---
+  simple-icons:
+    image: nginx:alpine
+    ports:
+      - 88:80
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=simple-icons-demo
+      - tsdproxy.dash.label=Simple Icons Demo
+      - tsdproxy.dash.icon=si/nginx
+      - tsdproxy.container_port=80
+
+  # --- Custom user-added icon demo (no set prefix) ---
+  # Drop any .svg, .png, or .webp directly into <icons_dir>/ and reference it as my-icon.png
+  custom-icon:
+    image: nginx:alpine
+    ports:
+      - 90:80
+    labels:
+      - tsdproxy.enable=true
+      - tsdproxy.name=custom-icon-demo
+      - tsdproxy.dash.label=Custom Icon Demo
+      - tsdproxy.dash.icon=my-icon.png
+      - tsdproxy.container_port=80
 
   # --- Tailscale VIP Services demo ---
   # Uses the 'services' proxy provider in services mode.
