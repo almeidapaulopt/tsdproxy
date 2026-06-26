@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/netip"
 	"net/url"
+	"os"
 	"testing"
 
 	ctypes "github.com/moby/moby/api/types/container"
@@ -16,7 +17,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
-var testAssets = web.NewAssets()
+var testAssets = web.NewAssets("", os.TempDir(), "sh", false)
 
 func newTestContainer(targetHostname string, containerIPs []netip.Addr, ports map[string]string) *container {
 	return &container{
