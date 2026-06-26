@@ -69,7 +69,7 @@ func InitializeApp() (*WebApp, error) {
 
 	logger := core.NewLog(cfg)
 
-	assets := web.NewAssets()
+	assets := web.NewAssets(cfg.Icons.Dir, cfg.Tailscale.DataDir, cfg.Icons.DefaultSet, cfg.Icons.Download)
 
 	proxyAuth := core.NewProxyAuth(logger)
 
@@ -117,6 +117,10 @@ func main() {
 		os.Exit(runHealthcheck())
 	}
 
+	if isIconsSubcommand() {
+		os.Exit(handleIconsCommand())
+	}
+
 	fmt.Fprintf(os.Stderr, "Initializing server\nVersion %s\n", core.GetVersion())
 
 	app, err := InitializeApp()
@@ -141,7 +145,10 @@ func (app *WebApp) Start() {
 	app.Dashboard.AddRoutes()
 	api.New(app.HTTP, app.ProxyManager, app.Log, app.Cfg).AddRoutes()
 
-	// Static assets from embedded dist/ (CSS, JS, icons, etc.)
+	// Icon handler for on-demand icon serving
+	app.HTTP.Mux.Handle("/icons/", app.assets.IconsHandler())
+
+	// Static assets from embedded dist/ (CSS, JS, etc.)
 	app.HTTP.Mux.Handle("/", app.assets.Handler())
 
 	adminMW := core.AdminMiddleware(app.Cfg, app.Log)

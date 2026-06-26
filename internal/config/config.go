@@ -50,26 +50,27 @@ type (
 	// Data stores complete configuration.
 	//
 	Data struct {
-		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
 		Lists                map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
 		TLSProviders         map[string]*TLSProviderConfig          `yaml:"tlsProviders"`
 		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
+		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
+		Icons                IconsConfig                            `yaml:"icons"`
 		Tailscale            TailscaleProxyProviderConfig           `yaml:"tailscale"`
 		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
-		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
 		APIKey               secretstring.SecretString              `yaml:"apiKey,omitempty"`
-		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"` //nolint:tagliatelle
-		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"` //nolint:tagliatelle
-		Admins               []string                               `yaml:"admins,omitempty"`
-		HTTP                 HTTPConfig                             `yaml:"http"`
-		Log                  LogConfig                              `yaml:"log"`
+		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"`
+		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"`
+		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
 		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
+		Log                  LogConfig                              `yaml:"log"`
+		HTTP                 HTTPConfig                             `yaml:"http"`
 		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
+		Admins               []string                               `yaml:"admins,omitempty"`
+		ShutdownDrainSeconds int                                    `validate:"numeric,min=0,max=300" default:"0" yaml:"shutdownDrainSeconds"`
 		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
 		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
-		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"` //nolint:tagliatelle
-		CleanupTLS           bool                                   `default:"true" yaml:"cleanupTLS"` //nolint:tagliatelle
-		ShutdownDrainSeconds int                                    `validate:"numeric,min=0,max=300" default:"0" yaml:"shutdownDrainSeconds"`
+		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"`
+		CleanupTLS           bool                                   `default:"true" yaml:"cleanupTLS"`
 	}
 
 	WebhookConfig struct {
@@ -98,6 +99,13 @@ type (
 	HTTPConfig struct {
 		Hostname string `validate:"ip|hostname,required" default:"127.0.0.1" yaml:"hostname"`
 		Port     uint16 `validate:"numeric,min=1,max=65535,required" default:"8080" yaml:"port"`
+	}
+
+	// IconsConfig stores icon configuration.
+	IconsConfig struct {
+		Dir        string `yaml:"dir,omitempty"`
+		DefaultSet string `yaml:"defaultSet" default:"sh"`
+		Download   bool   `yaml:"download" default:"true"`
 	}
 
 	// DockerTargetProviderConfig struct stores Docker target provider configuration.
