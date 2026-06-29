@@ -19,6 +19,16 @@ import (
 const (
 	pollInterval = 2 * time.Second
 
+	// firstBootAuthGraceCycles is the number of consecutive
+	// NeedsLogin-with-empty-authURL polls tolerated before the watcher forwards
+	// a terminal AuthFailed event. On first boot Tailscale briefly reports
+	// NeedsLogin with no auth URL while the auth key is still being processed,
+	// which otherwise surfaces a misleading "auth failed / stale state" status
+	// even though the node reaches Running moments later. The grace window keeps
+	// genuinely-bad auth keys visible (they persist past the threshold) while
+	// suppressing the transient first-boot false alarm.
+	firstBootAuthGraceCycles = 3
+
 	// Tailscale backend state strings.
 	backendStateNeedsLogin       = "NeedsLogin"
 	backendStateNoState          = "NoState"
@@ -116,6 +126,10 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// needsLoginNoAuthStreak counts consecutive NeedsLogin-with-empty-authURL
+	// polls so the misleading first-boot AuthFailed can be debounced.
+	needsLoginNoAuthStreak := 0
+
 	for {
 		backendState, authURL, dnsName, selfOK, err := source.getStatus(ctx)
 		if err != nil {
@@ -126,6 +140,21 @@ func (w *StatusWatcher) Watch(ctx context.Context, lc *local.Client) {
 		}
 
 		evt := classifyState(backendState, authURL, dnsName)
+
+		// Debounce the brief first-boot NeedsLogin window: while the auth key is
+		// still being processed Tailscale reports NeedsLogin with no auth URL,
+		// which classifyState maps to AuthFailed. Suppress that terminal status
+		// until it has persisted past the grace threshold, emitting a benign
+		// Starting status instead. Any other observed state resets the streak.
+		if backendState == backendStateNeedsLogin && authURL == "" {
+			needsLoginNoAuthStreak++
+			if needsLoginNoAuthStreak <= firstBootAuthGraceCycles {
+				evt = NodeEvent{Status: model.ProxyStatusStarting}
+			}
+		} else {
+			needsLoginNoAuthStreak = 0
+		}
+
 		if evt.Status == model.ProxyStatusRunning && !selfOK {
 			w.log.Warn().Msg("status watcher: Self is nil, skipping")
 		} else {
