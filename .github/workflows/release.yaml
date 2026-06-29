@@ -93,7 +93,7 @@ jobs:
         run: go mod download
 
       - name: Save Go module cache
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: ~/go/pkg/mod
           key: gomod-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
@@ -148,7 +148,7 @@ jobs:
           cache: false
 
       - name: Restore Go module cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: ~/go/pkg/mod
           key: gomod-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
