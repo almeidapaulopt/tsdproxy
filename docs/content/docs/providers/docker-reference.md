@@ -93,6 +93,10 @@ Append these after a comma to any proxy port config:
 | `no_tlsvalidate` | Disable TLS certificate validation on the target |
 | `tailscale_funnel` | Expose the port publicly via Tailscale Funnel |
 | `no_autodetect` | Disable auto-detection of the target URL for this port |
+| `loadbalance=first\|roundrobin` | Select the target load-balancing strategy (`first` by default) |
+
+> [!NOTE]
+> The Docker provider currently discovers one target per port, so `loadbalance` is forward-compatible only and has no effect today. Round-robin currently works via the list provider.
 
 ### Common Patterns
 

@@ -141,6 +141,10 @@ labels:
 | `no_tlsvalidate` | Disable TLS validation on the target certificate (TLS validation is enabled by default) |
 | `tailscale_funnel` | Activate Tailscale Funnel on the port |
 | `no_autodetect` | Disable auto-detection of the target URL for this port |
+| `loadbalance=first\|roundrobin` | Select the target load-balancing strategy (`first` by default) |
+
+> [!NOTE]
+> The Docker provider currently discovers one target per port, so `loadbalance` is forward-compatible only and has no effect today. Round-robin currently works via the list provider.
 
 ## Port ranges
 

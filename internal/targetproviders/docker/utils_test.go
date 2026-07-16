@@ -278,6 +278,27 @@ func TestApplyPortOptions(t *testing.T) {
 			t.Error("expected TLSValidate=false after trimming whitespace")
 		}
 	})
+
+	loadBalanceTests := []struct {
+		name string
+		opt  string
+		want string
+	}{
+		{name: "loadbalance first", opt: "loadbalance=first", want: model.LoadBalanceFirst},
+		{name: "loadbalance roundrobin", opt: "loadbalance=roundrobin", want: model.LoadBalanceRoundRobin},
+		{name: "loadbalance uppercase roundrobin", opt: "loadbalance=ROUNDROBIN", want: model.LoadBalanceRoundRobin},
+		{name: "invalid loadbalance defaults to first", opt: "loadbalance=bogus", want: model.LoadBalanceFirst},
+	}
+	for _, tc := range loadBalanceTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			port := model.PortConfig{}
+			c.applyPortOptions("port.test", &port, []string{tc.opt})
+			if port.LoadBalance != tc.want {
+				t.Errorf("expected LoadBalance=%q, got %q", tc.want, port.LoadBalance)
+			}
+		})
+	}
 }
 
 func TestApplyPortOptions_OperatorGated(t *testing.T) {

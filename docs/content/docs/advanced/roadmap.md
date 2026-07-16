@@ -8,16 +8,14 @@ Ideas for future TSDProxy features, ordered by effort.
 
 ## Multi-Target Load Balancing
 
-**Status**: Code-ready. `PortConfig.targets` is `[]*url.URL` — the struct
-supports multiple backends but only the first is used today. Adding
-round-robin across targets would be a small change in the proxy handler.
+**Status**: Phase 1 shipped. HTTP/HTTPS ports can round-robin across
+list-provider targets with `loadBalance: roundrobin`. Remaining work is
+TCP/UDP support and health-aware target selection.
 
 ```yaml
-# Proposed config
-tsdproxy.port.1: "443/https:80/http,80/http,80/http"
-# or in lists:
 ports:
   443/https:
+    loadBalance: roundrobin
     targets:
       - http://backend1:8080
       - http://backend2:8080

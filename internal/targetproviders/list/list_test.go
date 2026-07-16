@@ -258,6 +258,40 @@ func TestClient_ProcessSinglePort_Valid(t *testing.T) {
 	}
 }
 
+func TestClient_GetPorts_LoadBalance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "roundrobin", raw: model.LoadBalanceRoundRobin, want: model.LoadBalanceRoundRobin},
+		{name: "unknown defaults to first", raw: "bogus", want: model.LoadBalanceFirst},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := newTestClient(t, nil)
+			ports := c.getPorts(map[string]port{
+				"443/https": {
+					LoadBalance: tc.raw,
+					Targets:     []string{"http://backend:8080"},
+				},
+			})
+
+			pc, ok := ports["443/https"]
+			if !ok {
+				t.Fatal("expected 443/https port")
+			}
+			if pc.LoadBalance != tc.want {
+				t.Errorf("expected LoadBalance=%q, got %q", tc.want, pc.LoadBalance)
+			}
+		})
+	}
+}
+
 func TestClient_GetPorts_PortRangeExpands(t *testing.T) {
 	t.Parallel()
 

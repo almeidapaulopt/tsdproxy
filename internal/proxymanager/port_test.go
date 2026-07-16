@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"sync"
 	"testing"
@@ -34,6 +35,15 @@ func newTestTCPConfig(t *testing.T, targetAddr string) model.PortConfig {
 	}
 	pconfig.AddTarget(targetURL)
 	return pconfig
+}
+
+func urlMustParse(t *testing.T, rawURL string) *url.URL {
+	t.Helper()
+	targetURL, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse URL %q: %v", rawURL, err)
+	}
+	return targetURL
 }
 
 func startEchoBackend(t *testing.T) (net.Listener, *sync.WaitGroup) {
@@ -383,6 +393,34 @@ func TestPortProxyForwardedProtoHTTP(t *testing.T) {
 	hdr := runPortProxyProtoTest(t, model.ProtoHTTP)
 	if got := hdr.Get("X-Forwarded-Proto"); got != "http" {
 		t.Errorf("X-Forwarded-Proto: want http, got %q", got)
+	}
+}
+
+func TestProxyRewriteRoundRobinDistribution(t *testing.T) {
+	t.Parallel()
+
+	pconfig := model.PortConfig{
+		ProxyProtocol: model.ProtoHTTP,
+		LoadBalance:   model.LoadBalanceRoundRobin,
+	}
+	pconfig.AddTarget(urlMustParse(t, "http://backend-0:8080"))
+	pconfig.AddTarget(urlMustParse(t, "http://backend-1:8080"))
+
+	rewrite := proxyRewrite(pconfig, false, "", "")
+
+	for i, want := range []string{
+		"backend-0:8080",
+		"backend-1:8080",
+		"backend-0:8080",
+		"backend-1:8080",
+	} {
+		in := httptest.NewRequest(http.MethodGet, "http://proxy.local/path", nil)
+		out := in.Clone(in.Context())
+		rewrite(&httputil.ProxyRequest{In: in, Out: out})
+
+		if out.URL.Host != want {
+			t.Errorf("request %d: got upstream host %q, want %q", i, out.URL.Host, want)
+		}
 	}
 }
 
