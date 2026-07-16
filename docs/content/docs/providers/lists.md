@@ -125,7 +125,8 @@ proxyname: # Name of the proxy
 
   ports:
     port/protocol: #example 443/https, 80/http, 22/tcp, 56000-56002/udp
-    targets: # list of targets (in this version only the first will be used)
+    loadBalance: roundrobin # (optional) (defaults to "first") "first" or "roundrobin"
+    targets: # all targets are used with roundrobin; first target only by default
       - http://sub.domain.com:8111 # change to your target
     tailscale: # (optional)
       funnel: true # (optional) (defaults to false), enable funnel mode
@@ -137,6 +138,9 @@ proxyname: # Name of the proxy
     label: "" # (optional), label to be shown in dashboard
     icon: "" # (optional), icon to be shown in dashboard
 ```
+
+> [!WARNING]
+> Round-robin is available only for HTTP/HTTPS ports and is not health-aware yet; unhealthy backends can still receive traffic.
 
 > [!TIP]
 > TSDProxy will reload the proxy list when it is updated.

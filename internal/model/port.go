@@ -34,7 +34,8 @@ type (
 	}
 
 	targetState struct {
-		targets   []*url.URL
+		targets []*url.URL
+		// nextIndex is not reset when targets change, so replacement may shift the rotation phase.
 		nextIndex atomic.Uint64
 		mtx       sync.RWMutex
 	}
@@ -281,6 +282,10 @@ func (p *PortConfig) GetFirstTarget() *url.URL {
 	return p.targets.getFirst()
 }
 
+// SelectTarget returns a target according to strategy. Round-robin is not
+// health-aware in this phase: only the first target is health-checked, so
+// unhealthy backends at index 1 or later still receive traffic. Health-aware
+// selection is deferred to Phase 1.5.
 func (p *PortConfig) SelectTarget(strategy string) *url.URL {
 	if p.targets == nil {
 		return nil
