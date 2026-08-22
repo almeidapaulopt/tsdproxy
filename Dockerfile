@@ -1,6 +1,6 @@
 
 # Use an official Go image as the build base
-FROM golang:1.26 AS builder
+FROM golang:1.27 AS builder
 RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
 
 # Set the working directory
@@ -16,8 +16,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /healthcheck ./cmd/healthcheck/main.go
 
 FROM scratch
 LABEL org.opencontainers.image.source="https://github.com/stephenrjr/tsdproxy"
-LABEL version=2.3.5
-LABEL description="A build to bump v2.3.4 dependencies (especially tsnet)"
+LABEL maintainer="stephenrjr@gmail.com" \
+      version="2.3.9" \
+      description="Fresh image built to bump v2.3.4 dependencies (especilly tsnet)"
+
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
