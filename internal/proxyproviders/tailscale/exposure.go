@@ -98,12 +98,10 @@ func (e *PerProxyExposure) Start(_ context.Context, runtime *NodeRuntime, cfg *m
 	for portName, portCfg := range cfg.Ports {
 		switch portCfg.ProxyProtocol {
 		case model.ProtoHTTPS:
-			l, err := e.createHTTPSListener(ts, portCfg)
-			if err != nil {
+			if err := e.addHTTPSListener(ts, cfg, portName, portCfg); err != nil {
 				e.closeAll()
-				return fmt.Errorf("create HTTPS listener for port %q: %w", portName, err)
+				return err
 			}
-			e.listeners[portName] = l
 
 		case model.ProtoHTTP:
 			l, err := e.createPlainListener(ts, portCfg)
@@ -132,6 +130,28 @@ func (e *PerProxyExposure) Start(_ context.Context, runtime *NodeRuntime, cfg *m
 	}
 
 	e.started = true
+	return nil
+}
+
+func (e *PerProxyExposure) addHTTPSListener(ts TSNetServer, cfg *model.Config, portName string, portCfg model.PortConfig) error {
+	usesCustomTLS := cfg.Domain != "" && cfg.ResolvedTLSProvider != "" && cfg.ResolvedTLSProvider != model.TLSProviderTailscale
+	if usesCustomTLS {
+		if portCfg.Tailscale.Funnel {
+			return fmt.Errorf("custom TLS is incompatible with Tailscale Funnel for port %q", portName)
+		}
+		l, err := e.createPlainListener(ts, portCfg)
+		if err != nil {
+			return fmt.Errorf("create custom-domain HTTPS listener for port %q: %w", portName, err)
+		}
+		e.rawListeners[portName] = l
+		return nil
+	}
+
+	l, err := e.createHTTPSListener(ts, portCfg)
+	if err != nil {
+		return fmt.Errorf("create HTTPS listener for port %q: %w", portName, err)
+	}
+	e.listeners[portName] = l
 	return nil
 }
 

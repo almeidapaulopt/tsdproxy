@@ -6,10 +6,57 @@ package tailscale
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 
 	"github.com/rs/zerolog"
+	"tailscale.com/tsnet"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
+
+type exposureTestServer struct {
+	TSNetServer
+	listener       net.Listener
+	listenErr      error
+	lastNetwork    string
+	lastAddr       string
+	listenCalls    int
+	listenTLSCalls int
+	funnelCalls    int
+}
+
+func (s *exposureTestServer) Listen(network, addr string) (net.Listener, error) {
+	s.listenCalls++
+	s.lastNetwork = network
+	s.lastAddr = addr
+	return s.listener, s.listenErr
+}
+
+func (s *exposureTestServer) ListenTLS(network, addr string) (net.Listener, error) {
+	s.listenTLSCalls++
+	s.lastNetwork = network
+	s.lastAddr = addr
+	return s.listener, nil
+}
+
+func (s *exposureTestServer) ListenFunnel(network, addr string, _ ...tsnet.FunnelOption) (net.Listener, error) {
+	s.funnelCalls++
+	s.lastNetwork = network
+	s.lastAddr = addr
+	return s.listener, nil
+}
+
+type closeTrackingListener struct {
+	closed bool
+}
+
+func (*closeTrackingListener) Accept() (net.Conn, error) { return nil, net.ErrClosed }
+func (l *closeTrackingListener) Close() error {
+	l.closed = true
+	return nil
+}
+func (*closeTrackingListener) Addr() net.Addr { return &net.TCPAddr{} }
 
 func TestExposureLookup_NotStarted(t *testing.T) {
 	t.Parallel()
@@ -126,6 +173,205 @@ func TestPerProxyExposure_Close_Started(t *testing.T) {
 	e.mtx.RUnlock()
 	if started {
 		t.Error("started should be false after Close")
+	}
+}
+
+func TestPerProxyExposure_HTTPSListenerSelection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		domain              string
+		resolvedTLSProvider string
+		funnel              bool
+		wantRaw             bool
+		wantFunnel          bool
+	}{
+		{name: "ordinary HTTPS uses Tailscale TLS"},
+		{
+			name:   "custom domain without resolved TLS uses Tailscale TLS fallback",
+			domain: "app.example.com",
+		},
+		{
+			name:       "ordinary HTTPS with Funnel uses Funnel",
+			funnel:     true,
+			wantFunnel: true,
+		},
+		{
+			name:                "custom domain with Tailscale TLS uses Tailscale TLS",
+			domain:              "app.example.com",
+			resolvedTLSProvider: model.TLSProviderTailscale,
+		},
+		{
+			name:                "custom domain with external TLS uses raw listener",
+			domain:              "app.example.com",
+			resolvedTLSProvider: model.TLSProviderACME,
+			wantRaw:             true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := &exposureTestServer{listener: noopListener{}}
+			exposure := NewPerProxyExposure(zerolog.Nop())
+			cfg := &model.Config{
+				Domain:              tt.domain,
+				ResolvedTLSProvider: tt.resolvedTLSProvider,
+				Ports: model.PortConfigList{
+					"443/https": {
+						ProxyProtocol: model.ProtoHTTPS,
+						ProxyPort:     443,
+						Tailscale: model.TailscalePort{
+							Funnel: tt.funnel,
+						},
+					},
+				},
+			}
+
+			if err := exposure.Start(context.Background(), &NodeRuntime{Server: server}, cfg); err != nil {
+				t.Fatalf("Start returned an error: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := exposure.Close(context.Background()); err != nil {
+					t.Errorf("Close returned an error: %v", err)
+				}
+			})
+
+			assertExposureListenerSelection(t, exposure, server, tt.wantRaw, tt.wantFunnel)
+		})
+	}
+}
+
+func assertExposureListenerSelection(
+	t *testing.T,
+	exposure *PerProxyExposure,
+	server *exposureTestServer,
+	wantRaw bool,
+	wantFunnel bool,
+) {
+	t.Helper()
+
+	if server.lastNetwork != "tcp" || server.lastAddr != ":443" {
+		t.Errorf("listener address = %q %q, want %q %q", server.lastNetwork, server.lastAddr, "tcp", ":443")
+	}
+
+	if wantRaw {
+		if server.listenCalls != 1 || server.listenTLSCalls != 0 {
+			t.Errorf("Listen calls = %d, ListenTLS calls = %d, want 1 and 0", server.listenCalls, server.listenTLSCalls)
+		}
+		if _, err := exposure.GetRawTCPListener("443/https"); err != nil {
+			t.Fatalf("GetRawTCPListener returned an error: %v", err)
+		}
+		if _, err := exposure.GetListener("443/https"); !errors.Is(err, ErrProxyPortNotFound) {
+			t.Errorf("GetListener error = %v, want ErrProxyPortNotFound", err)
+		}
+		return
+	}
+
+	wantTLSCalls := 1
+	wantFunnelCalls := 0
+	if wantFunnel {
+		wantTLSCalls = 0
+		wantFunnelCalls = 1
+	}
+	if server.listenCalls != 0 || server.listenTLSCalls != wantTLSCalls || server.funnelCalls != wantFunnelCalls {
+		t.Errorf("listener calls = (%d, %d, %d), want (0, %d, %d)",
+			server.listenCalls, server.listenTLSCalls, server.funnelCalls, wantTLSCalls, wantFunnelCalls)
+	}
+	if _, err := exposure.GetListener("443/https"); err != nil {
+		t.Fatalf("GetListener returned an error: %v", err)
+	}
+	if _, err := exposure.GetRawTCPListener("443/https"); !errors.Is(err, ErrProxyPortNotFound) {
+		t.Errorf("GetRawTCPListener error = %v, want ErrProxyPortNotFound", err)
+	}
+}
+
+func TestPerProxyExposure_CustomTLSRejectsFunnel(t *testing.T) {
+	t.Parallel()
+
+	server := &exposureTestServer{listener: noopListener{}}
+	exposure := NewPerProxyExposure(zerolog.Nop())
+	cfg := &model.Config{
+		Domain:              "app.example.com",
+		ResolvedTLSProvider: model.TLSProviderACME,
+		Ports: model.PortConfigList{
+			"443/https": {
+				ProxyProtocol: model.ProtoHTTPS,
+				ProxyPort:     443,
+				Tailscale: model.TailscalePort{
+					Funnel: true,
+				},
+			},
+		},
+	}
+
+	err := exposure.Start(context.Background(), &NodeRuntime{Server: server}, cfg)
+	if err == nil {
+		t.Fatal("Start returned nil, want custom TLS and Funnel error")
+	}
+	want := "custom TLS is incompatible with Tailscale Funnel for port \"443/https\""
+	if err.Error() != want {
+		t.Errorf("Start error = %q, want %q", err, want)
+	}
+	if server.listenCalls != 0 || server.listenTLSCalls != 0 || server.funnelCalls != 0 {
+		t.Errorf("listener calls = (%d, %d, %d), want all zero", server.listenCalls, server.listenTLSCalls, server.funnelCalls)
+	}
+}
+
+func TestPerProxyExposure_CustomTLSListenerError(t *testing.T) {
+	t.Parallel()
+
+	listenErr := errors.New("listen failed")
+	server := &exposureTestServer{listenErr: listenErr}
+	exposure := NewPerProxyExposure(zerolog.Nop())
+	cfg := &model.Config{
+		Domain:              "app.example.com",
+		ResolvedTLSProvider: model.TLSProviderACME,
+		Ports: model.PortConfigList{
+			"443/https": {
+				ProxyProtocol: model.ProtoHTTPS,
+				ProxyPort:     443,
+			},
+		},
+	}
+
+	err := exposure.Start(context.Background(), &NodeRuntime{Server: server}, cfg)
+	if !errors.Is(err, listenErr) {
+		t.Fatalf("Start error = %v, want wrapped listener error", err)
+	}
+	want := "create custom-domain HTTPS listener for port \"443/https\": listen failed"
+	if err.Error() != want {
+		t.Errorf("Start error = %q, want %q", err, want)
+	}
+}
+
+func TestPerProxyExposure_CloseClosesCustomTLSListener(t *testing.T) {
+	t.Parallel()
+
+	listener := &closeTrackingListener{}
+	server := &exposureTestServer{listener: listener}
+	exposure := NewPerProxyExposure(zerolog.Nop())
+	cfg := &model.Config{
+		Domain:              "app.example.com",
+		ResolvedTLSProvider: model.TLSProviderACME,
+		Ports: model.PortConfigList{
+			"443/https": {
+				ProxyProtocol: model.ProtoHTTPS,
+				ProxyPort:     443,
+			},
+		},
+	}
+
+	if err := exposure.Start(context.Background(), &NodeRuntime{Server: server}, cfg); err != nil {
+		t.Fatalf("Start returned an error: %v", err)
+	}
+	if err := exposure.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned an error: %v", err)
+	}
+	if !listener.closed {
+		t.Error("Close did not close the custom TLS listener")
 	}
 }
 
