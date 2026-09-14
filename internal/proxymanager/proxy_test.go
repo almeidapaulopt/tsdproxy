@@ -666,7 +666,7 @@ func TestDNSAndTLSStatus_DefaultNone(t *testing.T) {
 func TestSetDNSAndTLSProviders(t *testing.T) {
 	t.Parallel()
 	dnsMock := &mockDNSProvider{}
-	tlsMock := &mockTLSProvider{}
+	tlsMock := &mockTLSProvider{name: model.TLSProviderACME}
 	proxy := &Proxy{}
 	proxy.SetDNSAndTLSProviders(dnsMock, tlsMock)
 
@@ -674,6 +674,16 @@ func TestSetDNSAndTLSProviders(t *testing.T) {
 	assert.Same(t, dnsMock, proxy.dnsProvider)
 	assert.Same(t, tlsMock, proxy.tlsProvider)
 	proxy.mtx.RUnlock()
+
+	configuredProxy := &Proxy{Config: &model.Config{}}
+	configuredProxy.SetDNSAndTLSProviders(dnsMock, tlsMock)
+	if configuredProxy.Config.ResolvedTLSProvider != tlsMock.Name() {
+		t.Errorf("ResolvedTLSProvider = %q, want %q", configuredProxy.Config.ResolvedTLSProvider, tlsMock.Name())
+	}
+	configuredProxy.SetDNSAndTLSProviders(dnsMock, nil)
+	if configuredProxy.Config.ResolvedTLSProvider != "" {
+		t.Errorf("ResolvedTLSProvider = %q, want empty after nil TLS provider", configuredProxy.Config.ResolvedTLSProvider)
+	}
 }
 
 func TestSetDNSStatus(t *testing.T) {

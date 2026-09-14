@@ -37,10 +37,9 @@ func TestResolveAndSetProviders_PerProxyACMEUsesResolvedDNSProvider(t *testing.T
 	proxyConfig := &model.Config{
 		Hostname:    "testproxy",
 		DNSProvider: "per-proxy-dns",
-		TLSProvider: "myacme",
 	}
 
-	sp := &Proxy{}
+	sp := &Proxy{Config: proxyConfig}
 
 	t.Cleanup(func() {
 		sp.mtx.RLock()
@@ -73,6 +72,9 @@ func TestResolveAndSetProviders_PerProxyACMEUsesResolvedDNSProvider(t *testing.T
 	if resolvedTLS.Name() != "acme" {
 		t.Fatalf("expected ACME TLS provider, got %q", resolvedTLS.Name())
 	}
+	if proxyConfig.ResolvedTLSProvider != model.TLSProviderACME {
+		t.Fatalf("ResolvedTLSProvider = %q, want %q", proxyConfig.ResolvedTLSProvider, model.TLSProviderACME)
+	}
 
 	if resolvedDNS.Name() == "cloudflare-global" {
 		t.Fatal("BUG: per-proxy ACME is using the global DNS provider instead of the per-proxy one")
@@ -82,23 +84,23 @@ func TestResolveAndSetProviders_PerProxyACMEUsesResolvedDNSProvider(t *testing.T
 func TestResolveAndSetProviders_NonACMEDoesNotRecreate(t *testing.T) {
 	cfg := newTestConfig(t)
 	cfg.DefaultDNSProvider = "global-dns"
-	cfg.DefaultTLSProvider = "tailscale"
-	cfg.TLSProviders = map[string]*config.TLSProviderConfig{}
+	cfg.DefaultTLSProvider = "tailscale-alias"
+	cfg.TLSProviders = map[string]*config.TLSProviderConfig{
+		"tailscale-alias": {Provider: model.TLSProviderTailscale},
+	}
 
 	globalDNS := &mockDNSProvider{name: "global-dns"}
-	nonACME := &mockTLSProvider{name: "tailscale"}
 
 	pm := newTestProxyManager(cfg)
 	pm.DNSProviders["global-dns"] = globalDNS
-	pm.TLSProviders["tailscale"] = nonACME
 
 	proxyConfig := &model.Config{
 		Hostname:    "testproxy",
 		DNSProvider: "global-dns",
-		TLSProvider: "tailscale",
+		TLSProvider: "tailscale-alias",
 	}
 
-	sp := &Proxy{}
+	sp := &Proxy{Config: proxyConfig}
 
 	if err := pm.resolveAndSetProviders(sp, proxyConfig); err != nil {
 		t.Fatalf("resolveAndSetProviders failed: %v", err)
@@ -113,6 +115,27 @@ func TestResolveAndSetProviders_NonACMEDoesNotRecreate(t *testing.T) {
 	}
 	if resolvedTLS.Name() != "tailscale" {
 		t.Fatalf("expected tailscale TLS provider, got %q", resolvedTLS.Name())
+	}
+	if proxyConfig.ResolvedTLSProvider != model.TLSProviderTailscale {
+		t.Fatalf("ResolvedTLSProvider = %q, want %q", proxyConfig.ResolvedTLSProvider, model.TLSProviderTailscale)
+	}
+}
+
+func TestPrepareDomainSetup_ClearsStaleResolvedTLSProviderOnValidationFailure(t *testing.T) {
+	t.Parallel()
+
+	pm := newTestProxyManager(newTestConfig(t))
+	proxyConfig := &model.Config{
+		Domain:              "app.example.com",
+		ResolvedTLSProvider: model.TLSProviderACME,
+	}
+	p := &Proxy{Config: proxyConfig}
+
+	if skip := pm.prepareDomainSetup(p, proxyConfig); !skip {
+		t.Fatal("prepareDomainSetup returned false, want validation failure to skip domain setup")
+	}
+	if proxyConfig.ResolvedTLSProvider != "" {
+		t.Errorf("ResolvedTLSProvider = %q, want empty after failed setup", proxyConfig.ResolvedTLSProvider)
 	}
 }
 
