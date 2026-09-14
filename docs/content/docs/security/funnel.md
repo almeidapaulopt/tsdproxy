@@ -44,6 +44,8 @@ for full requirements and limitations.
 
 - **Only HTTPS (port 443) is supported** — Funnel does not expose raw TCP ports
 - **TLS is handled by Tailscale** — the public URL uses Tailscale's certificate
+- **External TLS is not supported** — custom-domain HTTPS with an external TLS
+  provider cannot use Funnel
 - **Public URL format**: `https://<hostname>.tailnet-name.ts.net`
 - **No Tailscale authentication** — Funnel bypasses tailnet membership checks
 

@@ -507,6 +507,12 @@ func (proxy *Proxy) SetDNSAndTLSProviders(dns dnsproviders.Provider, tls tlsprov
 	defer proxy.mtx.Unlock()
 	proxy.dnsProvider = dns
 	proxy.tlsProvider = tls
+	if proxy.Config != nil {
+		proxy.Config.ResolvedTLSProvider = ""
+		if tls != nil {
+			proxy.Config.ResolvedTLSProvider = tls.Name()
+		}
+	}
 }
 
 func (proxy *Proxy) setDNSStatus(status dnsproviders.DNSStatus) {

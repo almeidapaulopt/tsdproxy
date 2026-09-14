@@ -310,6 +310,8 @@ func (pm *ProxyManager) configureProxyDomain(p *Proxy, proxyConfig *model.Config
 // is already set when getListenerForPort reads it (avoiding a race where the
 // proxy would fall back to Tailscale certs for a custom-domain HTTPS port).
 func (pm *ProxyManager) prepareDomainSetup(p *Proxy, proxyConfig *model.Config) (skip bool) {
+	proxyConfig.ResolvedTLSProvider = ""
+
 	if err := config.ValidateProxyConfig(
 		proxyConfig.Domain,
 		proxyConfig.DNSProvider,
