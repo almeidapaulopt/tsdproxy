@@ -10,7 +10,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",
-    "@vite-pwa/assets-generator": "^1.0.2",
+    "@vite-pwa/assets-generator": "^2.0.0",
     "daisyui": "^5.6.3",
     "tailwindcss": "^4.3.1",
     "vite": "^8.1.0",
