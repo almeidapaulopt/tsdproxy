@@ -10,14 +10,14 @@ Incus target provider: watches an Incus daemon (containers AND VMs) for instance
 | `incus_client.go` | `APIClient` + `EventListener` interfaces — Incus SDK abstractions. `serverClient` adapter wraps `incusclient.InstanceServer` (SDK's `GetEventsByType` returns concrete `*EventListener`, hence the adapter). `connect()` handles unix socket vs remote HTTPS + TLS material + project selection. |
 | `instance.go` | `instance` struct. `setInstanceNetwork` (eth0-first, IPv4-first, global-scope only), `getPorts` (same label format as Docker), `getTargetURL` (targetHostname override or first instance IP), `newProxyConfig` builds `model.Config`. |
 | `consts.go` | All `user.tsdproxy.*` config key constants, timing constants, port options. |
-| `utils.go` | Config parsing helpers: `getConfigBool/String/Int`, `getAuthKeyFromAuthFile` (secretstring), `instanceEnabled`. |
+| `utils.go` | `instanceEnabled` — enable check delegating to the shared `internal/targetproviders/labels` package. |
 | `errors.go` | Sentinel errors: `ErrInstanceNotEnabled`, `ErrInstanceNotRunning`, `ErrNoAddressFound`, `ErrSocketAndURL`, `ErrTLSClientMaterial`. |
 | `incus_test.go` | Unit tests with `mockAPIClient` (implements APIClient). Covers IP selection, target URL, config mapping, event classification, update diffing. |
 | `goleak_test.go` | `goleak.VerifyTestMain` + shared `testAssets`. |
 
 ## CONFIG KEY SCHEMA
 
-Incus reserves `user.*` for free-form keys; all tsdproxy keys are prefixed `user.tsdproxy.`. Same names as Docker labels after the prefix swap (`user.tsdproxy.port.<N>`, `user.tsdproxy.dash.icon`, `user.tsdproxy.ratelimit.enabled`, ...). NOT supported (Docker-only concepts): `autodetect`, `no_autodetect` port option, legacy keys (`container_port`, `scheme`, `tlsvalidate`, `funnel`).
+Incus reserves `user.*` for free-form keys; all tsdproxy keys are prefixed `user.tsdproxy.`. Same names as Docker labels after the prefix swap (`user.tsdproxy.port.<N>`, `user.tsdproxy.dash.icon`, `user.tsdproxy.ratelimit.enabled`, ...). Typed parsing of config values lives in the shared `internal/targetproviders/labels` package (`labels.Bool/String/Int/AuthKeyFromFile`), reused by the Docker provider. NOT supported (Docker-only concepts): `autodetect`, `no_autodetect` port option, legacy keys (`container_port`, `scheme`, `tlsvalidate`, `funnel`).
 
 ## KEY DESIGN DECISIONS
 

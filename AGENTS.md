@@ -27,6 +27,8 @@ tsdproxy/
 │   │   └── tailscale/          # Tailscale provider: Proxy, SharedProxy, SharedServer, SNIRouter
 │   ├── targetproviders/        # TargetProvider interface + Docker/List implementations
 │   │   ├── docker/             # Docker label parsing, container resolution, port mapping
+│   │   ├── incus/              # Incus instance config (user.tsdproxy.*) target provider
+│   │   ├── labels/             # Shared typed parsing of label/config string maps (Bool/String/Int/AuthKeyFromFile)
 │   │   └── list/               # Static YAML file-based target provider
 │   ├── tlsproviders/           # TLS Provider interface + ACME/Tailscale implementations
 │   └── ui/                     # templ server-rendered components (proxy cards, pages, layouts)

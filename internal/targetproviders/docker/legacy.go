@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/labels"
 )
 
 func (c *container) getLegacyPort(ctx context.Context) (model.PortConfig, error) {
@@ -27,7 +28,7 @@ func (c *container) getLegacyPort(ctx context.Context) (model.PortConfig, error)
 		return port, err
 	}
 
-	legacyTLSValidate := c.getLabelBool(LabelTLSValidate, model.DefaultTLSValidate)
+	legacyTLSValidate := labels.Bool(c.labels, LabelTLSValidate, model.DefaultTLSValidate)
 	if !legacyTLSValidate && !c.allowTLSValidateDisable {
 		c.log.Warn().
 			Msg("container set legacy tsdproxy.tlsvalidate=false but operator has not enabled allowTLSValidateDisable; ignoring")
@@ -36,7 +37,7 @@ func (c *container) getLegacyPort(ctx context.Context) (model.PortConfig, error)
 		port.TLSValidate = legacyTLSValidate
 	}
 
-	legacyFunnel := c.getLabelBool(LabelFunnel, model.DefaultTailscaleFunnel)
+	legacyFunnel := labels.Bool(c.labels, LabelFunnel, model.DefaultTailscaleFunnel)
 	if legacyFunnel && !c.allowContainerFunnel {
 		c.log.Warn().
 			Msg("container set legacy tsdproxy.funnel=true but operator has not enabled allowContainerFunnel; ignoring")

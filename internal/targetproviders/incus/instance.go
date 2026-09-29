@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/labels"
 	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
@@ -79,15 +80,15 @@ func newInstance(logger zerolog.Logger, inst *incusapi.Instance, state *incusapi
 		opt(i)
 	}
 
-	i.autoRestart = i.getConfigBool(ConfigAutoRestart, i.providerAutoRestart)
-	i.healthCheckEnabled = i.getConfigBool(ConfigHealthCheckEnabled, i.providerHealthEnabled)
-	i.healthCheckInterval = i.getConfigInt(ConfigHealthCheckInterval, i.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
-	i.healthCheckFailures = i.getConfigInt(ConfigHealthCheckFailures, i.providerHealthFailures, 1, healthCheckMaxFailures)
-	i.healthCheckCooldown = i.getConfigInt(ConfigHealthCheckCooldown, i.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
+	i.autoRestart = labels.Bool(i.config, ConfigAutoRestart, i.providerAutoRestart)
+	i.healthCheckEnabled = labels.Bool(i.config, ConfigHealthCheckEnabled, i.providerHealthEnabled)
+	i.healthCheckInterval = labels.Int(i.log, i.config, ConfigHealthCheckInterval, i.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
+	i.healthCheckFailures = labels.Int(i.log, i.config, ConfigHealthCheckFailures, i.providerHealthFailures, 1, healthCheckMaxFailures)
+	i.healthCheckCooldown = labels.Int(i.log, i.config, ConfigHealthCheckCooldown, i.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
 
-	i.rateLimitEnabled = i.getConfigBool(ConfigRateLimitEnabled, i.providerRateLimitEnabled)
-	i.rateLimitRPS = i.getConfigInt(ConfigRateLimitRPS, i.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
-	i.rateLimitBurst = i.getConfigInt(ConfigRateLimitBurst, i.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
+	i.rateLimitEnabled = labels.Bool(i.config, ConfigRateLimitEnabled, i.providerRateLimitEnabled)
+	i.rateLimitRPS = labels.Int(i.log, i.config, ConfigRateLimitRPS, i.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
+	i.rateLimitBurst = labels.Int(i.log, i.config, ConfigRateLimitBurst, i.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
 
 	i.setInstanceNetwork(state)
 
@@ -173,12 +174,12 @@ func (i *instance) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.Hostname = hostname
 	pcfg.TargetProvider = i.targetProviderName
 	pcfg.Tailscale = *tailscale
-	pcfg.ProxyProvider = i.getConfigString(ConfigProxyProvider, model.DefaultProxyProvider)
-	pcfg.Domain = i.getConfigString(ConfigDomain, "")
-	pcfg.DNSProvider = i.getConfigString(ConfigDNSProvider, "")
-	pcfg.TLSProvider = i.getConfigString(ConfigTLSProvider, "")
-	pcfg.ProxyAccessLog = i.getConfigBool(ConfigContainerAccessLog, i.proxyAccessLogDefault)
-	pcfg.IdentityHeaders = i.getConfigBool(ConfigIdentityHeaders, model.DefaultIdentityHeaders)
+	pcfg.ProxyProvider = labels.String(i.config, ConfigProxyProvider, model.DefaultProxyProvider)
+	pcfg.Domain = labels.String(i.config, ConfigDomain, "")
+	pcfg.DNSProvider = labels.String(i.config, ConfigDNSProvider, "")
+	pcfg.TLSProvider = labels.String(i.config, ConfigTLSProvider, "")
+	pcfg.ProxyAccessLog = labels.Bool(i.config, ConfigContainerAccessLog, i.proxyAccessLogDefault)
+	pcfg.IdentityHeaders = labels.Bool(i.config, ConfigIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = i.autoRestart
 	pcfg.HealthCheckEnabled = i.healthCheckEnabled
 	pcfg.HealthCheckInterval = i.healthCheckInterval
@@ -187,11 +188,11 @@ func (i *instance) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.RateLimitEnabled = i.rateLimitEnabled
 	pcfg.RateLimitRPS = i.rateLimitRPS
 	pcfg.RateLimitBurst = i.rateLimitBurst
-	pcfg.Dashboard.Visible = i.getConfigBool(ConfigDashboardVisible, model.DefaultDashboardVisible)
-	pcfg.Dashboard.Label = i.getConfigString(ConfigDashboardLabel, pcfg.Hostname)
+	pcfg.Dashboard.Visible = labels.Bool(i.config, ConfigDashboardVisible, model.DefaultDashboardVisible)
+	pcfg.Dashboard.Label = labels.String(i.config, ConfigDashboardLabel, pcfg.Hostname)
 
-	pcfg.Dashboard.Category = i.getConfigString(ConfigDashboardCategory, "")
-	pcfg.Dashboard.Icon = i.getConfigString(ConfigDashboardIcon, "")
+	pcfg.Dashboard.Category = labels.String(i.config, ConfigDashboardCategory, "")
+	pcfg.Dashboard.Icon = labels.String(i.config, ConfigDashboardIcon, "")
 	if pcfg.Dashboard.Icon == "" {
 		pcfg.Dashboard.Icon = i.assets.GuessIcon(i.image)
 	}
@@ -324,19 +325,19 @@ func (i *instance) getTailscaleConfig() (*model.Tailscale, error) {
 	i.log.Trace().Msg("getTailscaleConfig")
 	defer i.log.Trace().Msg("End getTailscaleConfig")
 
-	authKey := i.getConfigString(ConfigAuthKey, "")
+	authKey := labels.String(i.config, ConfigAuthKey, "")
 
-	authKeySecret, err := i.getAuthKeyFromAuthFile(authKey)
+	authKeySecret, err := labels.AuthKeyFromFile(i.config, ConfigAuthKeyFile, authKey)
 	if err != nil {
 		return nil, fmt.Errorf("error setting auth key from file : %w", err)
 	}
 
-	tags := i.getConfigString(ConfigTags, "")
+	tags := labels.String(i.config, ConfigTags, "")
 
 	return &model.Tailscale{
-		Ephemeral:    i.getConfigBool(ConfigEphemeral, model.DefaultTailscaleEphemeral),
-		RunWebClient: i.getConfigBool(ConfigRunWebClient, model.DefaultTailscaleRunWebClient),
-		Verbose:      i.getConfigBool(ConfigTsnetVerbose, model.DefaultTailscaleVerbose),
+		Ephemeral:    labels.Bool(i.config, ConfigEphemeral, model.DefaultTailscaleEphemeral),
+		RunWebClient: labels.Bool(i.config, ConfigRunWebClient, model.DefaultTailscaleRunWebClient),
+		Verbose:      labels.Bool(i.config, ConfigTsnetVerbose, model.DefaultTailscaleVerbose),
 		AuthKey:      authKeySecret,
 		Tags:         tags,
 	}, nil

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/labels"
 	"github.com/almeidapaulopt/tsdproxy/web"
 
 	ctypes "github.com/moby/moby/api/types/container"
@@ -88,16 +89,16 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 		opt(c)
 	}
 
-	c.autodetect = c.getLabelBool(LabelAutoDetect, providerAutoDetect)
-	c.autoRestart = c.getLabelBool(LabelAutoRestart, c.providerAutoRestart)
-	c.healthCheckEnabled = c.getLabelBool(LabelHealthCheckEnabled, c.providerHealthEnabled)
-	c.healthCheckInterval = c.getLabelInt(LabelHealthCheckInterval, c.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
-	c.healthCheckFailures = c.getLabelInt(LabelHealthCheckFailures, c.providerHealthFailures, 1, healthCheckMaxFailures)
-	c.healthCheckCooldown = c.getLabelInt(LabelHealthCheckCooldown, c.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
+	c.autodetect = labels.Bool(c.labels, LabelAutoDetect, providerAutoDetect)
+	c.autoRestart = labels.Bool(c.labels, LabelAutoRestart, c.providerAutoRestart)
+	c.healthCheckEnabled = labels.Bool(c.labels, LabelHealthCheckEnabled, c.providerHealthEnabled)
+	c.healthCheckInterval = labels.Int(c.log, c.labels, LabelHealthCheckInterval, c.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
+	c.healthCheckFailures = labels.Int(c.log, c.labels, LabelHealthCheckFailures, c.providerHealthFailures, 1, healthCheckMaxFailures)
+	c.healthCheckCooldown = labels.Int(c.log, c.labels, LabelHealthCheckCooldown, c.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
 
-	c.rateLimitEnabled = c.getLabelBool(LabelRateLimitEnabled, c.providerRateLimitEnabled)
-	c.rateLimitRPS = c.getLabelInt(LabelRateLimitRPS, c.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
-	c.rateLimitBurst = c.getLabelInt(LabelRateLimitBurst, c.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
+	c.rateLimitEnabled = labels.Bool(c.labels, LabelRateLimitEnabled, c.providerRateLimitEnabled)
+	c.rateLimitRPS = labels.Int(c.log, c.labels, LabelRateLimitRPS, c.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
+	c.rateLimitBurst = labels.Int(c.log, c.labels, LabelRateLimitBurst, c.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
 
 	c.setContainerPorts(dcontainer, dservice)
 	c.setContainerNetwork(dcontainer)
@@ -209,12 +210,12 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.Hostname = hostname
 	pcfg.TargetProvider = c.targetProviderName
 	pcfg.Tailscale = *tailscale
-	pcfg.ProxyProvider = c.getLabelString(LabelProxyProvider, model.DefaultProxyProvider)
-	pcfg.Domain = c.getLabelString(LabelDomain, "")
-	pcfg.DNSProvider = c.getLabelString(LabelDNSProvider, "")
-	pcfg.TLSProvider = c.getLabelString(LabelTLSProvider, "")
-	pcfg.ProxyAccessLog = c.getLabelBool(LabelContainerAccessLog, c.proxyAccessLogDefault)
-	pcfg.IdentityHeaders = c.getLabelBool(LabelIdentityHeaders, model.DefaultIdentityHeaders)
+	pcfg.ProxyProvider = labels.String(c.labels, LabelProxyProvider, model.DefaultProxyProvider)
+	pcfg.Domain = labels.String(c.labels, LabelDomain, "")
+	pcfg.DNSProvider = labels.String(c.labels, LabelDNSProvider, "")
+	pcfg.TLSProvider = labels.String(c.labels, LabelTLSProvider, "")
+	pcfg.ProxyAccessLog = labels.Bool(c.labels, LabelContainerAccessLog, c.proxyAccessLogDefault)
+	pcfg.IdentityHeaders = labels.Bool(c.labels, LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = c.autoRestart
 	pcfg.HealthCheckEnabled = c.healthCheckEnabled
 	pcfg.HealthCheckInterval = c.healthCheckInterval
@@ -223,11 +224,11 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.RateLimitEnabled = c.rateLimitEnabled
 	pcfg.RateLimitRPS = c.rateLimitRPS
 	pcfg.RateLimitBurst = c.rateLimitBurst
-	pcfg.Dashboard.Visible = c.getLabelBool(LabelDashboardVisible, model.DefaultDashboardVisible)
-	pcfg.Dashboard.Label = c.getLabelString(LabelDashboardLabel, pcfg.Hostname)
+	pcfg.Dashboard.Visible = labels.Bool(c.labels, LabelDashboardVisible, model.DefaultDashboardVisible)
+	pcfg.Dashboard.Label = labels.String(c.labels, LabelDashboardLabel, pcfg.Hostname)
 
-	pcfg.Dashboard.Category = c.getLabelString(LabelDashboardCategory, "")
-	pcfg.Dashboard.Icon = c.getLabelString(LabelDashboardIcon, "")
+	pcfg.Dashboard.Category = labels.String(c.labels, LabelDashboardCategory, "")
+	pcfg.Dashboard.Icon = labels.String(c.labels, LabelDashboardIcon, "")
 	if pcfg.Dashboard.Icon == "" {
 		pcfg.Dashboard.Icon = c.assets.GuessIcon(c.image)
 	}
@@ -356,19 +357,19 @@ func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 	c.log.Trace().Msg("getTailscaleConfig")
 	defer c.log.Trace().Msg("End getTailscaleConfig")
 
-	authKey := c.getLabelString(LabelAuthKey, "")
+	authKey := labels.String(c.labels, LabelAuthKey, "")
 
-	authKeySecret, err := c.getAuthKeyFromAuthFile(authKey)
+	authKeySecret, err := labels.AuthKeyFromFile(c.labels, LabelAuthKeyFile, authKey)
 	if err != nil {
 		return nil, fmt.Errorf("error setting auth key from file : %w", err)
 	}
 
-	tags := c.getLabelString(LabelTags, "")
+	tags := labels.String(c.labels, LabelTags, "")
 
 	return &model.Tailscale{
-		Ephemeral:    c.getLabelBool(LabelEphemeral, model.DefaultTailscaleEphemeral),
-		RunWebClient: c.getLabelBool(LabelRunWebClient, model.DefaultTailscaleRunWebClient),
-		Verbose:      c.getLabelBool(LabelTsnetVerbose, model.DefaultTailscaleVerbose),
+		Ephemeral:    labels.Bool(c.labels, LabelEphemeral, model.DefaultTailscaleEphemeral),
+		RunWebClient: labels.Bool(c.labels, LabelRunWebClient, model.DefaultTailscaleRunWebClient),
+		Verbose:      labels.Bool(c.labels, LabelTsnetVerbose, model.DefaultTailscaleVerbose),
 		AuthKey:      authKeySecret,
 		Tags:         tags,
 	}, nil

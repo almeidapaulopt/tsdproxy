@@ -11,7 +11,6 @@ Docker target provider: watches Docker daemon for containers with `tsdproxy.*` l
 | `container.go` | `container` struct. `getPorts()` label parsing, `getTargetURL()` 5-step resolution chain, `newProxyConfig()` builds per-proxy `model.Config`. |
 | `consts.go` | All label constants (`tsdproxy.*` prefix), port option constants, timing constants. |
 | `autodetect.go` | Auto-detect probing: `tryConnectContainer`, `tryInternalPort`, `tryPublishedPort`, `dial`. Used in resolveByProbing step. |
-| `utils.go` | Label parsing helpers: `getLabelBool`, `getLabelString`, `getLabelInt`, `getAuthKeyFromAuthFile`. |
 | `legacy.go` | Legacy label support: `tsdproxy.container_port`, `tsdproxy.scheme`, `tsdproxy.tlsvalidate`, `tsdproxy.funnel`. |
 | `errors.go` | Custom error types: `NoValidTargetFoundError`, `ErrNoPortFoundInContainer`. |
 | `container_test.go` | ~564 lines, 25+ tests. `newTestContainer` helper. Uses stdlib `t.Fatalf` (not testify). Tests all 5 resolution strategies. |
@@ -19,7 +18,7 @@ Docker target provider: watches Docker daemon for containers with `tsdproxy.*` l
 
 ## LABEL SCHEMA
 
-All labels prefixed with `tsdproxy.`. Constants in `consts.go`.
+All labels prefixed with `tsdproxy.`. Constants in `consts.go`. Typed parsing of label values lives in the shared `internal/targetproviders/labels` package (`labels.Bool/String/Int/AuthKeyFromFile`), reused by the Incus provider.
 
 **Core**: `enable` (required bool), `name` (hostname), `proxyprovider`, `autodetect`, `auto_restart`, `identity_headers`, `containeraccesslog`.
 
