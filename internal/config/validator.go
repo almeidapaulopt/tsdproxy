@@ -83,11 +83,31 @@ func (c *Data) validate(log zerolog.Logger) error {
 	if err != nil {
 		return err
 	}
+
+	// add default proxy provider to incus providers
+	//
+	err = c.addDefaultProxyProviderToIncusProviders()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 func (c *Data) addDefaultProxyProviderToDockerProviders() error {
 	for _, p := range c.Docker {
+		if p.DefaultProxyProvider == "" {
+			p.DefaultProxyProvider = c.DefaultProxyProvider
+		} else {
+			if !c.hasProxyProvider(p.DefaultProxyProvider) {
+				return &DefaultProxyProviderNotFoundError{ProviderName: p.DefaultProxyProvider}
+			}
+		}
+	}
+	return nil
+}
+
+func (c *Data) addDefaultProxyProviderToIncusProviders() error {
+	for _, p := range c.Incus {
 		if p.DefaultProxyProvider == "" {
 			p.DefaultProxyProvider = c.DefaultProxyProvider
 		} else {
