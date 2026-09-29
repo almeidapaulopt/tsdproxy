@@ -72,13 +72,4 @@ const (
 
 	// loopbackInterface is skipped when collecting instance addresses.
 	loopbackInterface = "lo"
-
-	// health check key bounds (mirror the Docker provider).
-	healthCheckMaxIntervalSeconds = 86400
-	healthCheckMaxFailures        = 100
-	healthCheckMaxCooldownSeconds = 86400
-
-	// Port options (same syntax as the Docker provider).
-	PortOptionNoTLSValidate   = "no_tlsvalidate"
-	PortOptionTailscaleFunnel = "tailscale_funnel"
 )

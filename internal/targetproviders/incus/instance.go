@@ -17,7 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
-	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/labels"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/settings"
 	"github.com/almeidapaulopt/tsdproxy/web"
 )
 
@@ -80,15 +80,18 @@ func newInstance(logger zerolog.Logger, inst *incusapi.Instance, state *incusapi
 		opt(i)
 	}
 
-	i.autoRestart = labels.Bool(i.config, ConfigAutoRestart, i.providerAutoRestart)
-	i.healthCheckEnabled = labels.Bool(i.config, ConfigHealthCheckEnabled, i.providerHealthEnabled)
-	i.healthCheckInterval = labels.Int(i.log, i.config, ConfigHealthCheckInterval, i.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
-	i.healthCheckFailures = labels.Int(i.log, i.config, ConfigHealthCheckFailures, i.providerHealthFailures, 1, healthCheckMaxFailures)
-	i.healthCheckCooldown = labels.Int(i.log, i.config, ConfigHealthCheckCooldown, i.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
+	i.autoRestart = settings.Bool(i.config, ConfigAutoRestart, i.providerAutoRestart)
+	i.healthCheckEnabled = settings.Bool(i.config, ConfigHealthCheckEnabled, i.providerHealthEnabled)
+	i.healthCheckInterval = settings.Int(i.log, i.config, ConfigHealthCheckInterval,
+		i.providerHealthInterval, model.HealthCheckMinIntervalSeconds, model.HealthCheckMaxIntervalSeconds)
+	i.healthCheckFailures = settings.Int(i.log, i.config, ConfigHealthCheckFailures,
+		i.providerHealthFailures, model.HealthCheckMinFailures, model.HealthCheckMaxFailures)
+	i.healthCheckCooldown = settings.Int(i.log, i.config, ConfigHealthCheckCooldown,
+		i.providerHealthCooldown, model.HealthCheckMinCooldownSeconds, model.HealthCheckMaxCooldownSeconds)
 
-	i.rateLimitEnabled = labels.Bool(i.config, ConfigRateLimitEnabled, i.providerRateLimitEnabled)
-	i.rateLimitRPS = labels.Int(i.log, i.config, ConfigRateLimitRPS, i.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
-	i.rateLimitBurst = labels.Int(i.log, i.config, ConfigRateLimitBurst, i.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
+	i.rateLimitEnabled = settings.Bool(i.config, ConfigRateLimitEnabled, i.providerRateLimitEnabled)
+	i.rateLimitRPS = settings.Int(i.log, i.config, ConfigRateLimitRPS, i.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
+	i.rateLimitBurst = settings.Int(i.log, i.config, ConfigRateLimitBurst, i.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
 
 	i.setInstanceNetwork(state)
 
@@ -174,12 +177,12 @@ func (i *instance) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.Hostname = hostname
 	pcfg.TargetProvider = i.targetProviderName
 	pcfg.Tailscale = *tailscale
-	pcfg.ProxyProvider = labels.String(i.config, ConfigProxyProvider, model.DefaultProxyProvider)
-	pcfg.Domain = labels.String(i.config, ConfigDomain, "")
-	pcfg.DNSProvider = labels.String(i.config, ConfigDNSProvider, "")
-	pcfg.TLSProvider = labels.String(i.config, ConfigTLSProvider, "")
-	pcfg.ProxyAccessLog = labels.Bool(i.config, ConfigContainerAccessLog, i.proxyAccessLogDefault)
-	pcfg.IdentityHeaders = labels.Bool(i.config, ConfigIdentityHeaders, model.DefaultIdentityHeaders)
+	pcfg.ProxyProvider = settings.String(i.config, ConfigProxyProvider, model.DefaultProxyProvider)
+	pcfg.Domain = settings.String(i.config, ConfigDomain, "")
+	pcfg.DNSProvider = settings.String(i.config, ConfigDNSProvider, "")
+	pcfg.TLSProvider = settings.String(i.config, ConfigTLSProvider, "")
+	pcfg.ProxyAccessLog = settings.Bool(i.config, ConfigContainerAccessLog, i.proxyAccessLogDefault)
+	pcfg.IdentityHeaders = settings.Bool(i.config, ConfigIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = i.autoRestart
 	pcfg.HealthCheckEnabled = i.healthCheckEnabled
 	pcfg.HealthCheckInterval = i.healthCheckInterval
@@ -188,11 +191,11 @@ func (i *instance) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.RateLimitEnabled = i.rateLimitEnabled
 	pcfg.RateLimitRPS = i.rateLimitRPS
 	pcfg.RateLimitBurst = i.rateLimitBurst
-	pcfg.Dashboard.Visible = labels.Bool(i.config, ConfigDashboardVisible, model.DefaultDashboardVisible)
-	pcfg.Dashboard.Label = labels.String(i.config, ConfigDashboardLabel, pcfg.Hostname)
+	pcfg.Dashboard.Visible = settings.Bool(i.config, ConfigDashboardVisible, model.DefaultDashboardVisible)
+	pcfg.Dashboard.Label = settings.String(i.config, ConfigDashboardLabel, pcfg.Hostname)
 
-	pcfg.Dashboard.Category = labels.String(i.config, ConfigDashboardCategory, "")
-	pcfg.Dashboard.Icon = labels.String(i.config, ConfigDashboardIcon, "")
+	pcfg.Dashboard.Category = settings.String(i.config, ConfigDashboardCategory, "")
+	pcfg.Dashboard.Icon = settings.String(i.config, ConfigDashboardIcon, "")
 	if pcfg.Dashboard.Icon == "" {
 		pcfg.Dashboard.Icon = i.assets.GuessIcon(i.image)
 	}
@@ -206,89 +209,18 @@ func (i *instance) newProxyConfig(ctx context.Context) (*model.Config, error) {
 // The value format matches the Docker provider:
 // "<proxy port>/<proxy protocol>:<target port>/<target protocol>[,option]".
 func (i *instance) getPorts(ctx context.Context) model.PortConfigList {
-	i.log.Trace().Msg("getPorts")
-	defer i.log.Trace().Msg("End getPorts")
-
-	ports := make(model.PortConfigList)
-	for k, v := range i.config {
-		if !strings.HasPrefix(k, ConfigPort) {
-			continue
-		}
-
-		parts := strings.Split(v, ",")
-
-		configStr := parts[0]
-
-		if model.IsPortRangeLabel(configStr) {
-			expanded, err := model.ExpandPortRangeLabel(configStr)
-			if err != nil {
-				i.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
-				continue
-			}
-
-			for rangeKey, port := range expanded {
-				i.applyPortOptions(k, &port, parts[1:])
-
-				if !port.IsRedirect {
-					port, err = i.generateTargetFromFirstTarget(ctx, port)
-					if err != nil {
-						i.log.Error().Err(err).Str("port", k).Msg("error generating target for range port")
-						continue
-					}
-				}
-
-				expandedKey := k + "." + rangeKey
-				ports[expandedKey] = port
-			}
-			continue
-		}
-
-		port, err := model.NewPortLongLabel(parts[0])
-		if err != nil {
-			i.log.Error().Err(err).Str("port", k).Msg("error creating port config")
-			continue
-		}
-
-		i.applyPortOptions(k, &port, parts[1:])
-
-		if !port.IsRedirect {
-			port, err = i.generateTargetFromFirstTarget(ctx, port)
-			if err != nil {
-				i.log.Error().Err(err).Str("port", k).Msg("error generating target")
-				continue
-			}
-		}
-
-		ports[k] = port
-	}
-
-	return ports
+	return model.Ports(ctx, i.log, i.config, ConfigPort, i.portOptionGates(), i.generateTargetFromFirstTarget)
 }
 
-// applyPortOptions applies comma-separated port options. Options that the
-// operator has not enabled on the provider are ignored with a warning.
-func (i *instance) applyPortOptions(key string, port *model.PortConfig, options []string) {
-	for _, opt := range options {
-		opt = strings.TrimSpace(opt)
-		switch opt {
-		case PortOptionNoTLSValidate:
-			if !i.allowTLSValidateDisable {
-				i.log.Warn().Str("option", opt).Str("port", key).
-					Msg("instance requested no_tlsvalidate but operator has not enabled allowTlsValidateDisable; ignoring")
-				continue
-			}
-			port.TLSValidate = false
-		case PortOptionTailscaleFunnel:
-			if !i.allowInstanceFunnel {
-				i.log.Warn().Str("option", opt).Str("port", key).
-					Msg("instance requested tailscale_funnel but operator has not enabled allowInstanceFunnel; ignoring")
-				continue
-			}
-			port.Tailscale.Funnel = true
-		default:
-			i.log.Warn().Str("option", opt).Str("port", key).
-				Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel)")
-		}
+// portOptionGates returns the provider's port option policy from the
+// operator's settings. Incus has no autodetection, so no_autodetect is not
+// supported.
+func (i *instance) portOptionGates() model.PortOptionGates {
+	return model.PortOptionGates{
+		AllowTLSValidateDisable: i.allowTLSValidateDisable,
+		AllowFunnel:             i.allowInstanceFunnel,
+		FunnelSettingName:       "allowInstanceFunnel",
+		SupportNoAutoDetect:     false,
 	}
 }
 
@@ -325,19 +257,19 @@ func (i *instance) getTailscaleConfig() (*model.Tailscale, error) {
 	i.log.Trace().Msg("getTailscaleConfig")
 	defer i.log.Trace().Msg("End getTailscaleConfig")
 
-	authKey := labels.String(i.config, ConfigAuthKey, "")
+	authKey := settings.String(i.config, ConfigAuthKey, "")
 
-	authKeySecret, err := labels.AuthKeyFromFile(i.config, ConfigAuthKeyFile, authKey)
+	authKeySecret, err := settings.AuthKeyFromFile(i.config, ConfigAuthKeyFile, authKey)
 	if err != nil {
 		return nil, fmt.Errorf("error setting auth key from file : %w", err)
 	}
 
-	tags := labels.String(i.config, ConfigTags, "")
+	tags := settings.String(i.config, ConfigTags, "")
 
 	return &model.Tailscale{
-		Ephemeral:    labels.Bool(i.config, ConfigEphemeral, model.DefaultTailscaleEphemeral),
-		RunWebClient: labels.Bool(i.config, ConfigRunWebClient, model.DefaultTailscaleRunWebClient),
-		Verbose:      labels.Bool(i.config, ConfigTsnetVerbose, model.DefaultTailscaleVerbose),
+		Ephemeral:    settings.Bool(i.config, ConfigEphemeral, model.DefaultTailscaleEphemeral),
+		RunWebClient: settings.Bool(i.config, ConfigRunWebClient, model.DefaultTailscaleRunWebClient),
+		Verbose:      settings.Bool(i.config, ConfigTsnetVerbose, model.DefaultTailscaleVerbose),
 		AuthKey:      authKeySecret,
 		Tags:         tags,
 	}, nil

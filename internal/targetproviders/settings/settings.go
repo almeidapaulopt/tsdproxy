@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Paulo Almeida <almeidapaulopt@gmail.com>
 // SPDX-License-Identifier: MIT
 
-// Package labels provides typed parsing of tsdproxy settings from the string
-// maps used by target providers. Docker container labels and Incus instance
-// config keys share the same key-to-string-value shape and semantics, so the
-// parsing rules live here once instead of in each provider.
-package labels
+// Package settings provides typed parsing of tsdproxy settings from the
+// string maps used by target providers. Docker container labels and Incus
+// instance config keys share the same key-to-string-value shape and
+// semantics, so the parsing rules live here once instead of in each provider.
+package settings
 
 import (
 	"fmt"

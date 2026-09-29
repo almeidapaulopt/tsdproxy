@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
-
-	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
 func TestGetProxyHostname(t *testing.T) {
@@ -52,108 +50,6 @@ func TestGetProxyHostname(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestApplyPortOptions(t *testing.T) {
-	t.Parallel()
-
-	c := &container{log: zerolog.Nop(), allowTLSValidateDisable: true, allowContainerFunnel: true}
-
-	t.Run("empty options", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true, Tailscale: model.TailscalePort{}}
-		c.applyPortOptions("port.test", &port, nil)
-		if !port.TLSValidate {
-			t.Error("expected TLSValidate=true by default")
-		}
-		if port.Tailscale.Funnel {
-			t.Error("expected Funnel=false by default")
-		}
-		if port.NoAutoDetect {
-			t.Error("expected NoAutoDetect=false by default")
-		}
-	})
-
-	t.Run("no_tlsvalidate option", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{"no_tlsvalidate"})
-		if port.TLSValidate {
-			t.Error("expected TLSValidate=false")
-		}
-	})
-
-	t.Run("tailscale_funnel option", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{"tailscale_funnel"})
-		if !port.Tailscale.Funnel {
-			t.Error("expected Funnel=true")
-		}
-	})
-
-	t.Run("no_autodetect option", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{"no_autodetect"})
-		if !port.NoAutoDetect {
-			t.Error("expected NoAutoDetect=true")
-		}
-	})
-
-	t.Run("multiple options", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{"no_tlsvalidate", "tailscale_funnel"})
-		if port.TLSValidate {
-			t.Error("expected TLSValidate=false with no_tlsvalidate")
-		}
-		if !port.Tailscale.Funnel {
-			t.Error("expected Funnel=true with tailscale_funnel")
-		}
-	})
-
-	t.Run("unknown option ignored", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{"unknown_option"})
-		if !port.TLSValidate {
-			t.Error("expected TLSValidate=true (unknown option ignored)")
-		}
-	})
-
-	t.Run("whitespace trimming", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{" no_tlsvalidate "})
-		if port.TLSValidate {
-			t.Error("expected TLSValidate=false after trimming whitespace")
-		}
-	})
-}
-
-func TestApplyPortOptions_OperatorGated(t *testing.T) {
-	t.Parallel()
-
-	c := &container{log: zerolog.Nop()}
-
-	t.Run("no_tlsvalidate rejected without allowTLSValidateDisable", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{"no_tlsvalidate"})
-		if !port.TLSValidate {
-			t.Error("expected TLSValidate to remain true when operator has not allowed disable")
-		}
-	})
-
-	t.Run("tailscale_funnel rejected without allowContainerFunnel", func(t *testing.T) {
-		t.Parallel()
-		port := model.PortConfig{TLSValidate: true}
-		c.applyPortOptions("port.test", &port, []string{"tailscale_funnel"})
-		if port.Tailscale.Funnel {
-			t.Error("expected Funnel to remain false when operator has not allowed funnel")
-		}
-	})
 }
 
 func TestNewProxyConfig_Minimal(t *testing.T) {

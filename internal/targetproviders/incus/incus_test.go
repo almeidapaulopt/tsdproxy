@@ -378,7 +378,7 @@ func TestApplyPortOptions_FunnelGated(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		i.applyPortOptions("test", &port, []string{"tailscale_funnel"})
+		model.ApplyPortOptions(zerolog.Nop(), i.portOptionGates(), "test", &port, []string{"tailscale_funnel"})
 		if !port.Tailscale.Funnel {
 			t.Error("expected funnel enabled when allowed")
 		}
@@ -395,7 +395,7 @@ func TestApplyPortOptions_FunnelGated(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		i.applyPortOptions("test", &port, []string{"tailscale_funnel"})
+		model.ApplyPortOptions(zerolog.Nop(), i.portOptionGates(), "test", &port, []string{"tailscale_funnel"})
 		if port.Tailscale.Funnel {
 			t.Error("expected funnel disabled when not allowed")
 		}
@@ -413,7 +413,7 @@ func TestApplyPortOptions_NoTLSValidateGated(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	i.applyPortOptions("test", &port, []string{"no_tlsvalidate"})
+	model.ApplyPortOptions(zerolog.Nop(), i.portOptionGates(), "test", &port, []string{"no_tlsvalidate"})
 	if !port.TLSValidate {
 		t.Error("expected TLSValidate to stay true when not allowed")
 	}

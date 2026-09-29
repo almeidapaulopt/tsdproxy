@@ -21,14 +21,14 @@ tsdproxy/
 │   ├── dnsproviders/           # DNS Provider interface + Cloudflare/MagicDNS implementations
 │   ├── dom/                    # ID generation utility
 │   ├── lifecycle/              # Shared lifecycle status tracking (used by DNS + TLS providers)
-│   ├── model/                  # Shared types: Config, PortConfig, ProxyStatus, events
+│   ├── model/                  # Shared types + port label grammar: Config, PortConfig, ProxyStatus, Ports/ApplyPortOptions
 │   ├── proxymanager/           # Central orchestrator: wires target→proxy→DNS→TLS providers
 │   ├── proxyproviders/         # ProxyProvider interface + Tailscale (per-proxy & shared)
 │   │   └── tailscale/          # Tailscale provider: Proxy, SharedProxy, SharedServer, SNIRouter
 │   ├── targetproviders/        # TargetProvider interface + Docker/List implementations
 │   │   ├── docker/             # Docker label parsing, container resolution, port mapping
 │   │   ├── incus/              # Incus instance config (user.tsdproxy.*) target provider
-│   │   ├── labels/             # Shared typed parsing of label/config string maps (Bool/String/Int/AuthKeyFromFile)
+│   │   ├── settings/           # Shared typed access to per-target settings maps (Bool/String/Int/AuthKeyFromFile)
 │   │   └── list/               # Static YAML file-based target provider
 │   ├── tlsproviders/           # TLS Provider interface + ACME/Tailscale implementations
 │   └── ui/                     # templ server-rendered components (proxy cards, pages, layouts)
@@ -48,6 +48,7 @@ tsdproxy/
 | Add a new DNS provider | `internal/dnsproviders/` | Implement `Provider` (4 methods); for ACME also implement `certmagic.DNSProvider` |
 | Add a new TLS provider | `internal/tlsproviders/` | Implement `Provider` (4 methods) |
 | Change Docker label parsing | `internal/targetproviders/docker/consts.go` | All label constants (`tsdproxy.*`) |
+| Change port label format or options | `internal/model/port.go` | `Ports`, `ApplyPortOptions`, `PortOptionGates`; option strings + health/ratelimit bounds in `port.go`/`default.go` |
 | Change port mapping logic | `internal/targetproviders/docker/container.go` | `getPorts()`, `getTargetURL()` |
 | Modify dashboard UI | `internal/ui/pages/proxylist.templ` | templ template for proxy cards |
 | Add frontend assets | `web/` | Build with `bun run build`, embedded via go:embed |

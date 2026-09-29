@@ -8,7 +8,7 @@ Docker target provider: watches Docker daemon for containers with `tsdproxy.*` l
 |------|------|
 | `docker.go` | `Client` (TargetProvider impl). `WatchEvents()` subscribes to Docker Events API (start/die, filtered by `tsdproxy.enable=true`). `startAllProxies()` initial scan. Swarm support. `Client.docker` field is `APIClient` interface. |
 | `docker_client.go` | `APIClient` interface — Docker SDK abstraction (6 methods). Satisfied by `*client.Client`. Enables unit testing without Docker daemon. |
-| `container.go` | `container` struct. `getPorts()` label parsing, `getTargetURL()` 5-step resolution chain, `newProxyConfig()` builds per-proxy `model.Config`. |
+| `container.go` | `container` struct. `getPorts()` delegates to `model.Ports`, `getTargetURL()` 5-step resolution chain, `newProxyConfig()` builds per-proxy `model.Config`. |
 | `consts.go` | All label constants (`tsdproxy.*` prefix), port option constants, timing constants. |
 | `autodetect.go` | Auto-detect probing: `tryConnectContainer`, `tryInternalPort`, `tryPublishedPort`, `dial`. Used in resolveByProbing step. |
 | `legacy.go` | Legacy label support: `tsdproxy.container_port`, `tsdproxy.scheme`, `tsdproxy.tlsvalidate`, `tsdproxy.funnel`. |
@@ -18,7 +18,7 @@ Docker target provider: watches Docker daemon for containers with `tsdproxy.*` l
 
 ## LABEL SCHEMA
 
-All labels prefixed with `tsdproxy.`. Constants in `consts.go`. Typed parsing of label values lives in the shared `internal/targetproviders/labels` package (`labels.Bool/String/Int/AuthKeyFromFile`), reused by the Incus provider.
+All labels prefixed with `tsdproxy.`. Constants in `consts.go`. Typed lookups of label values live in the shared `internal/targetproviders/settings` package (`Bool/String/Int/AuthKeyFromFile`), reused by the Incus provider. Port label parsing (`<port spec>[,option...]` and option gating) lives in `model` (`Ports`, `ApplyPortOptions` with `PortOptionGates`).
 
 **Core**: `enable` (required bool), `name` (hostname), `proxyprovider`, `autodetect`, `auto_restart`, `identity_headers`, `containeraccesslog`.
 

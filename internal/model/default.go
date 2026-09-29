@@ -37,6 +37,15 @@ const (
 	RateLimitMaxRPS   = 10000
 	RateLimitMinBurst = 1
 	RateLimitMaxBurst = 100000
+
+	// Health check bounds (min/max for label validation, shared by the
+	// Docker and Incus target providers)
+	HealthCheckMinIntervalSeconds = 1
+	HealthCheckMaxIntervalSeconds = 86400
+	HealthCheckMinFailures        = 1
+	HealthCheckMaxFailures        = 100
+	HealthCheckMinCooldownSeconds = 0
+	HealthCheckMaxCooldownSeconds = 86400
 )
 
 type Preferences struct {

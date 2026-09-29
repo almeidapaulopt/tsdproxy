@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
-	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/labels"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/settings"
 	"github.com/almeidapaulopt/tsdproxy/web"
 
 	ctypes "github.com/moby/moby/api/types/container"
@@ -89,16 +89,19 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 		opt(c)
 	}
 
-	c.autodetect = labels.Bool(c.labels, LabelAutoDetect, providerAutoDetect)
-	c.autoRestart = labels.Bool(c.labels, LabelAutoRestart, c.providerAutoRestart)
-	c.healthCheckEnabled = labels.Bool(c.labels, LabelHealthCheckEnabled, c.providerHealthEnabled)
-	c.healthCheckInterval = labels.Int(c.log, c.labels, LabelHealthCheckInterval, c.providerHealthInterval, 1, healthCheckMaxIntervalSeconds)
-	c.healthCheckFailures = labels.Int(c.log, c.labels, LabelHealthCheckFailures, c.providerHealthFailures, 1, healthCheckMaxFailures)
-	c.healthCheckCooldown = labels.Int(c.log, c.labels, LabelHealthCheckCooldown, c.providerHealthCooldown, 0, healthCheckMaxCooldownSeconds)
+	c.autodetect = settings.Bool(c.labels, LabelAutoDetect, providerAutoDetect)
+	c.autoRestart = settings.Bool(c.labels, LabelAutoRestart, c.providerAutoRestart)
+	c.healthCheckEnabled = settings.Bool(c.labels, LabelHealthCheckEnabled, c.providerHealthEnabled)
+	c.healthCheckInterval = settings.Int(c.log, c.labels, LabelHealthCheckInterval,
+		c.providerHealthInterval, model.HealthCheckMinIntervalSeconds, model.HealthCheckMaxIntervalSeconds)
+	c.healthCheckFailures = settings.Int(c.log, c.labels, LabelHealthCheckFailures,
+		c.providerHealthFailures, model.HealthCheckMinFailures, model.HealthCheckMaxFailures)
+	c.healthCheckCooldown = settings.Int(c.log, c.labels, LabelHealthCheckCooldown,
+		c.providerHealthCooldown, model.HealthCheckMinCooldownSeconds, model.HealthCheckMaxCooldownSeconds)
 
-	c.rateLimitEnabled = labels.Bool(c.labels, LabelRateLimitEnabled, c.providerRateLimitEnabled)
-	c.rateLimitRPS = labels.Int(c.log, c.labels, LabelRateLimitRPS, c.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
-	c.rateLimitBurst = labels.Int(c.log, c.labels, LabelRateLimitBurst, c.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
+	c.rateLimitEnabled = settings.Bool(c.labels, LabelRateLimitEnabled, c.providerRateLimitEnabled)
+	c.rateLimitRPS = settings.Int(c.log, c.labels, LabelRateLimitRPS, c.providerRateLimitRPS, model.RateLimitMinRPS, model.RateLimitMaxRPS)
+	c.rateLimitBurst = settings.Int(c.log, c.labels, LabelRateLimitBurst, c.providerRateLimitBurst, model.RateLimitMinBurst, model.RateLimitMaxBurst)
 
 	c.setContainerPorts(dcontainer, dservice)
 	c.setContainerNetwork(dcontainer)
@@ -210,12 +213,12 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.Hostname = hostname
 	pcfg.TargetProvider = c.targetProviderName
 	pcfg.Tailscale = *tailscale
-	pcfg.ProxyProvider = labels.String(c.labels, LabelProxyProvider, model.DefaultProxyProvider)
-	pcfg.Domain = labels.String(c.labels, LabelDomain, "")
-	pcfg.DNSProvider = labels.String(c.labels, LabelDNSProvider, "")
-	pcfg.TLSProvider = labels.String(c.labels, LabelTLSProvider, "")
-	pcfg.ProxyAccessLog = labels.Bool(c.labels, LabelContainerAccessLog, c.proxyAccessLogDefault)
-	pcfg.IdentityHeaders = labels.Bool(c.labels, LabelIdentityHeaders, model.DefaultIdentityHeaders)
+	pcfg.ProxyProvider = settings.String(c.labels, LabelProxyProvider, model.DefaultProxyProvider)
+	pcfg.Domain = settings.String(c.labels, LabelDomain, "")
+	pcfg.DNSProvider = settings.String(c.labels, LabelDNSProvider, "")
+	pcfg.TLSProvider = settings.String(c.labels, LabelTLSProvider, "")
+	pcfg.ProxyAccessLog = settings.Bool(c.labels, LabelContainerAccessLog, c.proxyAccessLogDefault)
+	pcfg.IdentityHeaders = settings.Bool(c.labels, LabelIdentityHeaders, model.DefaultIdentityHeaders)
 	pcfg.AutoRestart = c.autoRestart
 	pcfg.HealthCheckEnabled = c.healthCheckEnabled
 	pcfg.HealthCheckInterval = c.healthCheckInterval
@@ -224,11 +227,11 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 	pcfg.RateLimitEnabled = c.rateLimitEnabled
 	pcfg.RateLimitRPS = c.rateLimitRPS
 	pcfg.RateLimitBurst = c.rateLimitBurst
-	pcfg.Dashboard.Visible = labels.Bool(c.labels, LabelDashboardVisible, model.DefaultDashboardVisible)
-	pcfg.Dashboard.Label = labels.String(c.labels, LabelDashboardLabel, pcfg.Hostname)
+	pcfg.Dashboard.Visible = settings.Bool(c.labels, LabelDashboardVisible, model.DefaultDashboardVisible)
+	pcfg.Dashboard.Label = settings.String(c.labels, LabelDashboardLabel, pcfg.Hostname)
 
-	pcfg.Dashboard.Category = labels.String(c.labels, LabelDashboardCategory, "")
-	pcfg.Dashboard.Icon = labels.String(c.labels, LabelDashboardIcon, "")
+	pcfg.Dashboard.Category = settings.String(c.labels, LabelDashboardCategory, "")
+	pcfg.Dashboard.Icon = settings.String(c.labels, LabelDashboardIcon, "")
 	if pcfg.Dashboard.Icon == "" {
 		pcfg.Dashboard.Icon = c.assets.GuessIcon(c.image)
 	}
@@ -246,89 +249,17 @@ func (c *container) newProxyConfig(ctx context.Context) (*model.Config, error) {
 }
 
 func (c *container) getPorts(ctx context.Context) model.PortConfigList {
-	c.log.Trace().Msg("getPorts")
-	defer c.log.Trace().Msg("End getPorts")
-
-	ports := make(model.PortConfigList)
-	for k, v := range c.labels {
-		if !strings.HasPrefix(k, LabelPort) {
-			continue
-		}
-
-		parts := strings.Split(v, ",")
-
-		configStr := parts[0]
-
-		if model.IsPortRangeLabel(configStr) {
-			expanded, err := model.ExpandPortRangeLabel(configStr)
-			if err != nil {
-				c.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
-				continue
-			}
-
-			for rangeKey, port := range expanded {
-				c.applyPortOptions(k, &port, parts[1:])
-
-				if !port.IsRedirect {
-					port, err = c.generateTargetFromFirstTarget(ctx, port)
-					if err != nil {
-						c.log.Error().Err(err).Str("port", k).Msg("error generating target for range port")
-						continue
-					}
-				}
-
-				expandedKey := k + "." + rangeKey
-				ports[expandedKey] = port
-			}
-			continue
-		}
-
-		port, err := model.NewPortLongLabel(parts[0])
-		if err != nil {
-			c.log.Error().Err(err).Str("port", k).Msg("error creating port config")
-			continue
-		}
-
-		c.applyPortOptions(k, &port, parts[1:])
-
-		if !port.IsRedirect {
-			port, err = c.generateTargetFromFirstTarget(ctx, port)
-			if err != nil {
-				c.log.Error().Err(err).Str("port", k).Msg("error generating target")
-				continue
-			}
-		}
-
-		ports[k] = port
-	}
-
-	return ports
+	return model.Ports(ctx, c.log, c.labels, LabelPort, c.portOptionGates(), c.generateTargetFromFirstTarget)
 }
 
-func (c *container) applyPortOptions(labelKey string, port *model.PortConfig, options []string) {
-	for _, opt := range options {
-		opt = strings.TrimSpace(opt)
-		switch opt {
-		case PortOptionNoTLSValidate:
-			if !c.allowTLSValidateDisable {
-				c.log.Warn().Str("option", opt).Str("port", labelKey).
-					Msg("container requested no_tlsvalidate but operator has not enabled allowTLSValidateDisable; ignoring")
-				continue
-			}
-			port.TLSValidate = false
-		case PortOptionTailscaleFunnel:
-			if !c.allowContainerFunnel {
-				c.log.Warn().Str("option", opt).Str("port", labelKey).
-					Msg("container requested tailscale_funnel but operator has not enabled allowContainerFunnel; ignoring")
-				continue
-			}
-			port.Tailscale.Funnel = true
-		case PortOptionNoAutoDetect:
-			port.NoAutoDetect = true
-		default:
-			c.log.Warn().Str("option", opt).Str("port", labelKey).
-				Msg("unrecognized port option (valid: no_tlsvalidate, tailscale_funnel, no_autodetect)")
-		}
+// portOptionGates returns the provider's port option policy from the
+// operator's settings.
+func (c *container) portOptionGates() model.PortOptionGates {
+	return model.PortOptionGates{
+		AllowTLSValidateDisable: c.allowTLSValidateDisable,
+		AllowFunnel:             c.allowContainerFunnel,
+		FunnelSettingName:       "allowContainerFunnel",
+		SupportNoAutoDetect:     true,
 	}
 }
 
@@ -357,19 +288,19 @@ func (c *container) getTailscaleConfig() (*model.Tailscale, error) {
 	c.log.Trace().Msg("getTailscaleConfig")
 	defer c.log.Trace().Msg("End getTailscaleConfig")
 
-	authKey := labels.String(c.labels, LabelAuthKey, "")
+	authKey := settings.String(c.labels, LabelAuthKey, "")
 
-	authKeySecret, err := labels.AuthKeyFromFile(c.labels, LabelAuthKeyFile, authKey)
+	authKeySecret, err := settings.AuthKeyFromFile(c.labels, LabelAuthKeyFile, authKey)
 	if err != nil {
 		return nil, fmt.Errorf("error setting auth key from file : %w", err)
 	}
 
-	tags := labels.String(c.labels, LabelTags, "")
+	tags := settings.String(c.labels, LabelTags, "")
 
 	return &model.Tailscale{
-		Ephemeral:    labels.Bool(c.labels, LabelEphemeral, model.DefaultTailscaleEphemeral),
-		RunWebClient: labels.Bool(c.labels, LabelRunWebClient, model.DefaultTailscaleRunWebClient),
-		Verbose:      labels.Bool(c.labels, LabelTsnetVerbose, model.DefaultTailscaleVerbose),
+		Ephemeral:    settings.Bool(c.labels, LabelEphemeral, model.DefaultTailscaleEphemeral),
+		RunWebClient: settings.Bool(c.labels, LabelRunWebClient, model.DefaultTailscaleRunWebClient),
+		Verbose:      settings.Bool(c.labels, LabelTsnetVerbose, model.DefaultTailscaleVerbose),
 		AuthKey:      authKeySecret,
 		Tags:         tags,
 	}, nil

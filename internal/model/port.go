@@ -4,12 +4,15 @@
 package model
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/rs/zerolog"
 )
 
 type (
@@ -39,6 +42,13 @@ const (
 	proxySeparator    = ":"
 	protocolSeparator = "/"
 	splitPairCount    = 2
+
+	// Port label options — comma-separated suffix of a port label value
+	// (e.g. "443/https:80/http,no_tlsvalidate"). Shared by all target
+	// providers; not every provider supports every option.
+	PortOptionNoTLSValidate   = "no_tlsvalidate"
+	PortOptionTailscaleFunnel = "tailscale_funnel"
+	PortOptionNoAutoDetect    = "no_autodetect"
 
 	defaultProxyPort = 443
 
@@ -560,4 +570,133 @@ func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
 func IsPortRangeShortLabel(s string) bool {
 	portPart := strings.SplitN(s, protocolSeparator, splitPairCount)[0]
 	return isPortRange(portPart)
+}
+
+// PortOptionGates controls which port label options a provider honors.
+// Options are shared by all providers, but operators gate the dangerous ones
+// and not every provider implements every concept.
+type PortOptionGates struct {
+	// FunnelSettingName is the operator-facing name of the funnel permission,
+	// used in warnings (e.g. allowContainerFunnel, allowInstanceFunnel).
+	FunnelSettingName string
+	// AllowTLSValidateDisable permits the no_tlsvalidate option
+	// (operator setting allowTlsValidateDisable).
+	AllowTLSValidateDisable bool
+	// AllowFunnel permits the tailscale_funnel option.
+	AllowFunnel bool
+	// SupportNoAutoDetect marks the provider as understanding the
+	// no_autodetect option (a Docker-only concept).
+	SupportNoAutoDetect bool
+}
+
+// TargetResolver resolves the target URL of a non-redirect port. Providers
+// supply their own strategy (Docker probes published ports, Incus uses
+// instance addresses).
+type TargetResolver func(ctx context.Context, port PortConfig) (PortConfig, error)
+
+// ApplyPortOptions applies comma-separated port label options to port.
+// Options the operator has not enabled, or the provider does not support,
+// are ignored with a warning.
+func ApplyPortOptions(log zerolog.Logger, gates PortOptionGates, labelKey string, port *PortConfig, options []string) {
+	for _, opt := range options {
+		opt = strings.TrimSpace(opt)
+		switch opt {
+		case PortOptionNoTLSValidate:
+			if !gates.AllowTLSValidateDisable {
+				log.Warn().Str("option", opt).Str("port", labelKey).
+					Msg("requested no_tlsvalidate but operator has not enabled allowTlsValidateDisable; ignoring")
+				continue
+			}
+			port.TLSValidate = false
+		case PortOptionTailscaleFunnel:
+			if !gates.AllowFunnel {
+				log.Warn().Str("option", opt).Str("port", labelKey).
+					Msg("requested tailscale_funnel but operator has not enabled " + gates.FunnelSettingName + "; ignoring")
+				continue
+			}
+			port.Tailscale.Funnel = true
+		case PortOptionNoAutoDetect:
+			if !gates.SupportNoAutoDetect {
+				warnUnknownOption(log, gates, labelKey, opt)
+				continue
+			}
+			port.NoAutoDetect = true
+		default:
+			warnUnknownOption(log, gates, labelKey, opt)
+		}
+	}
+}
+
+// Ports parses every "<prefix>*" entry of m into a PortConfigList. Each value
+// is "<port spec>[,option...]": ranges are expanded, options are applied via
+// ApplyPortOptions, and non-redirect ports are resolved with resolve.
+func Ports(ctx context.Context, log zerolog.Logger, m map[string]string, prefix string, gates PortOptionGates, resolve TargetResolver) PortConfigList {
+	log.Trace().Msg("start Ports")
+	defer log.Trace().Msg("end Ports")
+
+	ports := make(PortConfigList)
+	for k, v := range m {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+
+		parts := strings.Split(v, ",")
+
+		configStr := parts[0]
+
+		if IsPortRangeLabel(configStr) {
+			expanded, err := ExpandPortRangeLabel(configStr)
+			if err != nil {
+				log.Error().Err(err).Str("port", k).Msg("error expanding port range")
+				continue
+			}
+
+			for rangeKey, port := range expanded {
+				ApplyPortOptions(log, gates, k, &port, parts[1:])
+
+				if !port.IsRedirect {
+					port, err = resolve(ctx, port)
+					if err != nil {
+						log.Error().Err(err).Str("port", k).Msg("error generating target for range port")
+						continue
+					}
+				}
+
+				expandedKey := k + "." + rangeKey
+				ports[expandedKey] = port
+			}
+			continue
+		}
+
+		port, err := NewPortLongLabel(parts[0])
+		if err != nil {
+			log.Error().Err(err).Str("port", k).Msg("error creating port config")
+			continue
+		}
+
+		ApplyPortOptions(log, gates, k, &port, parts[1:])
+
+		if !port.IsRedirect {
+			port, err = resolve(ctx, port)
+			if err != nil {
+				log.Error().Err(err).Str("port", k).Msg("error generating target")
+				continue
+			}
+		}
+
+		ports[k] = port
+	}
+
+	return ports
+}
+
+// warnUnknownOption warns about an option the provider does not recognize,
+// listing the options it does accept.
+func warnUnknownOption(log zerolog.Logger, gates PortOptionGates, labelKey, opt string) {
+	valid := []string{PortOptionNoTLSValidate, PortOptionTailscaleFunnel}
+	if gates.SupportNoAutoDetect {
+		valid = append(valid, PortOptionNoAutoDetect)
+	}
+	log.Warn().Str("option", opt).Str("port", labelKey).
+		Msg("unrecognized port option (valid: " + strings.Join(valid, ", ") + ")")
 }

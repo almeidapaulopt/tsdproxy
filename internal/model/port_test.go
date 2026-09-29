@@ -4,12 +4,15 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func TestNewPortLongLabel_TCPProxyPort(t *testing.T) {
@@ -739,4 +742,193 @@ func TestPortConfig_ConcurrentAddAndGet(t *testing.T) {
 	if len(targets) != 10 {
 		t.Errorf("expected 10 targets, got %d", len(targets))
 	}
+}
+
+func TestApplyPortOptions(t *testing.T) {
+	t.Parallel()
+
+	gates := PortOptionGates{
+		AllowTLSValidateDisable: true,
+		AllowFunnel:             true,
+		FunnelSettingName:       "allowContainerFunnel",
+		SupportNoAutoDetect:     true,
+	}
+
+	t.Run("empty options", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true, Tailscale: TailscalePort{}}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, nil)
+		if !port.TLSValidate {
+			t.Error("expected TLSValidate=true by default")
+		}
+		if port.Tailscale.Funnel {
+			t.Error("expected Funnel=false by default")
+		}
+		if port.NoAutoDetect {
+			t.Error("expected NoAutoDetect=false by default")
+		}
+	})
+
+	t.Run("no_tlsvalidate option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tlsvalidate"})
+		if port.TLSValidate {
+			t.Error("expected TLSValidate=false")
+		}
+	})
+
+	t.Run("tailscale_funnel option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tailscale_funnel"})
+		if !port.Tailscale.Funnel {
+			t.Error("expected Funnel=true")
+		}
+	})
+
+	t.Run("no_autodetect option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_autodetect"})
+		if !port.NoAutoDetect {
+			t.Error("expected NoAutoDetect=true")
+		}
+	})
+
+	t.Run("multiple options", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tlsvalidate", "tailscale_funnel"})
+		if port.TLSValidate {
+			t.Error("expected TLSValidate=false with no_tlsvalidate")
+		}
+		if !port.Tailscale.Funnel {
+			t.Error("expected Funnel=true with tailscale_funnel")
+		}
+	})
+
+	t.Run("unknown option ignored", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"unknown_option"})
+		if !port.TLSValidate {
+			t.Error("expected TLSValidate=true (unknown option ignored)")
+		}
+	})
+
+	t.Run("whitespace trimming", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{" no_tlsvalidate "})
+		if port.TLSValidate {
+			t.Error("expected TLSValidate=false after trimming whitespace")
+		}
+	})
+}
+
+func TestApplyPortOptions_OperatorGated(t *testing.T) {
+	t.Parallel()
+
+	gates := PortOptionGates{
+		FunnelSettingName: "allowContainerFunnel",
+	}
+
+	t.Run("no_tlsvalidate rejected without allowTLSValidateDisable", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tlsvalidate"})
+		if !port.TLSValidate {
+			t.Error("expected TLSValidate to remain true when operator has not allowed disable")
+		}
+	})
+
+	t.Run("tailscale_funnel rejected without allowFunnel", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tailscale_funnel"})
+		if port.Tailscale.Funnel {
+			t.Error("expected Funnel to remain false when operator has not allowed funnel")
+		}
+	})
+
+	t.Run("no_autodetect unsupported by provider", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_autodetect"})
+		if port.NoAutoDetect {
+			t.Error("expected NoAutoDetect to remain false when provider does not support it")
+		}
+	})
+}
+
+func TestPorts(t *testing.T) {
+	t.Parallel()
+
+	const prefix = "tsdproxy.port."
+	gates := PortOptionGates{SupportNoAutoDetect: true}
+	resolve := func(_ context.Context, port PortConfig) (PortConfig, error) {
+		return port, nil
+	}
+
+	t.Run("ignores keys outside prefix", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]string{"tsdproxy.name": "web", "other.port": "443/https:80/http"}
+		ports := Ports(context.Background(), zerolog.Nop(), m, prefix, gates, resolve)
+		if len(ports) != 0 {
+			t.Errorf("expected 0 ports, got %d", len(ports))
+		}
+	})
+
+	t.Run("single port", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]string{prefix + "web": "443/https:80/http"}
+		ports := Ports(context.Background(), zerolog.Nop(), m, prefix, gates, resolve)
+		if len(ports) != 1 {
+			t.Fatalf("expected 1 port, got %d", len(ports))
+		}
+	})
+
+	t.Run("redirect skips resolver", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]string{prefix + "1": "81/http->https://example.ts.net"}
+		ports := Ports(context.Background(), zerolog.Nop(), m, prefix, gates,
+			func(_ context.Context, _ PortConfig) (PortConfig, error) {
+				t.Fatal("resolver must not be called for redirect ports")
+				return PortConfig{}, nil
+			})
+		if len(ports) != 1 {
+			t.Fatalf("expected 1 port, got %d", len(ports))
+		}
+		if !ports[prefix+"1"].IsRedirect {
+			t.Error("expected IsRedirect=true")
+		}
+	})
+
+	t.Run("range expands", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]string{prefix + "range": "2222-2224/tcp:2222-2224/tcp"}
+		ports := Ports(context.Background(), zerolog.Nop(), m, prefix, gates, resolve)
+		if len(ports) != 3 {
+			t.Fatalf("expected 3 ports, got %d", len(ports))
+		}
+	})
+
+	t.Run("invalid label skipped", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]string{prefix + "bad": "::garbage"}
+		ports := Ports(context.Background(), zerolog.Nop(), m, prefix, gates, resolve)
+		if len(ports) != 0 {
+			t.Errorf("expected 0 ports for invalid label, got %d", len(ports))
+		}
+	})
+
+	t.Run("options applied", func(t *testing.T) {
+		t.Parallel()
+		m := map[string]string{prefix + "web": "443/https:80/http,no_autodetect"}
+		ports := Ports(context.Background(), zerolog.Nop(), m, prefix, gates, resolve)
+		if !ports[prefix+"web"].NoAutoDetect {
+			t.Error("expected NoAutoDetect=true from option")
+		}
+	})
 }
