@@ -10,7 +10,5 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m,
-		goleak.IgnoreAnyFunction("net/http.(*http2ClientConn).readLoop"),
-	)
+	goleak.VerifyTestMain(m)
 }

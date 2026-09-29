@@ -272,6 +272,15 @@ func testTailscaleClient(serverURL string) *tailscale.Client {
 	}
 }
 
+// newRejectingAPIServer returns an httptest server that rejects every request,
+// so OAuth token fetches and API calls fail fast without real network egress.
+func newRejectingAPIServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"unauthorized"}`))
+	}))
+}
+
 // testProductionLikeClient creates a *tailscale.Client exactly like
 // APIClientFactory.NewClient does: no BaseURL, no HTTP — only Tailnet and Auth.
 // This reproduces the state that caused the original nil-panic bug.
@@ -290,7 +299,19 @@ func testProductionLikeClient() *tailscale.Client {
 func TestApproveServiceDevice_ProductionClientNoPanic(t *testing.T) {
 	t.Parallel()
 
+	// Redirect the API endpoint to a local rejecting server so the test never
+	// reaches the real api.tailscale.com: a real connection leaks an idle
+	// HTTP/2 readLoop goroutine that trips goleak, and it makes the test
+	// network-dependent. HTTP stays nil so the lazy init via VIPServices()
+	// is still exercised.
+	srv := newRejectingAPIServer()
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
 	client := testProductionLikeClient()
+	client.BaseURL = u
 
 	ss := NewServicesServer(ServicesServerConfig{
 		Hostname:  "test",
@@ -307,11 +328,11 @@ func TestApproveServiceDevice_ProductionClientNoPanic(t *testing.T) {
 
 	tsServer := &tsnet.Server{}
 
-	// The function must not panic even though client.BaseURL and client.HTTP
-	// are nil (the lazy init via VIPServices() should populate them).
-	// The HTTP call will fail since there's no real server, but that's expected.
-	err := ss.approveServiceDeviceForServer(context.Background(), tsServer, "svc:test")
-	require.Error(t, err, "should return an error (no real API server), but must not panic")
+	// The function must not panic even though client.HTTP is nil
+	// (the lazy init via VIPServices() should populate it).
+	// The HTTP call fails (the local token endpoint rejects fake creds).
+	err = ss.approveServiceDeviceForServer(context.Background(), tsServer, "svc:test")
+	require.Error(t, err, "should return an error (token endpoint rejects), but must not panic")
 }
 
 func TestApproveServiceDevice_APIFactoryClientNoPanic(t *testing.T) {
@@ -321,7 +342,17 @@ func TestApproveServiceDevice_APIFactoryClientNoPanic(t *testing.T) {
 	// APIFactory, not APIClient. getAPIClient() calls apiFactory.NewClient() which
 	// returns a client without BaseURL/HTTP. The lazy init via VIPServices() must
 	// populate them without panicking.
+	// The factory's baseURL seam redirects the API endpoint to a local server so
+	// the test never reaches the real api.tailscale.com (network egress would
+	// leak an idle HTTP/2 readLoop goroutine that trips goleak).
 	factory := NewAPIClientFactory("test-id", secretstring.SecretString("test-secret"))
+
+	srv := newRejectingAPIServer()
+	defer srv.Close()
+
+	u, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+	factory.baseURL = u
 
 	ss := NewServicesServer(ServicesServerConfig{
 		Hostname:   "test",
@@ -338,9 +369,9 @@ func TestApproveServiceDevice_APIFactoryClientNoPanic(t *testing.T) {
 
 	tsServer := &tsnet.Server{}
 
-	// The HTTP call will fail (OAuth to real api.tailscale.com with fake creds),
-	// but it must NOT panic due to nil BaseURL.
-	err := ss.approveServiceDeviceForServer(context.Background(), tsServer, "svc:test")
+	// The HTTP call will fail (the local token endpoint rejects the fake
+	// credentials), but it must NOT panic due to nil BaseURL.
+	err = ss.approveServiceDeviceForServer(context.Background(), tsServer, "svc:test")
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "nil pointer dereference")
 	assert.NotContains(t, err.Error(), "invalid memory address")

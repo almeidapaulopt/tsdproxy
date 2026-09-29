@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	tailscale "tailscale.com/client/tailscale/v2"
@@ -27,6 +28,10 @@ const (
 // It centralizes client creation so all modes (per-proxy, shared, services)
 // share a single source of truth for OAuth configuration.
 type APIClientFactory struct {
+	// baseURL is a test seam: when set, NewClient targets this URL instead of
+	// the default https://api.tailscale.com, keeping unit tests hermetic
+	// (no real network egress). Production code never sets it.
+	baseURL      *url.URL
 	clientID     string
 	clientSecret secretstring.SecretString
 }
@@ -52,7 +57,7 @@ func (f *APIClientFactory) NewClient(scopes ...string) *tailscale.Client {
 		return nil
 	}
 
-	return &tailscale.Client{
+	c := &tailscale.Client{
 		Tailnet:   "-",
 		UserAgent: userAgent,
 		Auth: &tailscale.OAuth{
@@ -61,6 +66,10 @@ func (f *APIClientFactory) NewClient(scopes ...string) *tailscale.Client {
 			Scopes:       scopes,
 		},
 	}
+	if f.baseURL != nil {
+		c.BaseURL = f.baseURL
+	}
+	return c
 }
 
 // ValidateAccess tests that OAuth credentials work by making a lightweight API
