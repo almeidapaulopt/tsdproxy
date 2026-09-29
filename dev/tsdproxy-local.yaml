@@ -22,6 +22,15 @@ incus:
     targetHostname: 192.168.1.110
     defaultProxyProvider: default
 
+proxmox:
+  dev:
+    url: https://192.168.1.110:8006
+    apiTokenFile: dev/data/proxmox-token
+    tlsInsecureSkipVerify: true
+    pollIntervalSeconds: 5
+    defaultProxyProvider: default
+    allowTlsValidateDisable: true
+
 tailscale:
   providers:
     default:

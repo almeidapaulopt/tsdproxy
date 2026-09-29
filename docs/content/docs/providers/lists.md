@@ -1,8 +1,8 @@
 ---
 title: Lists
-prev: /docs/providers/incus
+prev: /docs/providers/proxmox
 next: /docs/advanced
-weight: 6
+weight: 7
 ---
 
 TSDProxy can be configured to proxy using a YAML configuration file.

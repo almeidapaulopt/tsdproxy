@@ -28,6 +28,7 @@ tsdproxy/
 │   ├── targetproviders/        # TargetProvider interface + Docker/List implementations
 │   │   ├── docker/             # Docker label parsing, container resolution, port mapping
 │   │   ├── incus/              # Incus instance config (user.tsdproxy.*) target provider
+│   │   ├── proxmox/            # Proxmox VE target provider (notes-based config, polling, hand-rolled REST client)
 │   │   ├── settings/           # Shared typed access to per-target settings maps (Bool/String/Int/AuthKeyFromFile)
 │   │   └── list/               # Static YAML file-based target provider
 │   ├── tlsproviders/           # TLS Provider interface + ACME/Tailscale implementations
@@ -43,7 +44,7 @@ tsdproxy/
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add a new target provider | `internal/targetproviders/` | Implement `TargetProvider` (6 methods) |
+| Add a new target provider | `internal/targetproviders/` | Implement `TargetProvider` (6 methods); see `proxmox/` for a polling (no event API) provider with a hand-rolled REST client |
 | Add a new proxy provider | `internal/proxyproviders/` | Implement `Provider` + `ProxyInterface` (+ optional `RawTCPListener`, `DomainRequiredProvider`) |
 | Add a new DNS provider | `internal/dnsproviders/` | Implement `Provider` (4 methods); for ACME also implement `certmagic.DNSProvider` |
 | Add a new TLS provider | `internal/tlsproviders/` | Implement `Provider` (4 methods) |

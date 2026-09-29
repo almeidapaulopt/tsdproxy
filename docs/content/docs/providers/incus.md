@@ -1,7 +1,7 @@
 ---
 title: Incus
 prev: /docs/providers/docker-reference
-next: /docs/providers/lists
+next: /docs/providers/proxmox
 weight: 5
 ---
 

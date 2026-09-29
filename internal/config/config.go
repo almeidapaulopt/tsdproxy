@@ -50,28 +50,29 @@ type (
 	// Data stores complete configuration.
 	//
 	Data struct {
-		Lists                map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
-		TLSProviders         map[string]*TLSProviderConfig          `yaml:"tlsProviders"`
-		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
-		Incus                map[string]*IncusTargetProviderConfig  `validate:"dive,required" yaml:"incus"`
-		DNSProviders         map[string]*DNSProviderConfig          `yaml:"dnsProviders"`
-		Icons                IconsConfig                            `yaml:"icons"`
-		Tailscale            TailscaleProxyProviderConfig           `yaml:"tailscale"`
-		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
-		APIKey               secretstring.SecretString              `yaml:"apiKey,omitempty"`
-		DefaultTLSProvider   string                                 `yaml:"defaultTLSProvider"`
-		DefaultDNSProvider   string                                 `yaml:"defaultDNSProvider"`
-		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
-		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
-		Log                  LogConfig                              `yaml:"log"`
-		HTTP                 HTTPConfig                             `yaml:"http"`
-		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
-		Admins               []string                               `yaml:"admins,omitempty"`
-		ShutdownDrainSeconds int                                    `validate:"numeric,min=0,max=300" default:"0" yaml:"shutdownDrainSeconds"`
-		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
-		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
-		CleanupDNS           bool                                   `default:"true" yaml:"cleanupDNS"`
-		CleanupTLS           bool                                   `default:"true" yaml:"cleanupTLS"`
+		Lists                map[string]*ListTargetProviderConfig    `validate:"dive,required" yaml:"lists"`
+		TLSProviders         map[string]*TLSProviderConfig           `yaml:"tlsProviders"`
+		Docker               map[string]*DockerTargetProviderConfig  `validate:"dive,required" yaml:"docker"`
+		Incus                map[string]*IncusTargetProviderConfig   `validate:"dive,required" yaml:"incus"`
+		Proxmox              map[string]*ProxmoxTargetProviderConfig `validate:"dive,required" yaml:"proxmox"`
+		DNSProviders         map[string]*DNSProviderConfig           `yaml:"dnsProviders"`
+		Icons                IconsConfig                             `yaml:"icons"`
+		Tailscale            TailscaleProxyProviderConfig            `yaml:"tailscale"`
+		DefaultProxyProvider string                                  `validate:"required" default:"default" yaml:"defaultProxyProvider"`
+		APIKey               secretstring.SecretString               `yaml:"apiKey,omitempty"`
+		DefaultTLSProvider   string                                  `yaml:"defaultTLSProvider"`
+		DefaultDNSProvider   string                                  `yaml:"defaultDNSProvider"`
+		APIKeyFile           string                                  `yaml:"apiKeyFile,omitempty"`
+		Webhooks             []WebhookConfig                         `yaml:"webhooks"`
+		Log                  LogConfig                               `yaml:"log"`
+		HTTP                 HTTPConfig                              `yaml:"http"`
+		Telemetry            TelemetryConfig                         `yaml:"telemetry"`
+		Admins               []string                                `yaml:"admins,omitempty"`
+		ShutdownDrainSeconds int                                     `validate:"numeric,min=0,max=300" default:"0" yaml:"shutdownDrainSeconds"`
+		ProxyAccessLog       bool                                    `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
+		AdminAllowLocalhost  bool                                    `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
+		CleanupDNS           bool                                    `default:"true" yaml:"cleanupDNS"`
+		CleanupTLS           bool                                    `default:"true" yaml:"cleanupTLS"`
 	}
 
 	WebhookConfig struct {
@@ -159,6 +160,31 @@ type (
 		AllowTLSValidateDisable bool   `validate:"boolean" default:"false" yaml:"allowTlsValidateDisable"`
 	}
 
+	// ProxmoxTargetProviderConfig struct stores Proxmox target provider
+	// configuration. Connection is always remote HTTPS (URL) authenticated
+	// with an API token in the format "<user>@<realm>!<tokenid>=<secret>".
+	ProxmoxTargetProviderConfig struct {
+		URL                     string                    `validate:"required,uri" yaml:"url"`
+		APIToken                secretstring.SecretString `yaml:"apiToken,omitempty"`
+		APITokenFile            string                    `validate:"omitempty,file" yaml:"apiTokenFile,omitempty"`
+		TLSCACertFile           string                    `validate:"omitempty,file" yaml:"tlsCaCertFile,omitempty"`
+		Node                    string                    `validate:"omitempty,hostname" yaml:"node,omitempty"`
+		TargetHostname          string                    `validate:"omitempty,ip|hostname" yaml:"targetHostname,omitempty"`
+		DefaultProxyProvider    string                    `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
+		PollIntervalSeconds     int                       `validate:"numeric,min=1,max=3600" default:"10" yaml:"pollIntervalSeconds"`
+		HealthCheckCooldown     int                       `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckInterval     int                       `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures     int                       `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
+		RateLimitRPS            int                       `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst          int                       `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
+		TLSInsecureSkipVerify   bool                      `validate:"boolean" default:"false" yaml:"tlsInsecureSkipVerify"`
+		HealthCheckEnabled      bool                      `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		AutoRestart             bool                      `validate:"boolean" default:"true" yaml:"autoRestart"`
+		RateLimitEnabled        bool                      `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
+		AllowGuestFunnel        bool                      `validate:"boolean" default:"false" yaml:"allowGuestFunnel"`
+		AllowTLSValidateDisable bool                      `validate:"boolean" default:"false" yaml:"allowTlsValidateDisable"`
+	}
+
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration
 	TailscaleProxyProviderConfig struct {
 		Providers map[string]*TailscaleServerConfig `validate:"dive,required" yaml:"providers"`
@@ -233,6 +259,7 @@ func InitializeConfig(log zerolog.Logger) (*Data, error) {
 	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
 	cfg.Lists = make(map[string]*ListTargetProviderConfig)
 	cfg.Incus = make(map[string]*IncusTargetProviderConfig)
+	cfg.Proxmox = make(map[string]*ProxmoxTargetProviderConfig)
 	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
 	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
 
@@ -342,6 +369,28 @@ func (c *Data) loadSecretsFromFiles() error {
 
 	if err := c.loadDNSProviderTokens(); err != nil {
 		return err
+	}
+
+	if err := c.loadProxmoxTokens(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Data) loadProxmoxTokens() error {
+	for name, p := range c.Proxmox {
+		if p == nil || p.APITokenFile == "" {
+			continue
+		}
+		token, err := c.getAuthKeyFromFile(p.APITokenFile)
+		if err != nil {
+			return fmt.Errorf("error reading Proxmox provider %q API token file: %w", name, err)
+		}
+		if token == "" {
+			return fmt.Errorf("proxmox provider %q API token file %s is empty", name, p.APITokenFile)
+		}
+		p.APIToken = secretstring.SecretString(token)
 	}
 
 	return nil

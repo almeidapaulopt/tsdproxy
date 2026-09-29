@@ -22,6 +22,7 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/incus"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/list"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/proxmox"
 	"github.com/almeidapaulopt/tsdproxy/internal/tlsproviders"
 	acmetls "github.com/almeidapaulopt/tsdproxy/internal/tlsproviders/acme"
 	tailscaletls "github.com/almeidapaulopt/tsdproxy/internal/tlsproviders/tailscale"
@@ -51,6 +52,15 @@ func (pm *ProxyManager) addTargetProviders() {
 		p, err := incus.New(pm.log, name, provider, pm.cfg.ProxyAccessLog, pm.assets)
 		if err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Incus provider")
+			continue
+		}
+
+		pm.addTargetProvider(p, name)
+	}
+	for name, provider := range pm.cfg.Proxmox {
+		p, err := proxmox.New(pm.log, name, provider, pm.cfg.ProxyAccessLog, pm.assets)
+		if err != nil {
+			pm.log.Error().Err(err).Msg("Error creating Proxmox provider")
 			continue
 		}
 

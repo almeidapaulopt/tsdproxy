@@ -556,3 +556,45 @@ func TestIsRunningInDocker(t *testing.T) {
 		t.Error("isRunningInDocker() = false but /.dockerenv exists")
 	}
 }
+
+func TestLoadProxmoxTokens_FromFile(t *testing.T) {
+	t.Parallel()
+
+	c := newSecretsConfig()
+	c.Proxmox = map[string]*ProxmoxTargetProviderConfig{
+		"pve": {URL: "https://pve.example.com:8006", APITokenFile: writeFile(t, "token", "root@pam!tsdproxy=secret")},
+	}
+
+	if err := c.loadProxmoxTokens(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := c.Proxmox["pve"].APIToken.Value(); got != "root@pam!tsdproxy=secret" {
+		t.Errorf("APIToken = %q, want file contents", got)
+	}
+}
+
+func TestLoadProxmoxTokens_EmptyFile(t *testing.T) {
+	t.Parallel()
+
+	c := newSecretsConfig()
+	c.Proxmox = map[string]*ProxmoxTargetProviderConfig{
+		"pve": {URL: "https://pve.example.com:8006", APITokenFile: writeFile(t, "token", "  ")},
+	}
+
+	if err := c.loadProxmoxTokens(); err == nil {
+		t.Error("expected error for empty token file")
+	}
+}
+
+func TestLoadProxmoxTokens_NoTokenFile(t *testing.T) {
+	t.Parallel()
+
+	c := newSecretsConfig()
+	c.Proxmox = map[string]*ProxmoxTargetProviderConfig{
+		"pve": {URL: "https://pve.example.com:8006"},
+	}
+
+	if err := c.loadProxmoxTokens(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
