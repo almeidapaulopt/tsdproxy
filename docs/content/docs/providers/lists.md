@@ -1,6 +1,6 @@
 ---
 title: Lists
-prev: /docs/providers/proxmox
+prev: /docs/providers/docker-reference
 next: /docs/advanced
 weight: 7
 ---
