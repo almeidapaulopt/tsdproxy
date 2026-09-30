@@ -475,7 +475,7 @@ func TestAcquireWithAutoApprove_FailureDoesNotBlockListener(t *testing.T) {
 		AutoApproveDevices: true,
 		LifecycleConfig:    &NodeLifecycleConfig{},
 		LifecycleProvider: func(_ context.Context, _ zerolog.Logger, _ NodeLifecycleConfig) (
-			*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+			*NodeLifecycle, *NodeRuntime, ServiceListenerFactory, error,
 		) {
 			ctx, cancel := context.WithCancel(context.Background())
 			nodeRt := &NodeRuntime{
@@ -508,7 +508,7 @@ func TestAcquireWithoutAutoApprove_DoesNotCallApproval(t *testing.T) {
 		AutoApproveDevices: false,
 		LifecycleConfig:    &NodeLifecycleConfig{},
 		LifecycleProvider: func(_ context.Context, _ zerolog.Logger, _ NodeLifecycleConfig) (
-			*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+			*NodeLifecycle, *NodeRuntime, ServiceListenerFactory, error,
 		) {
 			ctx, cancel := context.WithCancel(context.Background())
 			nodeRt := &NodeRuntime{
@@ -552,7 +552,7 @@ func TestAcquireWithAutoApprove_Success_ReadvertisesListener(t *testing.T) {
 		ApprovalReadvertiseDelay: 1 * time.Millisecond,
 		LifecycleConfig:          &NodeLifecycleConfig{},
 		LifecycleProvider: func(_ context.Context, _ zerolog.Logger, _ NodeLifecycleConfig) (
-			*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+			*NodeLifecycle, *NodeRuntime, ServiceListenerFactory, error,
 		) {
 			ctx, cancel := context.WithCancel(context.Background())
 			nodeRt := &NodeRuntime{

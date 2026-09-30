@@ -101,7 +101,7 @@ func testSS(vip *mockVIPAPI, factory *mockListenerFactory) *ServicesServer {
 		VIPServiceAPI:   vip,
 		LifecycleConfig: &NodeLifecycleConfig{},
 		LifecycleProvider: func(_ context.Context, _ zerolog.Logger, _ NodeLifecycleConfig) (
-			*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+			*NodeLifecycle, *NodeRuntime, ServiceListenerFactory, error,
 		) {
 			ctx, cancel := context.WithCancel(context.Background())
 			nodeRt := &NodeRuntime{

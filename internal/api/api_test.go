@@ -49,7 +49,9 @@ func (s *stubProxyInterface) GetListener(_ string) (net.Listener, error) {
 func (s *stubProxyInterface) GetPacketConn(_ string) (net.PacketConn, error) {
 	return nil, errStubNotAvailable
 }
-func (s *stubProxyInterface) GetURL() string                     { return "https://testproxy.example.com" }
+
+func (s *stubProxyInterface) GetURL() string { return "https://testproxy.example.com" }
+
 func (s *stubProxyInterface) GetAuthURL() string                 { return "https://auth.example.com" }
 func (s *stubProxyInterface) WatchEvents() chan model.ProxyEvent { return nil }
 func (s *stubProxyInterface) Whois(_ *http.Request) model.Whois  { return model.Whois{} }

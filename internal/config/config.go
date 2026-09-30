@@ -143,7 +143,6 @@ type (
 		TLSClientCertFile       string `validate:"omitempty,file" yaml:"tlsClientCertFile,omitempty"`
 		TLSClientKeyFile        string `validate:"omitempty,file" yaml:"tlsClientKeyFile,omitempty"`
 		TLSServerCertFile       string `validate:"omitempty,file" yaml:"tlsServerCertFile,omitempty"`
-		TLSIdenticalCertificate bool   `validate:"boolean" default:"false" yaml:"tlsIdenticalCertificate"`
 		Project                 string `validate:"omitempty" default:"default" yaml:"project"`
 		TargetHostname          string `validate:"omitempty,ip|hostname" yaml:"targetHostname,omitempty"`
 		DefaultProxyProvider    string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
@@ -152,6 +151,7 @@ type (
 		HealthCheckFailures     int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
 		RateLimitRPS            int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
 		RateLimitBurst          int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
+		TLSIdenticalCertificate bool   `validate:"boolean" default:"false" yaml:"tlsIdenticalCertificate"`
 		TLSInsecureSkipVerify   bool   `validate:"boolean" default:"false" yaml:"tlsInsecureSkipVerify"`
 		HealthCheckEnabled      bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
 		AutoRestart             bool   `validate:"boolean" default:"true" yaml:"autoRestart"`

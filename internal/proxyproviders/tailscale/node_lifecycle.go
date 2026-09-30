@@ -31,17 +31,17 @@ type NodeLifecycleConfig struct {
 }
 
 // NodeLifecycleProvider creates a NodeLifecycle, starts it, and returns the
-// lifecycle, runtime, and an optional serviceListenerFactory (non-nil for
+// lifecycle, runtime, and an optional ServiceListenerFactory (non-nil for
 // services mode). It is the seam through which tests inject stubs.
 type NodeLifecycleProvider func(ctx context.Context, log zerolog.Logger, cfg NodeLifecycleConfig) (
-	lifecycle *NodeLifecycle, runtime *NodeRuntime, factory serviceListenerFactory, err error,
+	lifecycle *NodeLifecycle, runtime *NodeRuntime, factory ServiceListenerFactory, err error,
 )
 
 // DefaultNodeLifecycleProvider is the production NodeLifecycleProvider.
 // It creates a NodeLifecycle, starts the tsnet.Server, and returns the runtime
 // with a tsnetServerFactory wrapping the server.
 func DefaultNodeLifecycleProvider(ctx context.Context, log zerolog.Logger, cfg NodeLifecycleConfig) (
-	*NodeLifecycle, *NodeRuntime, serviceListenerFactory, error,
+	*NodeLifecycle, *NodeRuntime, ServiceListenerFactory, error,
 ) {
 	lc := NewNodeLifecycle(log, cfg)
 	rt, err := lc.Start(ctx)

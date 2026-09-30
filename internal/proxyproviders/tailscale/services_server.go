@@ -51,14 +51,14 @@ type vipServiceAPI interface {
 	deleteVIPService(serviceName string) error
 }
 
-// serviceListenerFactory abstracts tsnet.Server.ListenService for testability.
+// ServiceListenerFactory abstracts tsnet.Server.ListenService for testability.
 // In production, tsnetServerFactory wraps *tsnet.Server.
-type serviceListenerFactory interface {
+type ServiceListenerFactory interface {
 	ListenService(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error)
 	Close(*tsnet.ServiceListener) error
 }
 
-// tsnetServerFactory adapts *tsnet.Server to satisfy serviceListenerFactory.
+// tsnetServerFactory adapts *tsnet.Server to satisfy ServiceListenerFactory.
 type tsnetServerFactory struct{ server TSNetServer }
 
 func (f tsnetServerFactory) ListenService(name string, mode tsnet.ServiceMode) (*tsnet.ServiceListener, error) {
@@ -111,7 +111,7 @@ const (
 // servicesRuntime holds all mutable state owned exclusively by the loop goroutine.
 type servicesRuntime struct {
 	ctx          context.Context
-	factory      serviceListenerFactory
+	factory      ServiceListenerFactory
 	bridgeDone   chan struct{}
 	tsServer     TSNetServer
 	listeners    map[string]*serviceEntry
@@ -419,7 +419,7 @@ func (ss *ServicesServer) handleAcquireService(c acquireServiceCmd, state servic
 
 func (ss *ServicesServer) acquireServiceAsync(
 	ctx context.Context, gen int, c acquireServiceCmd,
-	allPorts []string, factory serviceListenerFactory, tsServer TSNetServer,
+	allPorts []string, factory ServiceListenerFactory, tsServer TSNetServer,
 	listenMu *sync.Mutex,
 ) {
 	sendResult := func(listener *tsnet.ServiceListener, err error) {
