@@ -2,7 +2,7 @@ defaultProxyProvider: default
 docker:
   local:
     host: unix:///var/run/docker.sock
-    targetHostname: 172.31.0.1
+    targetHostname: 172.17.0.1
   # server:
   #   host: tcp://192.168.1.110:2375
   #   TargetHostname: 192.168.1.110
@@ -11,11 +11,44 @@ lists:
   file1:
     filename: dev/file1.yaml
 
+incus:
+  srv1:
+    url: https://192.168.1.110:8443
+    tlsClientCertFile: dev/incus-test/client.crt
+    tlsClientKeyFile: dev/incus-test/client.key
+    tlsServerCertFile: dev/incus-test/server.crt
+    tlsIdenticalCertificate: true
+    project: default
+    targetHostname: 192.168.1.110
+    defaultProxyProvider: default
+
+proxmox:
+  dev:
+    url: https://192.168.1.110:8006
+    apiTokenFile: dev/data/proxmox-token
+    tlsInsecureSkipVerify: true
+    pollIntervalSeconds: 5
+    defaultProxyProvider: default
+    allowTlsValidateDisable: true
+
 tailscale:
   providers:
     default:
       controlUrl: https://controlplane.tailscale.com
+      tags: tag:tsdproxy-e2e
+      preventDuplicates: true
       # authKeyFile: dev/KEY_FILE
+    # services:
+    #   services: true
+    #   hostname: tsdproxy-svc
+    #   tags: tag:tsdproxy-e2e
+    #   controlUrl: https://controlplane.tailscale.com
+    #   autoApproveDevices: true
+    #   preventDuplicates: true
+    #   autoProvisionAcl: true
+    #   # OAuth credentials provided via env vars (avoids hardcoding in YAML):
+    #   #   TSDPROXY_TAILSCALE_SERVICES_CLIENTID
+    #   #   TSDPROXY_TAILSCALE_SERVICES_CLIENTSECRET
   dataDir: dev/data/
 http:
   hostname: 0.0.0.0

@@ -19,11 +19,11 @@ GET /health/ready/
 
 ## Docker HEALTHCHECK
 
-The Docker image includes a HEALTHCHECK using the `healthcheck` binary that
-calls the endpoint. The healthcheck binary reads `TSDPROXY_HTTP_PORT` to
-determine which port to query. This environment variable is set automatically
-by the main server binary from the `http.port` config value, so no manual
-configuration is needed.
+The Docker image includes a HEALTHCHECK using the server binary's `healthcheck`
+subcommand (`tsdproxyd healthcheck`) that calls the endpoint. The subcommand
+reads `TSDPROXY_HTTP_PORT` to determine which port to query. This environment
+variable is set automatically by the main server from the `http.port` config
+value, so no manual configuration is needed.
 
 ## External Monitoring
 

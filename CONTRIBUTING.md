@@ -16,7 +16,7 @@ You will need these tools installed:
 
 ### Using mise (optional)
 
-[mise](https://mise.jdx.dev) can manage all required tools automatically. The project includes a `mise.toml` that pins Go, Bun, templ, golangci-lint, goreleaser, gotestsum, Hugo, Vite, and Air.
+[mise](https://mise.jdx.dev) can manage all required tools automatically. The project includes a `mise.toml` that pins Go, Bun, templ, golangci-lint, gotestsum, Hugo, Vite, and Air.
 
 ```bash
 # Install mise (if not already installed)
@@ -56,8 +56,7 @@ make bootstrap
 ## Project Structure
 
 ```
-cmd/server/main.go        Main server binary
-cmd/healthcheck/main.go   Docker HEALTHCHECK binary
+cmd/server/main.go        Main server binary (also handles `healthcheck` subcommand)
 internal/
   config/                 Configuration loading and file watching
   core/                   HTTP server, logging, health, sessions

@@ -7,13 +7,16 @@ type (
 	ProxyStatus int
 
 	ProxyEvent struct {
-		ID        string
-		Port      string
-		AuthURL   string
-		Status    ProxyStatus
-		OldStatus ProxyStatus
+		ID           string
+		Port         string
+		AuthURL      string
+		ErrorMessage string
+		Status       ProxyStatus
+		OldStatus    ProxyStatus
 	}
 )
+
+const statusStringUnknown = "Unknown"
 
 const (
 	ProxyStatusInitializing ProxyStatus = iota
@@ -24,6 +27,10 @@ const (
 	ProxyStatusStopped
 	ProxyStatusError
 	ProxyStatusPaused
+	ProxyStatusAwaitingApproval
+	ProxyStatusAuthFailed
+	ProxyStatusDeviceConflict
+	ProxyStatusReconciling
 )
 
 var proxyStatusStrings = []string{
@@ -35,12 +42,16 @@ var proxyStatusStrings = []string{
 	"Stopped",
 	"Error",
 	"Paused",
+	"AwaitingApproval",
+	"AuthFailed",
+	"DeviceConflict",
+	"Reconciling",
 }
 
-func (s *ProxyStatus) String() string {
-	i := int(*s)
+func (s ProxyStatus) String() string {
+	i := int(s)
 	if i < 0 || i >= len(proxyStatusStrings) {
-		return "Unknown"
+		return statusStringUnknown
 	}
 	return proxyStatusStrings[i]
 }

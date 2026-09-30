@@ -5,9 +5,7 @@ package api
 
 import (
 	"fmt"
-	"math"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -23,18 +21,20 @@ type API struct {
 	HTTP *core.HTTPServer
 	PM   *proxymanager.ProxyManager
 	Log  zerolog.Logger
+	Cfg  *config.Data
 }
 
-func New(http *core.HTTPServer, pm *proxymanager.ProxyManager, log zerolog.Logger) *API {
+func New(http *core.HTTPServer, pm *proxymanager.ProxyManager, log zerolog.Logger, cfg *config.Data) *API {
 	return &API{
 		HTTP: http,
 		PM:   pm,
 		Log:  log.With().Str("module", "api").Logger(),
+		Cfg:  cfg,
 	}
 }
 
 func (a *API) AddRoutes() {
-	authMW := core.AdminMiddleware()
+	authMW := core.AdminMiddleware(a.Cfg, a.Log)
 
 	a.HTTP.Get("/api/v1/proxies", authMW(a.listProxiesHandler()))
 	a.HTTP.Get("/api/v1/proxies/{name}", authMW(a.getProxyHandler()))
@@ -127,13 +127,13 @@ func (a *API) getProxyHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			a.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
+			a.HTTP.ErrorResponse(w, r, "missing proxy name", http.StatusBadRequest)
 			return
 		}
 
 		p, ok := a.PM.GetProxy(name)
 		if !ok || !p.Config.Dashboard.Visible {
-			a.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
+			a.HTTP.ErrorResponse(w, r, "proxy not found", http.StatusNotFound)
 			return
 		}
 
@@ -145,13 +145,13 @@ func (a *API) getProxyPortsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == "" {
-			a.HTTP.ErrorResponse(w, r, nil, "missing proxy name", http.StatusBadRequest)
+			a.HTTP.ErrorResponse(w, r, "missing proxy name", http.StatusBadRequest)
 			return
 		}
 
 		p, ok := a.PM.GetProxy(name)
 		if !ok || !p.Config.Dashboard.Visible {
-			a.HTTP.ErrorResponse(w, r, nil, "proxy not found", http.StatusNotFound)
+			a.HTTP.ErrorResponse(w, r, "proxy not found", http.StatusNotFound)
 			return
 		}
 
@@ -201,7 +201,7 @@ func (a *API) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
 	status := p.GetStatus()
 
 	url := p.GetURL()
-	if status == model.ProxyStatusAuthenticating {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusAuthFailed {
 		url = p.GetAuthURL()
 	}
 
@@ -234,7 +234,7 @@ func (a *API) toAPIProxy(name string, p *proxymanager.Proxy) apiProxy {
 		HealthLatency: healthLatency,
 		URL:           url,
 		Category:      p.Config.Dashboard.Category,
-		Uptime:        formatDuration(p.GetUptime()),
+		Uptime:        core.FormatDuration(p.GetUptime()),
 		Ports:         a.toAPIPorts(p),
 		Tailscale: apiTailscale{
 			Tags:         p.Config.Tailscale.Tags,
@@ -255,7 +255,7 @@ func (a *API) toAPIPorts(p *proxymanager.Proxy) []apiPort {
 			Name:          k,
 			ProxyProtocol: v.ProxyProtocol,
 			ProxyPort:     v.ProxyPort,
-			TargetURL:     v.GetFirstTarget().String(),
+			TargetURL:     v.GetFirstTargetString(),
 			TLSValidate:   v.TLSValidate,
 			IsRedirect:    v.IsRedirect,
 			Funnel:        v.Tailscale.Funnel,
@@ -266,7 +266,7 @@ func (a *API) toAPIPorts(p *proxymanager.Proxy) []apiPort {
 
 func (a *API) testWebhookHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if len(config.Config.Webhooks) == 0 {
+		if len(a.Cfg.Webhooks) == 0 {
 			a.writeJSONError(w, "no webhooks configured", http.StatusBadRequest)
 			return
 		}
@@ -274,7 +274,7 @@ func (a *API) testWebhookHandler() http.HandlerFunc {
 		running := model.ProxyStatusRunning
 		stopped := model.ProxyStatusStopped
 
-		sender := webhook.NewSender(a.Log, config.Config.Webhooks)
+		sender := webhook.NewSyncSender(a.Log, a.Cfg.Webhooks)
 		defer sender.Close()
 
 		if err := sender.SendSync(webhook.Event{
@@ -296,25 +296,4 @@ func (a *API) testWebhookHandler() http.HandlerFunc {
 
 func (a *API) writeJSONError(w http.ResponseWriter, message string, code int) {
 	a.HTTP.JSONResponseCode(w, nil, apiErrorResponse{Message: message, Code: code}, code)
-}
-
-func formatDuration(d time.Duration) string {
-	if d == 0 {
-		return ""
-	}
-	days := int(d.Hours() / 24)               //nolint:mnd
-	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
-	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
-
-	var parts []string
-	if days > 0 {
-		parts = append(parts, fmt.Sprintf("%dd", days))
-	}
-	if hours > 0 {
-		parts = append(parts, fmt.Sprintf("%dh", hours))
-	}
-	if minutes > 0 || len(parts) == 0 {
-		parts = append(parts, fmt.Sprintf("%dm", minutes))
-	}
-	return strings.Join(parts, " ")
 }

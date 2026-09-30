@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
@@ -22,59 +21,79 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/ui/pages"
 )
 
-var proxyAuthToken string
+const localhostUserID = "__localhost__"
 
-// InitProxyAuth generates the per-process secret used to authenticate
-// identity headers forwarded by the internal reverse proxy. Must be
-// called once during startup, before any HTTP handlers are registered.
-func InitProxyAuth(log zerolog.Logger) {
-	b := make([]byte, 32) //nolint:mnd
+const authTokenBytes = 32
+
+// ProxyAuth holds the per-process secret used to authenticate identity
+// headers forwarded by the internal reverse proxy.
+type ProxyAuth struct {
+	token string
+}
+
+// NewProxyAuth generates a new ProxyAuth with a random 32-byte token.
+func NewProxyAuth(log zerolog.Logger) *ProxyAuth {
+	b := make([]byte, authTokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		log.Fatal().Err(err).Msg("failed to generate proxy auth token")
 	}
-	proxyAuthToken = hex.EncodeToString(b)
+	return &ProxyAuth{token: hex.EncodeToString(b)}
 }
 
-// ProxyAuthToken returns the per-process secret set by InitProxyAuth.
-func ProxyAuthToken() string { return proxyAuthToken }
+// Token returns the per-process proxy auth token.
+func (a *ProxyAuth) Token() string { return a.token }
+
+// validToken checks whether the request carries a valid per-process
+// auth token from localhost. Returns false when the token is uninitialised
+// (fail-closed) and uses constant-time comparison.
+func (a *ProxyAuth) validToken(r *http.Request) bool {
+	if !model.IsLocalhost(r.RemoteAddr) {
+		return false
+	}
+	if a.token == "" {
+		return false
+	}
+	token := r.Header.Get(consts.HeaderAuthToken)
+	return subtle.ConstantTimeCompare([]byte(token), []byte(a.token)) == 1
+}
 
 // AdminMiddleware authenticates requests to admin-only endpoints.
 //
 // Access is granted in priority order:
 //  1. Valid API key via Authorization: Bearer <token>
-//  2. Tailscale identity in config.Config.Admins list
+//  2. Tailscale identity in cfg.Admins list
 //  3. Localhost + AdminAllowLocalhost
 //
-// When config.Config.Admins is empty, any authenticated Tailscale user
+// When cfg.Admins is empty, any authenticated Tailscale user
 // is considered an admin. Use ViewerMiddleware for read-only access
 // that allows all Tailscale users regardless of the admins list.
-func AdminMiddleware() Middleware {
+func AdminMiddleware(cfg *config.Data, log zerolog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if ValidAPIKey(r) {
+			if ValidAPIKey(r, cfg) {
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			id := ResolveWhois(r).ID
 
-			admins := config.Config.Admins
+			admins := cfg.Admins
 			if len(admins) > 0 {
 				if id != "" && slices.Contains(admins, id) {
 					next.ServeHTTP(w, r)
 					return
 				}
 				if id != "" {
-					writeForbidden(w, r, "admin access required")
+					writeForbidden(w, r, "admin access required", log)
 					return
 				}
 
-				if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+				if IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost {
 					next.ServeHTTP(w, r)
 					return
 				}
 
-				writeForbidden(w, r, "admin access requires a Tailscale connection")
+				writeForbidden(w, r, "admin access requires a Tailscale connection", log)
 				return
 			}
 
@@ -83,12 +102,12 @@ func AdminMiddleware() Middleware {
 				return
 			}
 
-			if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+			if IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			writeForbidden(w, r, "admin access requires a Tailscale connection")
+			writeForbidden(w, r, "admin access requires a Tailscale connection", log)
 		})
 	}
 }
@@ -96,10 +115,10 @@ func AdminMiddleware() Middleware {
 // ViewerMiddleware authenticates requests to read-only dashboard endpoints.
 // Any authenticated Tailscale user is allowed, regardless of the admins list.
 // Use AdminMiddleware for endpoints that require admin privileges.
-func ViewerMiddleware() Middleware {
+func ViewerMiddleware(cfg *config.Data, log zerolog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if ValidAPIKey(r) {
+			if ValidAPIKey(r, cfg) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -110,43 +129,43 @@ func ViewerMiddleware() Middleware {
 				return
 			}
 
-			if IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost {
+			if IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			writeForbidden(w, r, "dashboard access requires a Tailscale connection")
+			writeForbidden(w, r, "dashboard access requires a Tailscale connection", log)
 		})
 	}
 }
 
 // IsAdmin checks whether the authenticated user for the given request
-// has admin privileges. Returns true when config.Config.Admins is empty
+// has admin privileges. Returns true when cfg.Admins is empty
 // (all users are admins) or when the user's Tailscale ID is in the list.
-func IsAdmin(r *http.Request) bool {
-	if ValidAPIKey(r) {
+func IsAdmin(r *http.Request, cfg *config.Data) bool {
+	if ValidAPIKey(r, cfg) {
 		return true
 	}
 	id := ResolveWhois(r).ID
 	if id != "" {
-		return UserIDIsAdmin(id)
+		return UserIDIsAdmin(id, cfg)
 	}
-	return IsTrustedSource(r.RemoteAddr) && config.Config.AdminAllowLocalhost
+	return IsTrustedSource(r.RemoteAddr) && cfg.AdminAllowLocalhost
 }
 
-func UserIDIsAdmin(id string) bool {
-	admins := config.Config.Admins
+func UserIDIsAdmin(id string, cfg *config.Data) bool {
+	admins := cfg.Admins
 	if len(admins) == 0 {
 		return true
 	}
-	if id == "__localhost__" {
-		return config.Config.AdminAllowLocalhost
+	if id == localhostUserID {
+		return cfg.AdminAllowLocalhost
 	}
 	return slices.Contains(admins, id)
 }
 
-func ValidAPIKey(r *http.Request) bool {
-	key := config.Config.APIKey
+func ValidAPIKey(r *http.Request, cfg *config.Data) bool {
+	key := cfg.APIKey
 	if key == "" {
 		return false
 	}
@@ -162,12 +181,14 @@ func extractBearerToken(r *http.Request) string {
 	return ""
 }
 
-func writeForbidden(w http.ResponseWriter, r *http.Request, message string) {
+func writeForbidden(w http.ResponseWriter, r *http.Request, message string, log zerolog.Logger) {
 	accept := r.Header.Get("Accept")
 	if strings.Contains(accept, "text/html") {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		_ = pages.ForbiddenPage(message).Render(r.Context(), w)
+		if err := pages.ForbiddenPage(message).Render(r.Context(), w); err != nil {
+			log.Error().Err(err).Msg("failed to render forbidden page")
+		}
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -179,39 +200,18 @@ func writeForbidden(w http.ResponseWriter, r *http.Request, message string) {
 }
 
 // ResolveWhois resolves the Tailscale identity for a request.
-// Priority: request context (set by ProviderUserMiddleware on direct
-// tsnet connections), then x-tsdproxy-* headers from localhost (set by
-// the internal reverse proxy, validated via per-process auth token in
-// StripProxyIdentityHeaders).
+// Identity is sourced exclusively from the request context, which is set by:
+//   - ProviderUserMiddleware for direct tsnet connections
+//   - StripProxyIdentityHeaders for localhost requests forwarded by the
+//     internal reverse proxy (self-proxy case, validated via per-process
+//     auth token)
+//
+// Raw x-tsdproxy-* headers are never trusted directly.
 func ResolveWhois(r *http.Request) model.Whois {
-	if who, ok := model.WhoisFromContext(r.Context()); ok && who.ID != "" {
+	if who, ok := model.WhoisFromContext(r.Context()); ok {
 		return who
 	}
-
-	if IsLocalhost(r.RemoteAddr) {
-		return model.Whois{
-			ID:            r.Header.Get(consts.HeaderID),
-			Username:      r.Header.Get(consts.HeaderUsername),
-			DisplayName:   r.Header.Get(consts.HeaderDisplayName),
-			ProfilePicURL: r.Header.Get(consts.HeaderProfilePicURL),
-		}
-	}
-
 	return model.Whois{}
-}
-
-func IsLocalhost(remoteAddr string) bool {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		host = remoteAddr
-	}
-
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-
-	return ip.IsLoopback()
 }
 
 // IsTrustedSource returns true when the request originates from a
@@ -219,7 +219,7 @@ func IsLocalhost(remoteAddr string) bool {
 // addresses (172.16.0.0/12, 10.0.0.0/8, 192.168.0.0/16), or RFC 6598
 // Carrier-Grade NAT (100.64.0.0/10) used by Tailscale.
 //
-// The private-network check extends the loopback-only IsLocalhost to
+// The private-network check extends the loopback-only model.IsLocalhost to
 // cover Docker port-mapped requests, which arrive inside the container
 // from the Docker bridge gateway (e.g. 172.17.0.1) rather than
 // 127.0.0.1. The CGNAT check covers the case where a client on the LAN
@@ -228,7 +228,7 @@ func IsLocalhost(remoteAddr string) bool {
 //
 // IMPORTANT: This must NOT be used where loopback-only trust is
 // required (e.g. validating proxy auth tokens or identity headers).
-// Use IsLocalhost for those cases.
+// Use model.IsLocalhost for those cases.
 func IsTrustedSource(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
@@ -250,42 +250,42 @@ func isCGNAT(ip net.IP) bool {
 	return cgnat.Contains(ip)
 }
 
-// validProxyAuthToken checks whether the request carries a valid per-process
-// auth token from localhost. Returns false when the token is uninitialised
-// (fail-closed) and uses constant-time comparison.
-func validProxyAuthToken(r *http.Request) bool {
-	if !IsLocalhost(r.RemoteAddr) {
-		return false
-	}
-	if proxyAuthToken == "" {
-		return false
-	}
-	token := r.Header.Get(consts.HeaderAuthToken)
-	return subtle.ConstantTimeCompare([]byte(token), []byte(proxyAuthToken)) == 1
-}
-
 // StripProxyIdentityHeaders removes x-tsdproxy-* identity and auth-token
-// headers from incoming requests. Identity headers are preserved only when
-// the request carries the correct per-process auth token and originates from
-// localhost (i.e. from the internal reverse proxy forwarding an authenticated
-// Tailscale session to the management listener). The auth token itself is
-// always stripped to prevent leakage.
-func StripProxyIdentityHeaders(next http.Handler) http.Handler {
+// headers from incoming requests. When the request carries the correct
+// per-process auth token and originates from localhost (i.e. from the
+// internal reverse proxy forwarding an authenticated Tailscale session),
+// the validated identity is promoted into the request context so that
+// ResolveWhois can read it. All raw identity headers and the auth token
+// are always stripped, regardless of validity.
+func (a *ProxyAuth) StripProxyIdentityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		valid := validProxyAuthToken(r)
+		valid := a.validToken(r)
+
 		// Always strip the auth token immediately so downstream handlers
 		// never see the secret, even if they log or reflect headers.
 		r.Header.Del(consts.HeaderAuthToken)
 
 		if valid {
-			next.ServeHTTP(w, r)
-			return
+			// Auth token is valid — the headers were set by the internal
+			// reverse proxy (self-proxy case). Promote to context so
+			// ResolveWhois reads a validated identity, not raw headers.
+			who := model.Whois{
+				ID:            r.Header.Get(consts.HeaderID),
+				Username:      r.Header.Get(consts.HeaderUsername),
+				DisplayName:   r.Header.Get(consts.HeaderDisplayName),
+				ProfilePicURL: r.Header.Get(consts.HeaderProfilePicURL),
+			}
+			if who.ID != "" {
+				r = r.WithContext(model.WhoisNewContext(r.Context(), who))
+			}
 		}
 
-		r.Header.Del(consts.HeaderID)
-		r.Header.Del(consts.HeaderUsername)
-		r.Header.Del(consts.HeaderDisplayName)
-		r.Header.Del(consts.HeaderProfilePicURL)
+		// Always strip identity headers so downstream code cannot read
+		// them directly — context is the only trusted source.
+		for _, h := range consts.IdentityHeaders {
+			r.Header.Del(h)
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -294,7 +294,7 @@ func WhoAmIHandler(srv *HTTPServer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		who := ResolveWhois(r)
 		if who.ID == "" {
-			srv.ErrorResponse(w, r, nil, "no Tailscale identity found", http.StatusUnauthorized)
+			srv.ErrorResponse(w, r, "no Tailscale identity found", http.StatusUnauthorized)
 			return
 		}
 

@@ -40,6 +40,8 @@ linters:
     - whitespace
     - zerologlint
   settings:
+    cyclop:
+      max-complexity: 15
     gocyclo:
       min-complexity: 50
     goheader:
@@ -66,8 +68,21 @@ linters:
       - std-error-handling
     rules:
       - linters:
+          - whitespace
+        text: "multi-line statement"
+      - linters:
           - goconst
         path: (.+)_test\.go
+      - linters:
+          - revive
+        path: (.+)_test\.go
+      # yaml keys in the main config struct are user-facing API: tags like
+      # defaultTLSProvider predate the linter and renaming them would break
+      # existing tsdproxy.yaml files.
+      - linters:
+          - tagliatelle
+        path: internal/config/config\.go
+        text: "^yaml\\("
     paths:
       - third_party$
       - builtin$

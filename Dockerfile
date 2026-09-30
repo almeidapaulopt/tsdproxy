@@ -1,20 +1,25 @@
+# SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
+# SPDX-License-Identifier: MIT
 
 # Use an official Go image as the build base
 FROM golang:1.27 AS builder
 RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
 
-# Set the working directory
+FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG TARGETVARIANT
+ARG VERSION=dev
+ARG TAILSCALE_VERSION
+ARG GIT_COMMIT
+
+ENV CGO_ENABLED=0
+
 WORKDIR /app
 
-# Copy the source code into the container
-COPY . .
-
-# Build the Go application
-RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /tsdproxyd ./cmd/server/main.go
-RUN CGO_ENABLED=0 GOOS=linux go build -o /healthcheck ./cmd/healthcheck/main.go
-
-
-FROM scratch
+COPY go.mod go.sum ./
+RUN go mod download
 
 ARG VERSION=0.0.0
 ARG TAILSCALE_VERSION=0.0.0
@@ -31,10 +36,11 @@ LABEL org.opencontainers.image.title="TSDproxy" \
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
+FROM scratch
+
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /tsdproxyd /tsdproxyd
-COPY --from=builder /healthcheck /healthcheck
 
 ENTRYPOINT ["/tsdproxyd"]
-
 EXPOSE 8080
-HEALTHCHECK CMD [ "/healthcheck" ]
+HEALTHCHECK --interval=1m --timeout=2s CMD [ "/tsdproxyd", "healthcheck" ]

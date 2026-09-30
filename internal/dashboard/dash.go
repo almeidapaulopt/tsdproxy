@@ -26,22 +26,28 @@ import (
 
 const (
 	hxRequestHeader = "true"
+	justAgoString   = "just now"
 	subjectRemote   = "__remote__"
+
+	hoursPerDay      = 24
+	defaultHTTPSPort = 443
+	defaultHTTPPort  = 80
 )
 
 type Dashboard struct {
 	Log             zerolog.Logger
 	HTTP            *core.HTTPServer
 	pm              *proxymanager.ProxyManager
+	cfg             *config.Data
 	prefs           *PreferencesStore
 	sseClients      map[string]*sseClient
 	stopCh          chan struct{}
-	mtx             sync.RWMutex
 	lastHealthState map[string]string
+	mtx             sync.RWMutex
 }
 
-func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.ProxyManager) *Dashboard {
-	prefs, err := NewPreferencesStore(config.Config.Tailscale.DataDir, log)
+func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.ProxyManager, cfg *config.Data) *Dashboard {
+	prefs, err := NewPreferencesStore(cfg.Tailscale.DataDir, log)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to initialize preferences store")
 	}
@@ -50,15 +56,18 @@ func NewDashboard(http *core.HTTPServer, log zerolog.Logger, pm *proxymanager.Pr
 		Log:             log.With().Str("module", "dashboard").Logger(),
 		HTTP:            http,
 		pm:              pm,
+		cfg:             cfg,
 		prefs:           prefs,
 		sseClients:      make(map[string]*sseClient),
 		stopCh:          make(chan struct{}),
 		lastHealthState: make(map[string]string),
 	}
 
-	go dash.streamProxyUpdates()
-
 	return dash
+}
+
+func (dash *Dashboard) Start() {
+	go dash.streamProxyUpdates()
 }
 
 func (dash *Dashboard) Close() {
@@ -74,15 +83,15 @@ func (dash *Dashboard) dashboardSubject(r *http.Request) string {
 	if core.IsTrustedSource(r.RemoteAddr) {
 		return "__localhost__"
 	}
-	if core.ValidAPIKey(r) {
+	if core.ValidAPIKey(r, dash.cfg) {
 		return "__apikey__"
 	}
 	return subjectRemote
 }
 
 func (dash *Dashboard) AddRoutes() {
-	viewMW := core.ViewerMiddleware()
-	adminMW := core.AdminMiddleware()
+	viewMW := core.ViewerMiddleware(dash.cfg, dash.Log)
+	adminMW := core.AdminMiddleware(dash.cfg, dash.Log)
 
 	dash.HTTP.Get("/{$}", viewMW(dash.dashboardHandler()))
 	dash.HTTP.Get("/dashboard/list", viewMW(dash.listFragmentHandler()))
@@ -106,47 +115,26 @@ func formatAgo(t time.Time) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:
-		return "just now"
+		return justAgoString
 	case d < time.Hour:
 		m := int(math.Round(d.Minutes()))
 		if m == 1 {
 			return "1m ago"
 		}
 		return fmt.Sprintf("%dm ago", m)
-	case d < 24*time.Hour:
+	case d < time.Duration(hoursPerDay)*time.Hour:
 		h := int(math.Round(d.Hours()))
 		if h == 1 {
 			return "1h ago"
 		}
 		return fmt.Sprintf("%dh ago", h)
 	default:
-		days := int(math.Round(d.Hours() / 24)) //nolint:mnd
+		days := int(math.Round(d.Hours() / hoursPerDay))
 		if days == 1 {
 			return "1d ago"
 		}
 		return fmt.Sprintf("%dd ago", days)
 	}
-}
-
-func formatDuration(d time.Duration) string {
-	if d == 0 {
-		return ""
-	}
-	days := int(d.Hours() / 24)               //nolint:mnd
-	hours := int(math.Mod(d.Hours(), 24))     //nolint:mnd
-	minutes := int(math.Mod(d.Minutes(), 60)) //nolint:mnd
-
-	var parts []string
-	if days > 0 {
-		parts = append(parts, fmt.Sprintf("%dd", days))
-	}
-	if hours > 0 {
-		parts = append(parts, fmt.Sprintf("%dh", hours))
-	}
-	if minutes > 0 || len(parts) == 0 {
-		parts = append(parts, fmt.Sprintf("%dm", minutes))
-	}
-	return strings.Join(parts, " ")
 }
 
 func (dash *Dashboard) proxyActionHandler(action func(string) error) http.HandlerFunc {
@@ -171,10 +159,12 @@ func (dash *Dashboard) proxyActionHandler(action func(string) error) http.Handle
 
 		if r.Header.Get("HX-Request") == hxRequestHeader {
 			pinned := pinnedSet(dash.loadPrefs(dash.dashboardSubject(r)))
-			_ = ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned, true)))
+			if err := ui.RenderTempl(w, r, pages.ActionsPanel(buildProxyDataFromProxy(name, proxy, pinned, true))); err != nil {
+				dash.Log.Error().Err(err).Str("proxy", name).Msg("failed to render actions panel")
+			}
 			return
 		}
-		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"})
+		dash.HTTP.JSONResponse(w, r, map[string]string{"status": "ok"}) //nolint:goconst
 	}
 }
 
@@ -206,7 +196,7 @@ func (dash *Dashboard) dashboardHandler() http.HandlerFunc {
 		prefs := dash.loadPrefs(userID)
 		who := core.ResolveWhois(r)
 
-		viewData := dash.buildDashboardViewData(prefs, "", core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, "", core.IsAdmin(r, dash.cfg))
 		viewData.User = who
 		viewData.Version = core.GetVersion()
 
@@ -226,7 +216,7 @@ func (dash *Dashboard) listFragmentHandler() http.HandlerFunc {
 
 		dash.updateClientSearch(userID, connID, search)
 
-		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -249,7 +239,7 @@ func (dash *Dashboard) proxyModalHandler() http.HandlerFunc {
 			return
 		}
 
-		data := buildProxyDataFromProxy(name, proxy, pinnedSet(dash.loadPrefs(dash.dashboardSubject(r))), core.IsAdmin(r))
+		data := buildProxyDataFromProxy(name, proxy, pinnedSet(dash.loadPrefs(dash.dashboardSubject(r))), core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyModal(data)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -306,7 +296,7 @@ func (dash *Dashboard) updatePreferencesHandler() http.HandlerFunc {
 		}
 
 		prefs := dash.loadPrefs(userID)
-		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -342,7 +332,7 @@ func (dash *Dashboard) togglePinHandler() http.HandlerFunc {
 
 		prefs := dash.loadPrefs(userID)
 		search := r.FormValue("search")
-		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r))
+		viewData := dash.buildDashboardViewData(prefs, search, core.IsAdmin(r, dash.cfg))
 
 		if err := ui.RenderTempl(w, r, pages.ProxyListFragment(viewData)); err != nil {
 			dash.Log.Error().Err(err).Msg("failed to render template")
@@ -372,10 +362,49 @@ func (dash *Dashboard) buildDashboardViewData(prefs model.Preferences, search st
 	}
 }
 
+func buildPortEntries(ports model.PortConfigList, hostname string) []pages.PortEntry {
+	entries := make([]pages.PortEntry, 0, len(ports))
+	for _, target := range ports {
+		scheme := target.ProxyProtocol
+		portURL := scheme + "://" + hostname
+
+		switch scheme {
+		case model.ProtoHTTPS:
+			if target.ProxyPort != defaultHTTPSPort {
+				portURL += ":" + strconv.Itoa(target.ProxyPort)
+			}
+		case model.ProtoHTTP:
+			if target.ProxyPort != defaultHTTPPort {
+				portURL += ":" + strconv.Itoa(target.ProxyPort)
+			}
+		default:
+			portURL += ":" + strconv.Itoa(target.ProxyPort)
+		}
+
+		entries = append(entries, pages.PortEntry{
+			PortConfig: target,
+			URL:        portURL,
+			TargetURL:  target.GetFirstTargetString(),
+		})
+	}
+	return entries
+}
+
+func formatHealthStatus(health proxymanager.HealthResult) (string, string, string) {
+	if health.Status == 0 {
+		return "", "", ""
+	}
+	healthLatency := ""
+	if health.Latency > 0 {
+		healthLatency = fmt.Sprintf("(%dms)", health.Latency.Milliseconds())
+	}
+	return health.Status.String(), healthLatency, health.Error
+}
+
 func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[string]bool, isAdmin bool) pages.ProxyData {
 	status := p.GetStatus()
 	proxyURL := p.GetURL()
-	if status == model.ProxyStatusAuthenticating {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusAuthFailed {
 		proxyURL = p.GetAuthURL()
 	}
 
@@ -394,47 +423,23 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 	hostname = strings.TrimPrefix(hostname, "tcp://")
 	hostname = strings.TrimPrefix(hostname, "udp://")
 
-	ports := make([]pages.PortEntry, 0, len(p.Config.Ports))
-	for _, target := range p.Config.Ports {
-		scheme := target.ProxyProtocol
-		portURL := scheme + "://" + hostname
-
-		switch scheme {
-		case "https":
-			if target.ProxyPort != 443 { //nolint:mnd
-				portURL += ":" + strconv.Itoa(target.ProxyPort)
-			}
-		case "http":
-			if target.ProxyPort != 80 { //nolint:mnd
-				portURL += ":" + strconv.Itoa(target.ProxyPort)
-			}
-		default:
-			portURL += ":" + strconv.Itoa(target.ProxyPort)
-		}
-
-		targetURL := target.GetFirstTarget().String()
-
-		ports = append(ports, pages.PortEntry{
-			PortConfig: target,
-			URL:        portURL,
-			TargetURL:  targetURL,
-		})
-	}
+	ports := buildPortEntries(p.Config.Ports, hostname)
 
 	authURL := ""
-	if status == model.ProxyStatusAuthenticating {
+	if status == model.ProxyStatusAuthenticating || status == model.ProxyStatusAwaitingApproval || status == model.ProxyStatusAuthFailed {
 		authURL = p.GetAuthURL()
 	}
 
-	enabled := status == model.ProxyStatusAuthenticating || status == model.ProxyStatusRunning
+	enabled := status == model.ProxyStatusAuthenticating ||
+		status == model.ProxyStatusAwaitingApproval ||
+		status == model.ProxyStatusAuthFailed ||
+		status == model.ProxyStatusRunning
 
-	health := p.GetHealth()
-	healthStatus := health.Status.String()
-	healthLatency := ""
-	if health.Status == 0 {
-		healthStatus = ""
-	} else if health.Latency > 0 {
-		healthLatency = fmt.Sprintf("(%dms)", health.Latency.Milliseconds())
+	healthStatus, healthLatency, healthError := formatHealthStatus(p.GetHealth())
+
+	errorMessage := p.GetLastError()
+	if errorMessage == "" {
+		errorMessage = p.GetDomainError()
 	}
 
 	statusHistory := p.GetStatusHistory()
@@ -452,6 +457,7 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		Name:                  name,
 		URL:                   proxyURL,
 		ProxyStatus:           status,
+		ErrorMessage:          errorMessage,
 		Icon:                  icon,
 		Label:                 label,
 		Ports:                 ports,
@@ -466,30 +472,151 @@ func buildProxyDataFromProxy(name string, p *proxymanager.Proxy, pinned map[stri
 		AuthURL:               authURL,
 		HealthStatus:          healthStatus,
 		HealthLatency:         healthLatency,
+		HealthError:           healthError,
 		Category:              p.Config.Dashboard.Category,
 		StatusHistory:         history,
-		Uptime:                formatDuration(p.GetUptime()),
+		Uptime:                core.FormatDuration(p.GetUptime()),
 		Pinned:                pinned[name],
 		IsAdmin:               isAdmin,
+		Domain:                p.Config.Domain,
+		DNSStatus:             p.GetDNSStatus().String(),
+		TLSStatus:             p.GetTLSStatus().String(),
+		DomainError:           p.GetDomainError(),
 	}
+}
+
+func (dash *Dashboard) validateLogStreamProxy(w http.ResponseWriter, r *http.Request) (string, *proxymanager.Proxy, bool) {
+	name := r.PathValue("name")
+	if name == "" {
+		http.Error(w, "invalid proxy name", http.StatusBadRequest)
+		return "", nil, false
+	}
+
+	proxy, ok := dash.pm.GetProxy(name)
+	if !ok {
+		http.Error(w, "proxy not found", http.StatusNotFound)
+		return "", nil, false
+	}
+
+	if !proxy.Config.Dashboard.Visible {
+		http.Error(w, "proxy not found", http.StatusNotFound)
+		return "", nil, false
+	}
+
+	return name, proxy, true
+}
+
+func setupSSEHeaders(w http.ResponseWriter) bool {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	if _, ok := w.(http.Flusher); !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
+
+type logStreamer struct {
+	w              http.ResponseWriter
+	selector       string
+	scrollSelector string
+	trimSelector   string
+	safeID         string
+	maxLines       string
+}
+
+func newLogStreamer(w http.ResponseWriter, name string) *logStreamer {
+	safeID := dom.SafeID(name)
+	selector := "#log-lines-" + safeID
+	return &logStreamer{
+		w:              w,
+		selector:       selector,
+		scrollSelector: selector,
+		trimSelector:   selector,
+		safeID:         safeID,
+		maxLines:       strconv.Itoa(proxymanager.DefaultLogBufferSize),
+	}
+}
+
+func (s *logStreamer) writeAppend(cmp templ.Component) error {
+	return WriteSSEPartialComponent(s.w, s.selector, "beforeend", cmp)
+}
+
+func (s *logStreamer) writeRemove(sel string) error {
+	return WriteSSEPartialComponent(s.w, sel, "delete", nil)
+}
+
+func (s *logStreamer) writeClear() error {
+	return WriteSSEPartialComponent(s.w, s.selector, "innerHTML", nil)
+}
+
+func (s *logStreamer) renderInitialSnapshot(snapshot []string) error {
+	if err := s.writeClear(); err != nil {
+		return err
+	}
+	if len(snapshot) > 0 {
+		if err := s.writeAppend(pages.LogLines(snapshot)); err != nil {
+			return err
+		}
+		return WriteSSE(s.w, "scroll-logs", s.scrollSelector)
+	}
+	return s.writeAppend(pages.LogPlaceholder(s.safeID))
+}
+
+func (s *logStreamer) streamEvents(done <-chan struct{}, ch <-chan string, snapshot []string) {
+	placeholderRemoved := len(snapshot) > 0
+	for {
+		select {
+		case <-done:
+			return
+		case line, ok := <-ch:
+			if !ok {
+				return
+			}
+			if !placeholderRemoved {
+				if err := s.writeRemove("#log-placeholder-" + s.safeID); err != nil {
+					return
+				}
+				placeholderRemoved = true
+			}
+
+			lines := s.drainBatch(ch, line)
+			if err := s.writeAppend(pages.LogLines(lines)); err != nil {
+				return
+			}
+			if err := WriteSSE(s.w, "trim-logs", s.trimSelector+"\n"+s.maxLines); err != nil {
+				return
+			}
+			if err := WriteSSE(s.w, "scroll-logs", s.scrollSelector); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (s *logStreamer) drainBatch(ch <-chan string, first string) []string {
+	const maxBatchSize = 50
+
+	lines := []string{first}
+	for len(lines) < maxBatchSize {
+		select {
+		case l, ok := <-ch:
+			if !ok {
+				return lines
+			}
+			lines = append(lines, l)
+		default:
+			return lines
+		}
+	}
+	return lines
 }
 
 func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name := r.PathValue("name")
-		if name == "" {
-			http.Error(w, "invalid proxy name", http.StatusBadRequest)
-			return
-		}
-
-		proxy, ok := dash.pm.GetProxy(name)
+		name, proxy, ok := dash.validateLogStreamProxy(w, r)
 		if !ok {
-			http.Error(w, "proxy not found", http.StatusNotFound)
-			return
-		}
-
-		if !proxy.Config.Dashboard.Visible {
-			http.Error(w, "proxy not found", http.StatusNotFound)
 			return
 		}
 
@@ -500,92 +627,14 @@ func (dash *Dashboard) streamProxyLogsHandler() http.HandlerFunc {
 		}
 		defer proxy.UnsubscribeLogs(ch)
 
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		if _, ok := w.(http.Flusher); !ok {
-			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		if !setupSSEHeaders(w) {
 			return
 		}
 
-		safeID := dom.SafeID(name)
-		selector := "#log-lines-" + safeID
-		scrollSelector := selector
-		trimSelector := selector
-		maxLines := strconv.Itoa(proxymanager.DefaultLogBufferSize)
-
-		writeAppend := func(cmp templ.Component) error {
-			return WriteSSEPartialComponent(w, selector, "beforeend", cmp)
-		}
-
-		writeRemove := func(sel string) error {
-			return WriteSSEPartialComponent(w, sel, "delete", nil)
-		}
-
-		writeClear := func(sel string) error {
-			return WriteSSEPartialComponent(w, sel, "innerHTML", nil)
-		}
-
-		if err := writeClear(selector); err != nil {
+		streamer := newLogStreamer(w, name)
+		if err := streamer.renderInitialSnapshot(snapshot); err != nil {
 			return
 		}
-
-		if len(snapshot) > 0 {
-			if err := writeAppend(pages.LogLines(snapshot)); err != nil {
-				return
-			}
-			if err := WriteSSE(w, "scroll-logs", scrollSelector); err != nil {
-				return
-			}
-		} else {
-			if err := writeAppend(pages.LogPlaceholder(safeID)); err != nil {
-				return
-			}
-		}
-
-		placeholderRemoved := len(snapshot) > 0
-
-		for {
-			select {
-			case <-r.Context().Done():
-				return
-			case line, ok := <-ch:
-				if !ok {
-					return
-				}
-				if !placeholderRemoved {
-					if err := writeRemove("#log-placeholder-" + safeID); err != nil {
-						return
-					}
-					placeholderRemoved = true
-				}
-
-				const maxBatchSize = 50
-
-				lines := []string{line}
-			drain:
-				for len(lines) < maxBatchSize {
-					select {
-					case l, ok := <-ch:
-						if !ok {
-							break drain
-						}
-						lines = append(lines, l)
-					default:
-						break drain
-					}
-				}
-
-				if err := writeAppend(pages.LogLines(lines)); err != nil {
-					return
-				}
-				if err := WriteSSE(w, "trim-logs", trimSelector+"\n"+maxLines); err != nil {
-					return
-				}
-				if err := WriteSSE(w, "scroll-logs", scrollSelector); err != nil {
-					return
-				}
-			}
-		}
+		streamer.streamEvents(r.Context().Done(), ch, snapshot)
 	}
 }

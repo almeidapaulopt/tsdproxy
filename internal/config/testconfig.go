@@ -3,18 +3,22 @@
 
 package config
 
-func SetTestConfig(dataDir, authKey string) {
-	Config = &config{
-		DefaultProxyProvider: "default",
+import "github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
+
+// NewTestData creates a minimal *Data for use in tests.
+func NewTestData(dataDir, authKey string) *Data {
+	cfg := &Data{
+		DefaultProxyProvider: TailscaleDefaultProviderName,
+		Tailscale: TailscaleProxyProviderConfig{
+			DataDir:   dataDir,
+			Providers: make(map[string]*TailscaleServerConfig),
+		},
+		Docker: make(map[string]*DockerTargetProviderConfig),
+		Lists:  make(map[string]*ListTargetProviderConfig),
 	}
-	Config.Tailscale = TailscaleProxyProviderConfig{
-		DataDir:   dataDir,
-		Providers: make(map[string]*TailscaleServerConfig),
+	cfg.Tailscale.Providers[TailscaleDefaultProviderName] = &TailscaleServerConfig{
+		AuthKey:    secretstring.SecretString(authKey),
+		ControlURL: defaultControlURL,
 	}
-	Config.Tailscale.Providers["default"] = &TailscaleServerConfig{
-		AuthKey:    authKey,
-		ControlURL: "https://controlplane.tailscale.com",
-	}
-	Config.Docker = make(map[string]*DockerTargetProviderConfig)
-	Config.Lists = make(map[string]*ListTargetProviderConfig)
+	return cfg
 }

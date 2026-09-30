@@ -563,18 +563,6 @@
     padding-inline: 0.5rem;
   }
 
-  .filter-scroll {
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    padding-bottom: 0.125rem;
-  }
-
-  .filter-scroll::-webkit-scrollbar {
-    display: none;
-  }
-
   .drag-handle {
     width: 2.5rem;
     height: 0.25rem;

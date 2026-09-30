@@ -1,4 +1,5 @@
 dash-dev:
+  proxyProvider: services
   ports:
     "443/https":
       targets:

@@ -23,6 +23,7 @@ func httpLabels(hostname string) map[string]string {
 	return map[string]string{
 		"tsdproxy.enable":    "true",
 		"tsdproxy.name":      hostname,
+		"tsdproxy.ephemeral": "true",
 		"tsdproxy.port.http": "80/http:80/http",
 	}
 }

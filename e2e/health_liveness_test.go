@@ -19,12 +19,15 @@ func TestHealthLivenessEndpoint(t *testing.T) {
 		AuthKey: requireTailscaleAuth(t),
 	})
 
-	// Verify /health/ready/ returns 200.
 	resp, err := http.Get(proxy.BaseURL + "/health/ready/")
 	require.NoError(t, err)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "ready: body=%s", string(body))
 
-	t.Skip("not yet implemented: /health/live/ endpoint")
+	resp2, err := http.Get(proxy.BaseURL + "/health/live/")
+	require.NoError(t, err)
+	resp2.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp2.StatusCode,
+		"/health/live/ is not yet implemented, should return 404")
 }

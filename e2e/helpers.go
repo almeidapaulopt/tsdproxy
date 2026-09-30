@@ -67,6 +67,9 @@ type TSDProxyConfig struct {
 	AdminAllowLocalhost bool
 	ClientID            string
 	ClientSecret        string
+	SSHPrivateKeyFile   string
+	SSHKnownHostsFile   string
+	SSHInsecureSkipHost bool
 }
 
 func defaultTSDProxyConfig() TSDProxyConfig {
@@ -106,11 +109,14 @@ func StartTSDProxy(t *testing.T, cfg TSDProxyConfig) *TSDProxyInstance {
 		TargetHostname:      cfg.TargetHostname,
 		ControlURL:          cfg.ControlURL,
 		AdminAllowLocalhost: cfg.AdminAllowLocalhost,
+		SSHPrivateKeyFile:   cfg.SSHPrivateKeyFile,
+		SSHKnownHostsFile:   cfg.SSHKnownHostsFile,
+		SSHInsecureSkipHost: cfg.SSHInsecureSkipHost,
 	})
 	require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0o644))
 
 	cmd := exec.CommandContext(ctx, tsdproxyBinPath, "-config", configPath)
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(filteredEnviron(),
 		fmt.Sprintf("TSDPROXY_HTTP_PORT=%d", cfg.HTTPPort),
 	)
 
@@ -226,7 +232,8 @@ type ContainerConfig struct {
 	Networks     []string
 	Cmd          []string
 	Env          map[string]string
-	WaitPort     string // port to wait for before returning (e.g. "80/tcp", "8080/tcp"). Defaults to "80/tcp".
+	WaitPort     string
+	Privileged   bool
 }
 
 func StartContainer(t *testing.T, cfg ContainerConfig) testcontainers.Container {
@@ -254,6 +261,10 @@ func StartContainer(t *testing.T, cfg ContainerConfig) testcontainers.Container 
 
 	if cfg.NetworkMode != "" {
 		cr.NetworkMode = ctypes.NetworkMode(cfg.NetworkMode)
+	}
+
+	if cfg.Privileged {
+		cr.Privileged = true
 	}
 
 	cr.Networks = append(cr.Networks, cfg.Networks...)
@@ -655,6 +666,9 @@ type configParams struct {
 	ClientID            string
 	ClientSecret        string
 	AdminAllowLocalhost bool
+	SSHPrivateKeyFile   string
+	SSHKnownHostsFile   string
+	SSHInsecureSkipHost bool
 }
 
 func generateConfig(p configParams) string {
@@ -696,6 +710,14 @@ func generateConfig(p configParams) string {
 		dockerHostLine = fmt.Sprintf("    host: %q\n", p.DockerHost)
 	}
 
+	var sshLines string
+	if p.SSHPrivateKeyFile != "" {
+		sshLines = fmt.Sprintf("    sshPrivateKeyFile: %q\n    sshInsecureSkipHostCheck: %t\n", p.SSHPrivateKeyFile, p.SSHInsecureSkipHost)
+		if p.SSHKnownHostsFile != "" {
+			sshLines += fmt.Sprintf("    sshKnownHostsFile: %q\n", p.SSHKnownHostsFile)
+		}
+	}
+
 	adminAllowLocalhostLine := ""
 	if p.AdminAllowLocalhost {
 		adminAllowLocalhostLine = "adminAllowLocalhost: true\n"
@@ -704,7 +726,7 @@ func generateConfig(p configParams) string {
 	return fmt.Sprintf(`defaultProxyProvider: default
 docker:
   local:
-%s    targetHostname: %q
+%s%s    targetHostname: %q
 tailscale:
   providers:
     default:
@@ -719,6 +741,7 @@ http:
 proxyAccessLog: true
 `,
 		dockerHostLine,
+		sshLines,
 		p.TargetHostname,
 		authKeyLine,
 		tagsLine,
@@ -834,6 +857,23 @@ func getFreePort() int {
 	}
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
+}
+
+// filteredEnviron returns the current process environment with all
+// TSDPROXY_TAILSCALE_* variables removed. This prevents the config
+// loader's LoadTailscaleEnvOverrides() from injecting OAuth credentials
+// into test instances that intend to use static auth keys only. Tests
+// that need OAuth must embed clientId/clientSecret directly in their
+// YAML config.
+func filteredEnviron() []string {
+	filtered := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "TSDPROXY_TAILSCALE_") {
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	return filtered
 }
 
 type testLogWriter struct {

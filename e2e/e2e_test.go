@@ -11,17 +11,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	tailscale "tailscale.com/client/tailscale/v2"
 )
 
 const (
-	envAuthKey      = "TS_AUTHKEY"
-	envAuthKeyFile  = "TS_AUTHKEY_FILE"
-	envClientID     = "TS_CLIENT_ID"
-	envClientSecret = "TS_CLIENT_SECRET"
+	envAuthKey      = "TSDPROXY_E2E_AUTHKEY"
+	envAuthKeyFile  = "TSDPROXY_E2E_AUTHKEY_FILE"
+	envClientID     = "TSDPROXY_E2E_CLIENTID"
+	envClientSecret = "TSDPROXY_E2E_CLIENTSECRET"
 	envTags         = "TS_TAGS"
+	envCFApiToken   = "CF_API_TOKEN"
+	envCFDomain     = "CF_DOMAIN"
 
 	proxyStartupTimeout    = 120 * time.Second
 	proxyReadyPollInterval = 1 * time.Second
@@ -43,6 +48,8 @@ var (
 	tsTags          string
 	tsdproxyBinPath string
 	projectRoot     string
+	cfApiToken      string
+	cfDomain        string
 )
 
 func TestMain(m *testing.M) {
@@ -57,6 +64,8 @@ func TestMain(m *testing.M) {
 	if tsTags == "" {
 		tsTags = "tag:tsdproxy-e2e"
 	}
+	cfApiToken = os.Getenv(envCFApiToken)
+	cfDomain = os.Getenv(envCFDomain)
 
 	os.RemoveAll(e2eBaseDir)
 	os.MkdirAll(e2eBaseDir, 0o755)
@@ -78,7 +87,7 @@ func TestMain(m *testing.M) {
 
 	buildCmd := exec.CommandContext(ctx, "go", "build",
 		"-o", tsdproxyBinPath,
-		"./cmd/server/main.go",
+		"./cmd/server/",
 	)
 	buildCmd.Dir = projectRoot
 	buildCmd.Stdout = os.Stdout
@@ -90,11 +99,16 @@ func TestMain(m *testing.M) {
 	}
 	fmt.Println("tsdproxy binary built successfully")
 
-	// Clean up leftover e2e test containers to avoid ACME rate-limit
-	// interference from previous runs.
 	cleanupTestContainers(ctx)
+	cleanupTailscale(ctx)
 
 	code := m.Run()
+
+	postCtx, postCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	cleanupTestContainers(postCtx)
+	cleanupTailscale(postCtx)
+	postCancel()
+
 	os.Remove(tsdproxyBinPath)
 	os.Exit(code)
 }
@@ -114,14 +128,21 @@ func requireTailscaleAuth(t *testing.T) string {
 		return strings.TrimSpace(string(data))
 	}
 
-	t.Skip("TS_AUTHKEY or TS_AUTHKEY_FILE must be set for Tailscale tests")
+	t.Skip("TSDPROXY_E2E_AUTHKEY or TSDPROXY_E2E_AUTHKEY_FILE must be set for Tailscale tests")
 	return ""
 }
 
 func requireOAuth(t *testing.T) {
 	t.Helper()
 	if tsClientID == "" || tsClientSecret == "" {
-		t.Skip("TS_CLIENT_ID and TS_CLIENT_SECRET must be set for OAuth tests")
+		t.Skip("TSDPROXY_E2E_CLIENTID and TSDPROXY_E2E_CLIENTSECRET must be set for OAuth tests")
+	}
+}
+
+func requireCloudflare(t *testing.T) {
+	t.Helper()
+	if cfApiToken == "" || cfDomain == "" {
+		t.Skip("CF_API_TOKEN and CF_DOMAIN must be set for Cloudflare DNS + ACME tests")
 	}
 }
 
@@ -156,4 +177,78 @@ func cleanupTestContainers(ctx context.Context) {
 	args := append([]string{"rm", "-f"}, ids...)
 	cleanupCmd := exec.CommandContext(ctx, "docker", args...)
 	cleanupCmd.Run()
+}
+
+func cleanupTailscale(ctx context.Context) {
+	if tsClientID == "" || tsClientSecret == "" {
+		fmt.Println("Cleanup: skipping Tailscale cleanup (no OAuth credentials)")
+		return
+	}
+
+	client := &tailscale.Client{
+		Tailnet: "-",
+		Auth: &tailscale.OAuth{
+			ClientID:     tsClientID,
+			ClientSecret: tsClientSecret,
+			Scopes:       []string{"devices:core", "services"},
+		},
+	}
+
+	tag := tsTags
+	cleanupTailscaleDevices(ctx, client, tag)
+	cleanupTailscaleServices(ctx, client, tag)
+}
+
+func cleanupTailscaleDevices(ctx context.Context, client *tailscale.Client, tag string) {
+	devices, err := client.Devices().List(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleDevices: failed to list devices: %v\n", err)
+		return
+	}
+
+	deleted := 0
+	for _, dev := range devices {
+		if !slices.Contains(dev.Tags, tag) {
+			continue
+		}
+		if err := client.Devices().Delete(ctx, dev.NodeID); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleDevices: failed to delete %s (%s): %v\n", dev.NodeID, dev.Hostname, err)
+			continue
+		}
+		deleted++
+		fmt.Printf("Cleanup: deleted Tailscale device %s (%s)\n", dev.NodeID, dev.Hostname)
+	}
+
+	if deleted > 0 {
+		fmt.Printf("Cleanup: removed %d Tailscale device(s) tagged %s\n", deleted, tag)
+	} else {
+		fmt.Printf("Cleanup: no Tailscale devices found tagged %s\n", tag)
+	}
+}
+
+func cleanupTailscaleServices(ctx context.Context, client *tailscale.Client, tag string) {
+	services, err := client.Services().List(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleServices: failed to list services: %v\n", err)
+		return
+	}
+
+	deleted := 0
+	for _, svc := range services {
+		if !slices.Contains(svc.Tags, tag) {
+			continue
+		}
+		if err := client.Services().Delete(ctx, svc.Name); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: cleanupTailscaleServices: failed to delete %s: %v\n", svc.Name, err)
+			continue
+		}
+		deleted++
+		fmt.Printf("Cleanup: deleted Tailscale service %s\n", svc.Name)
+	}
+
+	if deleted > 0 {
+		fmt.Printf("Cleanup: removed %d Tailscale service(s) tagged %s\n", deleted, tag)
+	} else {
+		fmt.Printf("Cleanup: no Tailscale services found tagged %s\n", tag)
+	}
 }

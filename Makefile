@@ -1,38 +1,16 @@
 default: dev
 
 # Change these variables as necessary.
-MAIN_PACKAGE_PATH := "cmd/server/main.go"
+MAIN_PACKAGE_PATH := ./cmd/server/
 BINARY_NAME := tsdproxy
 PACKAGE := github.com/stephenrjr/tsdproxy
 
 
 
-BUILD_DATE=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
-GIT_COMMIT=$(shell git rev-parse HEAD)
 GIT_TAG=$(shell if [ -z "`git status --porcelain`" ]; then git describe --exact-match --tags HEAD 2>/dev/null; fi)
-GIT_TREE_STATE=$(shell if [ -z "`git status --porcelain`" ]; then echo "clean" ; else echo "dirty"; fi)
-GIT_REMOTE_REPO=upstream
-VERSION=$(shell if [ ! -z "${GIT_TAG}" ] ; then echo "${GIT_TAG}" | sed -e "s/^v//"  ; else cat internal/core/version.txt ; fi)
-GO_VERSION=$(shell go version | cut -d " " -f3)
+VERSION=$(shell if [ ! -z "${GIT_TAG}" ] ; then echo "${GIT_TAG}" | sed -e "s/^v//" ; else echo "dev" ; fi)
 
-
-
-# docker image publishing options
-DOCKER_PUSH=false
-IMAGE_TAG=latest
-
-override LDFLAGS +=  \
-  -X ${PACKAGE}/internal/core.AppVersion=${VERSION} \
-  -X ${PACKAGE}/internal/core.BuildDate=${BUILD_DATE} \
-  -X ${PACKAGE}/internal/core.GitCommit=${GIT_COMMIT} \
-  -X ${PACKAGE}/internal/core.GitTreeState=${GIT_TREE_STATE} \
-	-X ${PACKAGE}/internal/core.GoVersion=${GO_VERSION}
-
-
-ifneq (${GIT_TAG},)
-IMAGE_TAG=${GIT_TAG}
-override LDFLAGS += -X ${PACKAGE}/internal/core.GitTag=${GIT_TAG}
-endif
+override LDFLAGS += -X ${PACKAGE}/internal/core.version=${VERSION}
 
 
 
@@ -71,7 +49,7 @@ test/cover:
 	gotestsum -- -race -buildvcs -coverprofile=./tmp/coverage.out ./...
 	go tool cover -html=./tmp/coverage.out
 
-## test/e2e: run end-to-end tests (requires Docker and TS_AUTHKEY)
+## test/e2e: run end-to-end tests (requires Docker and TSDPROXY_E2E_AUTHKEY)
 .PHONY: test/e2e
 test/e2e:
 	cd e2e && gotestsum -f testname -- -v -tags=e2e -timeout=0 -count=1 ./...
@@ -97,13 +75,8 @@ run: build/all
 
 ## dev: start dev server
 .PHONY: dev
-dev: download-icons docker_start
+dev: docker_start
 	make -j2 assets server_start
-
-## download-icons: download icon sets to web/public/icons/
-.PHONY: download-icons
-download-icons:
-	bun run --cwd web download-icons
 
 ## bootstrap: full build from clean checkout (for CI and first-time setup)
 .PHONY: bootstrap
@@ -114,7 +87,7 @@ bootstrap:
 ## ci: clean-checkout verification — deletes all generated assets and rebuilds from scratch
 .PHONY: ci
 ci:
-	rm -rf web/dist web/public/icons/si web/public/icons/mdi web/public/icons/sh web/scripts/.download-cache.json
+	rm -rf web/dist
 	bun run --cwd web build
 	templ generate
 	gotestsum -- -race ./...

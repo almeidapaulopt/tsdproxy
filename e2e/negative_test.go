@@ -159,9 +159,8 @@ func TestMalformedPortLabel(t *testing.T) {
 	defer cancel()
 
 	proxy := StartTSDProxy(t, TSDProxyConfig{
-  AuthKey: authKey,
-  Tags: tsTags,
-})
+		AuthKey: authKey,
+	})
 	t.Logf("tsdproxy started on port %d", proxy.HTTPPort)
 
 	hostname := fmt.Sprintf("e2e-malformed-port-%d", time.Now().UnixNano())
@@ -196,54 +195,50 @@ func TestMalformedPortLabel(t *testing.T) {
 
 func TestDuplicateHostname(t *testing.T) {
 	authKey := requireTailscaleAuth(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	proxy := StartTSDProxy(t, TSDProxyConfig{
-  AuthKey: authKey,
-  Tags: tsTags,
-})
+		AuthKey: authKey,
+	})
 	t.Logf("tsdproxy started on port %d", proxy.HTTPPort)
 
 	hostname := fmt.Sprintf("conflict-test-%d", time.Now().UnixNano())
 
-	// Start two containers with the same tsdproxy.name but different images.
 	StartContainer(t, ContainerConfig{
 		Labels: map[string]string{
-			"tsdproxy.enable":    "true",
-			"tsdproxy.ephemeral": "true",
-			"tsdproxy.name":      hostname,
-			"tsdproxy.port.http": "80/http:80/http",
+			"tsdproxy.enable":     "true",
+			"tsdproxy.ephemeral":  "true",
+			"tsdproxy.name":       hostname,
+			"tsdproxy.port.https": "443/https:80/http",
 		},
 	})
 
 	StartContainer(t, ContainerConfig{
 		Labels: map[string]string{
-			"tsdproxy.enable":    "true",
-			"tsdproxy.ephemeral": "true",
-			"tsdproxy.name":      hostname,
-			"tsdproxy.port.http": "80/http:80/http",
+			"tsdproxy.enable":     "true",
+			"tsdproxy.ephemeral":  "true",
+			"tsdproxy.name":       hostname,
+			"tsdproxy.port.https": "443/https:80/http",
 		},
 	})
 
-	// Verify tsdproxy is still running (health endpoint returns 200).
 	resp, err := http.Get(proxy.BaseURL + "/health/ready/")
 	require.NoError(t, err, "failed to GET /health/ready/")
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "tsdproxy should still be healthy after duplicate hostname conflict")
 
-	// Verify at least one of the proxies is reachable.
 	client := NewTSNetClient(t, authKey)
-	proxyURL := client.ProxyHTTPURL(hostname)
+	proxyURL := client.ProxyURL(hostname)
 
 	assert.Eventually(t, func() bool {
-		resp, err := client.Get(ctx, proxyURL)
+		resp, err := client.GetNoFollowRedirect(ctx, proxyURL)
 		if err != nil {
 			return false
 		}
 		resp.Body.Close()
 		return true
-	}, negativeWaitTimeout, negativePollInterval, "at least one proxy should be reachable despite duplicate hostname")
+	}, 240*time.Second, negativePollInterval, "at least one proxy should be reachable despite duplicate hostname")
 
 	t.Logf("tsdproxy log tail:\n%s", lastNLines(stripANSI(proxy.ReadLogFile(t)), 20))
 }

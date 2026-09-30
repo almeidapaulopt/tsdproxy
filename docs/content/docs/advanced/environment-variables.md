@@ -10,14 +10,14 @@ This page documents every environment variable that TSDProxy recognizes, includi
 
 | Variable | Purpose | Default | Set By |
 |----------|---------|---------|--------|
-| `TSDPROXY_HTTP_PORT` | HTTP server port for the healthcheck binary | Value of `http.port` in config (defaults to `8080`) | Server binary (automatic) |
+| `TSDPROXY_HTTP_PORT` | HTTP server port for the healthcheck subcommand | Value of `http.port` in config (defaults to `8080`) | Server binary (automatic) |
 | `DOCKER_HOST` | Docker daemon address (standard Docker variable) | `unix:///var/run/docker.sock` | User / Docker runtime |
 
 ### `TSDPROXY_HTTP_PORT`
 
-Set automatically by the server binary on startup. It reads the `http.port` value from your config file and exports it so the healthcheck binary can reach the readiness endpoint at `http://127.0.0.1:<port>/health/ready/`.
+Set automatically by the server binary on startup. It reads the `http.port` value from your config file and exports it so the `healthcheck` subcommand can reach the readiness endpoint at `http://127.0.0.1:<port>/health/ready/`.
 
-You should not need to set this yourself. If the variable is empty (for example, when running the healthcheck binary standalone), it falls back to `8080`.
+You should not need to set this yourself. If the variable is empty (for example, when running `tsdproxyd healthcheck` standalone), it falls back to `8080`.
 
 ### `DOCKER_HOST`
 
@@ -57,4 +57,4 @@ services:
     restart: unless-stopped
 ```
 
-`TSDPROXY_HTTP_PORT` does not appear in this example because the server binary sets it automatically. It only needs to be present in the environment that the healthcheck binary runs in, which Docker handles through the same container environment.
+`TSDPROXY_HTTP_PORT` does not appear in this example because the server binary sets it automatically. It only needs to be present in the environment that the healthcheck subcommand runs in, which Docker handles through the same container environment.

@@ -29,6 +29,7 @@ type (
 		proxies       configProxyList
 		eventsChan    chan targetproviders.TargetEvent
 		errChan       chan error
+		ctx           context.Context
 		name          string
 		config        config.ListTargetProviderConfig
 		mtx           sync.RWMutex
@@ -37,9 +38,12 @@ type (
 	configProxyList map[string]proxyConfig
 
 	proxyConfig struct {
-		Dashboard       model.Dashboard `validate:"dive" yaml:"dashboard"`
 		Ports           map[string]port `yaml:"ports"`
 		ProxyProvider   string          `yaml:"proxyProvider"`
+		Domain          string          `yaml:"domain"`
+		DNSProvider     string          `yaml:"dnsProvider"`
+		TLSProvider     string          `yaml:"tlsProvider"`
+		Dashboard       model.Dashboard `validate:"dive" yaml:"dashboard"`
 		Tailscale       model.Tailscale `yaml:"tailscale"`
 		IdentityHeaders bool            `default:"true" validate:"boolean" yaml:"identityHeaders"`
 	}
@@ -86,7 +90,9 @@ type (
 var _ targetproviders.TargetProvider = (*Client)(nil)
 
 func (s *proxyConfig) UnmarshalYAML(unmarshal func(any) error) error {
-	_ = defaults.Set(s)
+	if err := defaults.Set(s); err != nil {
+		return fmt.Errorf("error setting defaults: %w", err)
+	}
 
 	type plain proxyConfig
 	if err := unmarshal((*plain)(s)); err != nil {
@@ -114,8 +120,6 @@ func New(log zerolog.Logger, name string, provider *config.ListTargetProviderCon
 		name:          name,
 		configProxies: proxiesList,
 		proxies:       make(map[string]proxyConfig),
-		eventsChan:    make(chan targetproviders.TargetEvent),
-		errChan:       make(chan error),
 		config:        *provider,
 	}
 
@@ -131,8 +135,11 @@ func New(log zerolog.Logger, name string, provider *config.ListTargetProviderCon
 func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.log.Debug().Msg("Start WatchEvents")
 
+	c.mtx.Lock()
 	c.eventsChan = eventsChan
 	c.errChan = errChan
+	c.ctx = ctx
+	c.mtx.Unlock()
 
 	c.file.OnChange(c.onFileChange)
 
@@ -145,7 +152,14 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	}
 
 	go func() {
+		c.mtx.RLock()
+		names := make([]string, 0, len(c.configProxies))
 		for k := range c.configProxies {
+			names = append(names, k)
+		}
+		c.mtx.RUnlock()
+
+		for _, k := range names {
 			select {
 			case <-ctx.Done():
 				return
@@ -163,17 +177,23 @@ func (c *Client) GetDefaultProxyProviderName() string {
 	return c.config.DefaultProxyProvider
 }
 
-func (c *Client) trySendEvent(id string, action targetproviders.ActionType) bool {
+func (c *Client) trySendEvent(ctx context.Context, id string, action targetproviders.ActionType) bool {
+	c.mtx.RLock()
+	eventsChan := c.eventsChan
+	c.mtx.RUnlock()
+
+	if eventsChan == nil {
+		return false
+	}
 	select {
-	case c.eventsChan <- targetproviders.TargetEvent{
+	case <-ctx.Done():
+		return false
+	case eventsChan <- targetproviders.TargetEvent{
 		ID:             id,
 		TargetProvider: c,
 		Action:         action,
 	}:
 		return true
-	default:
-		c.log.Warn().Str("name", id).Int("action", int(action)).Msg("dropped event: channel full")
-		return false
 	}
 }
 
@@ -183,10 +203,15 @@ func (c *Client) Close() {
 	for name := range c.proxies {
 		names = append(names, name)
 	}
+	ctx := c.ctx
 	c.mtx.RUnlock()
 
+	if c.file != nil {
+		c.file.Close()
+	}
+
 	for _, name := range names {
-		c.trySendEvent(name, targetproviders.ActionStopProxy)
+		c.trySendEvent(ctx, name, targetproviders.ActionStopProxy)
 	}
 }
 
@@ -196,7 +221,7 @@ func (c *Client) AddTarget(id string) (*model.Config, error) {
 	c.mtx.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("target %s not found", id)
+		return nil, fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 
 	pcfg, err := c.newProxyConfig(id, proxy)
@@ -212,7 +237,7 @@ func (c *Client) DeleteProxy(id string) error {
 	defer c.mtx.Unlock()
 
 	if _, ok := c.proxies[id]; !ok {
-		return fmt.Errorf("target %s not found", id)
+		return fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 
 	delete(c.proxies, id)
@@ -231,7 +256,7 @@ func (c *Client) ReResolve(id string) (*model.Config, error) {
 	c.mtx.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("target %s not found", id)
+		return nil, fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 
 	return c.buildConfig(id, proxy)
@@ -260,8 +285,14 @@ func (c *Client) buildConfig(id string, p proxyConfig) (*model.Config, error) {
 	pcfg.HealthCheckInterval = c.config.HealthCheckInterval
 	pcfg.HealthCheckFailures = c.config.HealthCheckFailures
 	pcfg.HealthCheckCooldown = c.config.HealthCheckCooldown
+	pcfg.RateLimitEnabled = c.config.RateLimitEnabled
+	pcfg.RateLimitRPS = c.config.RateLimitRPS
+	pcfg.RateLimitBurst = c.config.RateLimitBurst
 	pcfg.Ports = c.getPorts(p.Ports)
 	pcfg.Dashboard = p.Dashboard
+	pcfg.Domain = p.Domain
+	pcfg.DNSProvider = p.DNSProvider
+	pcfg.TLSProvider = p.TLSProvider
 
 	return pcfg, nil
 }
@@ -316,15 +347,15 @@ func (c *Client) onFileChange(_ fsnotify.Event) {
 	c.mtx.Unlock()
 
 	for _, name := range stops {
-		c.trySendEvent(name, targetproviders.ActionStopProxy)
+		c.trySendEvent(c.ctx, name, targetproviders.ActionStopProxy)
 	}
 
 	for _, name := range starts {
-		c.trySendEvent(name, targetproviders.ActionStartProxy)
+		c.trySendEvent(c.ctx, name, targetproviders.ActionStartProxy)
 	}
 
 	for _, name := range restarts {
-		c.trySendEvent(name, targetproviders.ActionRestartProxy)
+		c.trySendEvent(c.ctx, name, targetproviders.ActionRestartProxy)
 	}
 }
 
@@ -341,64 +372,72 @@ func (c *Client) getPorts(l map[string]port) model.PortConfigList {
 	ports := make(model.PortConfigList)
 	for k, v := range l {
 		if model.IsPortRangeShortLabel(k) {
-			expanded, err := model.ExpandPortRangeShortLabel(k)
-			if err != nil {
-				c.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
-				continue
-			}
-
-			for rangeKey, portCfg := range expanded {
-				portCfg.IsRedirect = v.IsRedirect
-
-				for _, target := range v.Targets {
-					targetURL, err := url.Parse(target)
-					if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
-						c.log.Error().Err(err).Str("port", k).Str("targetUrl", target).Msg("Invalid target URL")
-						continue
-					}
-					portCfg.AddTarget(targetURL)
-				}
-
-				if len(portCfg.GetTargets()) == 0 {
-					c.log.Error().Str("port", k).Msg("no targets found for range port")
-					continue
-				}
-
-				portCfg.TLSValidate = v.TLSValidate
-				portCfg.Tailscale = v.Tailscale
-
-				expandedKey := k + "." + rangeKey
-				ports[expandedKey] = portCfg
-			}
+			c.processPortRange(ports, k, v)
 			continue
 		}
 
-		port, err := model.NewPortShortLabel(k)
-		if err != nil {
-			c.log.Error().Err(err).Str("port", k).Msg("error creating port config")
-		}
-
-		port.IsRedirect = v.IsRedirect
-
-		for _, target := range v.Targets {
-			targetURL, err := url.Parse(target)
-			if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
-				c.log.Error().Err(err).Str("port", k).Str("targetUrl", target).Msg("Invalid target URL")
-				continue
-			}
-
-			port.AddTarget(targetURL)
-		}
-
-		if len(port.GetTargets()) == 0 {
-			c.log.Error().Str("port", k).Msg("no targets found for port")
-			continue
-		}
-
-		port.TLSValidate = v.TLSValidate
-		port.Tailscale = v.Tailscale
-
-		ports[k] = port
+		c.processSinglePort(ports, k, v)
 	}
 	return ports
+}
+
+func (c *Client) processPortRange(ports model.PortConfigList, k string, v port) {
+	expanded, err := model.ExpandPortRangeShortLabel(k)
+	if err != nil {
+		c.log.Error().Err(err).Str("port", k).Msg("error expanding port range")
+		return
+	}
+
+	for rangeKey, portCfg := range expanded {
+		cfg := portCfg
+		cfg.IsRedirect = v.IsRedirect
+
+		if !c.parseAndAddTargets(&cfg, v.Targets, k, "no targets found for range port") {
+			continue
+		}
+
+		cfg.TLSValidate = v.TLSValidate
+		cfg.Tailscale = v.Tailscale
+
+		expandedKey := k + "." + rangeKey
+		ports[expandedKey] = cfg
+	}
+}
+
+func (c *Client) processSinglePort(ports model.PortConfigList, k string, v port) {
+	port, err := model.NewPortShortLabel(k)
+	if err != nil {
+		c.log.Error().Err(err).Str("port", k).Msg("error creating port config")
+		return
+	}
+
+	port.IsRedirect = v.IsRedirect
+
+	if !c.parseAndAddTargets(&port, v.Targets, k, "no targets found for port") {
+		return
+	}
+
+	port.TLSValidate = v.TLSValidate
+	port.Tailscale = v.Tailscale
+
+	ports[k] = port
+}
+
+func (c *Client) parseAndAddTargets(cfg *model.PortConfig, targets []string, portKey string, noTargetsMsg string) bool {
+	for _, target := range targets {
+		targetURL, err := url.Parse(target)
+		if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
+			c.log.Error().Err(err).Str("port", portKey).Str("targetUrl", target).Msg("Invalid target URL")
+			continue
+		}
+
+		cfg.AddTarget(targetURL)
+	}
+
+	if len(cfg.GetTargets()) == 0 {
+		c.log.Error().Str("port", portKey).Msg(noTargetsMsg)
+		return false
+	}
+
+	return true
 }

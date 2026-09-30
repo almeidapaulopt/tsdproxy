@@ -199,7 +199,7 @@ func TestCustomTags(t *testing.T) {
 			"tsdproxy.enable":    "true",
 			"tsdproxy.ephemeral": "true",
 			"tsdproxy.name":      hostname,
-			"tsdproxy.tags":      "tag:e2e-test",
+			"tsdproxy.tags":      "tag:tsdproxy-e2e",
 			"tsdproxy.port.http": "80/http:80/http",
 		},
 	})
@@ -212,10 +212,10 @@ func TestCustomTags(t *testing.T) {
 
 	peer := requirePeerByDNSName(t, ctx, client, hostname)
 	if peer.Tags == nil {
-		t.Fatalf("peer %s has nil Tags — the auth key must have tag:e2e-test in the ACL policy. "+
+		t.Fatalf("peer %s has nil Tags — the auth key must have tag:tsdproxy-e2e in the ACL policy. "+
 			"Peer capabilities: %v", hostname, peer.Capabilities)
 	}
-	assert.Contains(t, peer.Tags.AsSlice(), "tag:e2e-test", "expected tag:e2e-test on node %s", hostname)
+	assert.Contains(t, peer.Tags.AsSlice(), "tag:tsdproxy-e2e", "expected tag:tsdproxy-e2e on node %s", hostname)
 }
 
 // TestDashboardVisibleFalse verifies that a container with

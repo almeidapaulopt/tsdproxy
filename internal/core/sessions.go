@@ -10,17 +10,20 @@ import (
 	"github.com/google/uuid"
 )
 
-const sessionMaxAge = 86400
+const (
+	sessionCookieName = "session_id"
+	sessionMaxAge     = 86400
+)
 
 func SessionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("session_id")
+		cookie, err := r.Cookie(sessionCookieName)
 		var sessionID string
 
 		if errors.Is(err, http.ErrNoCookie) {
 			sessionID = uuid.New().String()
 			http.SetCookie(w, &http.Cookie{
-				Name:     "session_id",
+				Name:     sessionCookieName,
 				Value:    sessionID,
 				Path:     "/",
 				MaxAge:   sessionMaxAge,
@@ -33,7 +36,7 @@ func SessionMiddleware(next http.Handler) http.Handler {
 			if _, parseErr := uuid.Parse(sessionID); parseErr != nil {
 				sessionID = uuid.New().String()
 				http.SetCookie(w, &http.Cookie{
-					Name:     "session_id",
+					Name:     sessionCookieName,
 					Value:    sessionID,
 					Path:     "/",
 					MaxAge:   sessionMaxAge,

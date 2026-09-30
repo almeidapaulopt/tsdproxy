@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,45 +20,81 @@ import (
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/docker/sshtunnel"
+	"github.com/almeidapaulopt/tsdproxy/web"
 )
+
+const containerInspectTimeout = 30 * time.Second
 
 type (
 	// Client struct implements TargetProvider
 	Client struct {
 		log                      zerolog.Logger
 		defaultBridgeAddress     netip.Addr
-		docker                   *client.Client
+		docker                   APIClient
+		tunnel                   *sshtunnel.Tunnel
 		containers               map[string]*container
+		assets                   *web.Assets
+		name                     string
 		defaultProxyProvider     string
 		defaultTargetHostname    string
 		host                     string
-		name                     string
-		healthCheckEnabled       bool
 		healthCheckInterval      int
 		healthCheckFailures      int
 		healthCheckCooldown      int
+		rateLimitRPS             int
+		rateLimitBurst           int
 		mutex                    sync.Mutex
+		healthCheckEnabled       bool
 		tryDockerInternalNetwork bool
 		autoRestart              bool
+		proxyAccessLogDefault    bool
+		rateLimitEnabled         bool
+		allowContainerFunnel     bool
+		allowTLSValidateDisable  bool
 	}
 )
 
 var _ targetproviders.TargetProvider = (*Client)(nil)
 
 // New function returns a new Docker TargetProvider
-func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig) (*Client, error) {
+func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig, proxyAccessLogDefault bool, assets *web.Assets) (*Client, error) {
 	newlog := log.With().Str("docker", name).Logger()
 	newlog.Trace().Msg("New Docker TargetProvider")
 	defer newlog.Trace().Msg("End New Docker TargetProvider")
 
-	docker, err := client.New(client.WithHost(provider.Host))
-	if err != nil {
-		log.Error().Err(err).Msg("Error creating Docker client")
-		return nil, err
+	var docker *client.Client
+	var tunnel *sshtunnel.Tunnel
+
+	if strings.HasPrefix(provider.Host, "ssh://") {
+		var err error
+		tunnel, err = sshtunnel.New(sshtunnel.Config{
+			Host:                  provider.Host,
+			PrivateKeyFile:        provider.SSHPrivateKeyFile,
+			PrivateKeyPassphrase:  provider.SSHPrivateKeyPassphrase,
+			KnownHostsFile:        provider.SSHKnownHostsFile,
+			InsecureSkipHostCheck: provider.SSHInsecureSkipHostCheck,
+			AgentSocket:           provider.SSHAgentSocket,
+		}, newlog)
+		if err != nil {
+			return nil, fmt.Errorf("error creating SSH tunnel: %w", err)
+		}
+		docker, err = client.New(client.WithDialContext(tunnel.DialContext))
+		if err != nil {
+			tunnel.Close()
+			return nil, fmt.Errorf("error creating Docker client: %w", err)
+		}
+	} else {
+		var err error
+		docker, err = client.New(client.WithHost(provider.Host))
+		if err != nil {
+			return nil, fmt.Errorf("error creating Docker client: %w", err)
+		}
 	}
 
 	c := &Client{
 		docker:                   docker,
+		tunnel:                   tunnel,
 		log:                      newlog,
 		name:                     name,
 		host:                     provider.Host,
@@ -71,10 +107,16 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		healthCheckFailures:      provider.HealthCheckFailures,
 		healthCheckCooldown:      provider.HealthCheckCooldown,
 		containers:               make(map[string]*container),
+		proxyAccessLogDefault:    proxyAccessLogDefault,
+		assets:                   assets,
+		rateLimitEnabled:         provider.RateLimitEnabled,
+		rateLimitRPS:             provider.RateLimitRPS,
+		rateLimitBurst:           provider.RateLimitBurst,
+		allowContainerFunnel:     provider.AllowContainerFunnel,
+		allowTLSValidateDisable:  provider.AllowTLSValidateDisable,
 	}
 
 	c.setDefaultBridgeAddress()
-	// c.setIsTsdproxyRunningHere()
 
 	return c, nil
 }
@@ -86,6 +128,9 @@ func (c *Client) Close() {
 
 	if c.docker != nil {
 		c.docker.Close()
+	}
+	if c.tunnel != nil {
+		c.tunnel.Close()
 	}
 }
 
@@ -117,7 +162,7 @@ func (c *Client) ReResolve(id string) (*model.Config, error) {
 }
 
 func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), containerInspectTimeout)
 	defer cancel()
 
 	dcontainerResult, err := c.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
@@ -142,15 +187,19 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 	}
 
 	ctn := newContainer(c.log, dcontainer, dservice, c.tryDockerInternalNetwork,
-		withContext(ctx),
 		withDefaultBridgeAddress(c.defaultBridgeAddress),
 		withDefaultTargetHostname(c.defaultTargetHostname),
 		withTargetProviderName(c.name),
 		withProviderAutoRestart(c.autoRestart),
 		withProviderHealthCheck(c.healthCheckEnabled, c.healthCheckInterval, c.healthCheckFailures, c.healthCheckCooldown),
+		withProviderRateLimit(c.rateLimitEnabled, c.rateLimitRPS, c.rateLimitBurst),
+		withProxyAccessLogDefault(c.proxyAccessLogDefault),
+		withAssets(c.assets),
+		withAllowContainerFunnel(c.allowContainerFunnel),
+		withAllowTLSValidateDisable(c.allowTLSValidateDisable),
 	)
 
-	pcfg, err := ctn.newProxyConfig()
+	pcfg, err := ctn.newProxyConfig(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error getting proxy config: %w", err)
 	}
@@ -166,7 +215,7 @@ func (c *Client) DeleteProxy(id string) error {
 	c.mutex.Lock()
 	if _, ok := c.containers[id]; !ok {
 		c.mutex.Unlock()
-		return fmt.Errorf("container %s not found", id)
+		return fmt.Errorf("%w: %s", targetproviders.ErrTargetNotFound, id)
 	}
 	delete(c.containers, id)
 	c.mutex.Unlock()
@@ -189,8 +238,7 @@ func enabledContainerFilter() client.Filters {
 func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
 	c.log.Trace().Msg("WatchEvents")
 	defer c.log.Trace().Msg("End WatchEvents")
-	// Filter Start/stop events for containers
-	//
+
 	eventsFilter := enabledContainerFilter()
 	eventsFilter.Add("type", string(devents.ContainerEventType))
 	eventsFilter.Add("event", string(devents.ActionDie))
@@ -207,30 +255,24 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 				return
 			case devent, ok := <-evRes.Messages:
 				if !ok {
+					c.signalDisconnect(ctx, errChan)
 					return
 				}
-				switch devent.Action {
-				case devents.ActionStart:
-					select {
-					case <-ctx.Done():
-						return
-					case eventsChan <- c.getStartEvent(devent.Actor.ID):
-					}
-				case devents.ActionDie:
-					select {
-					case <-ctx.Done():
-						return
-					case eventsChan <- c.getStopEvent(devent.Actor.ID):
-					}
+				if !c.handleDockerEvent(ctx, devent, eventsChan) {
+					return
 				}
-
 			case err, ok := <-evRes.Err:
-				if ok && !errors.Is(err, context.Canceled) && !errors.Is(err, io.EOF) {
-					select {
-					case <-ctx.Done():
-						return
-					case errChan <- err:
-					}
+				if !ok {
+					c.signalDisconnect(ctx, errChan)
+					return
+				}
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case errChan <- fmt.Errorf("docker event stream error: %w", err):
 				}
 				return
 			}
@@ -238,6 +280,40 @@ func (c *Client) WatchEvents(ctx context.Context, eventsChan chan targetprovider
 	}()
 
 	go c.startAllProxies(ctx, eventsChan, errChan)
+}
+
+// signalDisconnect sends a disconnect error to errChan if the context is still
+// active. This allows the proxymanager's reconnect loop to re-establish the
+// event stream after the Docker daemon closes the connection (EOF, daemon
+// restart, network blip, etc.).
+func (c *Client) signalDisconnect(ctx context.Context, errChan chan error) {
+	if ctx.Err() != nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+	case errChan <- fmt.Errorf("%w: docker event stream disconnected", targetproviders.ErrStreamDisconnected):
+	}
+}
+
+func (c *Client) handleDockerEvent(ctx context.Context, devent devents.Message, eventsChan chan targetproviders.TargetEvent) bool {
+	var event targetproviders.TargetEvent
+
+	switch devent.Action {
+	case devents.ActionStart:
+		event = c.getStartEvent(devent.Actor.ID)
+	case devents.ActionDie:
+		event = c.getStopEvent(devent.Actor.ID)
+	default:
+		return true
+	}
+
+	select {
+	case <-ctx.Done():
+		return false
+	case eventsChan <- event:
+		return true
+	}
 }
 
 func (c *Client) startAllProxies(ctx context.Context, eventsChan chan targetproviders.TargetEvent, errChan chan error) {
@@ -308,14 +384,17 @@ func (c *Client) setDefaultBridgeAddress() {
 	c.log.Trace().Msg("getDefaultBridgeAddress")
 	defer c.log.Trace().Msg("End getDefaultBridgeAddress")
 
-	networkListResult, err := c.docker.NetworkList(context.Background(), client.NetworkListOptions{})
+	networkCtx, networkCancel := context.WithTimeout(context.Background(), containerInspectTimeout)
+	defer networkCancel()
+
+	networkListResult, err := c.docker.NetworkList(networkCtx, client.NetworkListOptions{})
 	if err != nil {
 		c.log.Error().Err(err).Msg("Error listing Docker networks")
 		return
 	}
 
 	for _, network := range networkListResult.Items {
-		if network.Options["com.docker.network.bridge.default_bridge"] == "true" {
+		if network.Options["com.docker.network.bridge.default_bridge"] == "true" { //nolint:goconst // Docker API string value
 			if len(network.IPAM.Config) == 0 {
 				c.log.Warn().Str("network", network.Name).Msg("default bridge network has no IPAM config")
 				continue

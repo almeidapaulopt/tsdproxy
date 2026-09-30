@@ -4,14 +4,20 @@
 package docker
 
 import (
+	"context"
 	"net/netip"
 	"net/url"
+	"os"
 	"testing"
 
 	ctypes "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/rs/zerolog"
+
+	"github.com/almeidapaulopt/tsdproxy/web"
 )
+
+var testAssets = web.NewAssets("", os.TempDir(), "sh", false)
 
 func newTestContainer(targetHostname string, containerIPs []netip.Addr, ports map[string]string) *container {
 	return &container{
@@ -24,6 +30,7 @@ func newTestContainer(targetHostname string, containerIPs []netip.Addr, ports ma
 		ports:                 ports,
 		networkMode:           ctypes.NetworkMode("bridge"),
 		autodetect:            false,
+		assets:                testAssets,
 	}
 }
 
@@ -33,7 +40,7 @@ func TestGetTargetURL_HTTPWithPublishedPort(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("http://0.0.0.0:3000")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -52,7 +59,7 @@ func TestGetTargetURL_TCPWithPublishedPort(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -70,7 +77,7 @@ func TestGetTargetURL_TCPFallbackUsesContainerIP(t *testing.T) {
 	c := newTestContainer("", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,15 +127,94 @@ func TestResolvePublished_WithPublishedPort(t *testing.T) {
 }
 
 func TestResolvePublished_FallbackToInternalPort(t *testing.T) {
-	c := newTestContainer("host.docker.internal", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
+	// The internal-port fallback is only valid for host-network containers,
+	// where the container's port is directly on the Docker host.
+	c := &container{
+		log:                   zerolog.Nop(),
+		defaultTargetHostname: "host.docker.internal",
+		networkMode:           ctypes.NetworkMode("host"),
+	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:80")
 	u, ok := c.resolvePublished(inputURL, "", "80")
 	if !ok {
-		t.Fatal("expected resolvePublished to succeed with internal port fallback")
+		t.Fatal("expected resolvePublished to succeed with internal port fallback for host-network")
 	}
 	if u.Host != "host.docker.internal:80" {
 		t.Errorf("host: got %q, want \"host.docker.internal:80\"", u.Host)
+	}
+}
+
+func TestResolvePublished_BridgeModeNoPublishedPortReturnsFalse(t *testing.T) {
+	// Bridge-mode container with no published port and no explicit port label
+	// MUST NOT fall back to defaultTargetHostname:internalPort. The internal
+	// port is only reachable on the container's own IP, not on the Docker host.
+	// Falling back here would silently route to whatever happens to listen on
+	// that port on the host (e.g. TSDProxy's own dashboard on port 8080).
+	c := newTestContainer("172.17.0.1", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
+
+	inputURL, _ := url.Parse("http://0.0.0.0:8080")
+	_, ok := c.resolvePublished(inputURL, "", "8080")
+	if ok {
+		t.Error("expected resolvePublished to fail for bridge-mode container with no published port")
+	}
+}
+
+func TestResolvePublished_BridgeModeExplicitPortLabelFallsBack(t *testing.T) {
+	// Bridge-mode container with an explicit tsdproxy.container_port label
+	// SHOULD fall back to defaultTargetHostname:internalPort. The user
+	// explicitly declared the target port, so they know it is reachable at
+	// defaultTargetHostname (e.g. a host-side service).
+	c := newTestContainer("127.0.0.1", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
+	c.labels = map[string]string{LabelContainerPort: "8080"}
+
+	inputURL, _ := url.Parse("http://0.0.0.0:8080")
+	u, ok := c.resolvePublished(inputURL, "", "8080")
+	if !ok {
+		t.Fatal("expected resolvePublished to succeed for bridge-mode container with explicit container_port label")
+	}
+	if u.Host != "127.0.0.1:8080" {
+		t.Errorf("host: got %q, want \"127.0.0.1:8080\"", u.Host)
+	}
+}
+
+func TestResolvePublished_BridgeModeExplicitPortStarLabelFallsBack(t *testing.T) {
+	c := newTestContainer("127.0.0.1", []netip.Addr{netip.MustParseAddr("172.17.0.5")}, map[string]string{})
+	c.labels = map[string]string{LabelPort + "http": "80/http:8080/http"}
+
+	inputURL, _ := url.Parse("http://0.0.0.0:8080")
+	u, ok := c.resolvePublished(inputURL, "", "8080")
+	if !ok {
+		t.Fatal("expected resolvePublished to succeed for bridge-mode container with explicit tsdproxy.port.* label")
+	}
+	if u.Host != "127.0.0.1:8080" {
+		t.Errorf("host: got %q, want \"127.0.0.1:8080\"", u.Host)
+	}
+}
+
+func TestGetTargetURL_BridgeNoPublishedPortUsesContainerIPNotGateway(t *testing.T) {
+	// Reproduces the "broken service serves dashboard" bug:
+	// A bridge-mode container with no explicit port label and no published
+	// ports. The port (8080) was auto-detected from Docker's bindings.
+	// defaultTargetHostname is the Docker gateway (172.17.0.1).
+	// TSDProxy itself listens on 8080, so 172.17.0.1:8080 is the dashboard.
+	// The resolution must use the container IP, NOT the gateway.
+	c := &container{
+		log:                   zerolog.Nop(),
+		defaultTargetHostname: "172.17.0.1",
+		ipAddress:             []netip.Addr{netip.MustParseAddr("172.17.0.5")},
+		ports:                 map[string]string{},
+		networkMode:           ctypes.NetworkMode("bridge"),
+		autodetect:            false,
+	}
+
+	inputURL, _ := url.Parse("http://0.0.0.0:8080")
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Host != "172.17.0.5:8080" {
+		t.Errorf("host: got %q, want \"172.17.0.5:8080\" (container IP, not gateway:8080 which is TSDProxy's dashboard)", result.Host)
 	}
 }
 
@@ -170,7 +256,7 @@ func TestGetTargetURL_TCPPublishedPortNoHostnameFallsBackToContainerIP(t *testin
 	})
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -373,7 +459,7 @@ func TestGetTargetURL_AcrossNetworksUsesPublishedHostname(t *testing.T) {
 		{"http", "http://0.0.0.0:22"},
 	} {
 		inputURL, _ := url.Parse(tc.url)
-		result, err := c.getTargetURL(inputURL, false)
+		result, err := c.getTargetURL(context.Background(), inputURL, false)
 		if err != nil {
 			t.Fatalf("%s: unexpected error: %v", tc.scheme, err)
 		}
@@ -394,7 +480,7 @@ func TestGetTargetURL_FallsBackToGateway(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:80")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -413,7 +499,7 @@ func TestGetTargetURL_FallsBackToContainerIP(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:80")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -435,7 +521,7 @@ func TestGetTargetURL_HostNetworkResolvesViaPublishedPath(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:8080")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -458,7 +544,7 @@ func TestGetTargetURL_HostNetworkWorksWithoutBridgeAddress(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:8080")
-	result, err := c.getTargetURL(inputURL, false)
+	result, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -480,7 +566,7 @@ func TestGetTargetURL_HostNetworkNoHostnameFails(t *testing.T) {
 	}
 
 	inputURL, _ := url.Parse("http://0.0.0.0:8080")
-	_, err := c.getTargetURL(inputURL, false)
+	_, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err == nil {
 		t.Error("expected error when host-network container has no hostname")
 	}
@@ -493,12 +579,12 @@ func TestGetTargetURL_ReResolveSamePath(t *testing.T) {
 
 	inputURL, _ := url.Parse("http://0.0.0.0:3000")
 
-	result1, err := c.getTargetURL(inputURL, false)
+	result1, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("first resolution failed: %v", err)
 	}
 
-	result2, err := c.getTargetURL(inputURL, false)
+	result2, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("second resolution failed: %v", err)
 	}
@@ -515,7 +601,7 @@ func TestGetTargetURL_ReResolveDifferentIP(t *testing.T) {
 	})
 
 	inputURL, _ := url.Parse("http://0.0.0.0:80")
-	result1, err := c1.getTargetURL(inputURL, false)
+	result1, err := c1.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("first resolution failed: %v", err)
 	}
@@ -525,7 +611,7 @@ func TestGetTargetURL_ReResolveDifferentIP(t *testing.T) {
 		"80": "8080",
 	})
 
-	result2, err := c2.getTargetURL(inputURL, false)
+	result2, err := c2.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("re-resolution failed: %v", err)
 	}
@@ -548,12 +634,12 @@ func TestGetTargetURL_TCPReResolveConsistent(t *testing.T) {
 
 	inputURL, _ := url.Parse("tcp://0.0.0.0:22")
 
-	result1, err := c.getTargetURL(inputURL, false)
+	result1, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("first TCP resolution failed: %v", err)
 	}
 
-	result2, err := c.getTargetURL(inputURL, false)
+	result2, err := c.getTargetURL(context.Background(), inputURL, false)
 	if err != nil {
 		t.Fatalf("second TCP resolution failed: %v", err)
 	}

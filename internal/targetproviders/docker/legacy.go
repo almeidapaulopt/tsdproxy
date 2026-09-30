@@ -4,12 +4,15 @@
 package docker
 
 import (
+	"context"
 	"sort"
+	"strconv"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
+	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/settings"
 )
 
-func (c *container) getLegacyPort() (model.PortConfig, error) {
+func (c *container) getLegacyPort(ctx context.Context) (model.PortConfig, error) {
 	c.log.Trace().Msg("getLegacyPort")
 	defer c.log.Trace().Msg("end getLegacyPort")
 
@@ -24,10 +27,26 @@ func (c *container) getLegacyPort() (model.PortConfig, error) {
 	if err != nil {
 		return port, err
 	}
-	port.TLSValidate = c.getLabelBool(LabelTLSValidate, model.DefaultTLSValidate)
-	port.Tailscale.Funnel = c.getLabelBool(LabelFunnel, model.DefaultTailscaleFunnel)
 
-	port, err = c.generateTargetFromFirstTarget(port)
+	legacyTLSValidate := settings.Bool(c.labels, LabelTLSValidate, model.DefaultTLSValidate)
+	if !legacyTLSValidate && !c.allowTLSValidateDisable {
+		c.log.Warn().
+			Msg("container set legacy tsdproxy.tlsvalidate=false but operator has not enabled allowTLSValidateDisable; ignoring")
+		port.TLSValidate = model.DefaultTLSValidate
+	} else {
+		port.TLSValidate = legacyTLSValidate
+	}
+
+	legacyFunnel := settings.Bool(c.labels, LabelFunnel, model.DefaultTailscaleFunnel)
+	if legacyFunnel && !c.allowContainerFunnel {
+		c.log.Warn().
+			Msg("container set legacy tsdproxy.funnel=true but operator has not enabled allowContainerFunnel; ignoring")
+		port.Tailscale.Funnel = false
+	} else {
+		port.Tailscale.Funnel = legacyFunnel
+	}
+
+	port, err = c.generateTargetFromFirstTarget(ctx, port)
 	if err != nil {
 		return port, err
 	}
@@ -47,7 +66,17 @@ func (c *container) getInternalPortLegacy() string {
 	for k := range c.ports {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool {
+		pi, errI := strconv.Atoi(keys[i])
+		pj, errJ := strconv.Atoi(keys[j])
+		if errI == nil && errJ == nil {
+			return pi < pj
+		}
+		if errI != nil && errJ != nil {
+			return keys[i] < keys[j]
+		}
+		return errI == nil // numbers sort before non-numeric
+	})
 	if len(keys) > 0 {
 		return keys[0]
 	}

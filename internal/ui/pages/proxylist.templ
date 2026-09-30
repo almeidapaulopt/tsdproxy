@@ -30,6 +30,7 @@ type ProxyData struct {
 	URL                   string
 	Label                 string
 	ProxyStatus           model.ProxyStatus
+	ErrorMessage          string
 	Ports                 []PortEntry
 	Hostname              string
 	TargetProvider        string
@@ -42,11 +43,16 @@ type ProxyData struct {
 	AuthURL               string
 	HealthStatus          string
 	HealthLatency         string
+	HealthError           string
 	Category              string
 	StatusHistory         []StatusHistoryEntry
 	Uptime                string
 	Pinned                bool
 	IsAdmin               bool
+	Domain                string
+	DNSStatus             string
+	TLSStatus             string
+	DomainError           string
 }
 
 type StatusHistoryEntry struct {
@@ -73,6 +79,19 @@ templ infoPanel(item ProxyData) {
 		<span class="text-xs font-mono truncate flex-1 text-base-content/80">{ item.Hostname }</span>
 		@copyButton(item.Hostname)
 	</div>
+	if item.ErrorMessage != "" || item.HealthError != "" {
+		<div class="mb-4">
+			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Diagnostics</p>
+			<div class="bg-error/10 border border-error/20 rounded-lg px-3 py-2 space-y-1">
+				if item.ErrorMessage != "" {
+					<p class="text-xs text-error break-words">{ item.ErrorMessage }</p>
+				}
+				if item.HealthError != "" {
+					<p class="text-xs text-warning break-words">Health: { item.HealthError }</p>
+				}
+			</div>
+		</div>
+	}
 	<!-- Meta badges -->
 	<div class="flex flex-wrap gap-1.5 mb-4">
 		if item.TargetProvider != "" {
@@ -168,7 +187,7 @@ templ infoPanel(item ProxyData) {
 		</div>
 	}
 	<!-- Auth URL -->
-	if item.AuthURL != "" && item.ProxyStatus == model.ProxyStatusAuthenticating {
+	if item.AuthURL != "" && (item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval) {
 		<div class="mb-2">
 			<p class="text-xs font-semibold uppercase tracking-wider opacity-40 mb-1.5">Authentication</p>
 			<a href={ templ.URL(item.AuthURL) } target="_blank" rel="noopener noreferrer"
@@ -230,7 +249,7 @@ templ ActionsPanel(item ProxyData) {
 				Resume
 			</button>
 		}
-		if item.ProxyStatus == model.ProxyStatusAuthenticating {
+		if item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 			<button
 				class="btn btn-sm btn-warning w-full"
 				hx-post={ "/api/proxy/" + url.PathEscape(item.Name) + "/reauth" }
@@ -275,7 +294,7 @@ templ ProxyCardInner(item ProxyData) {
 			@components.InlineIcon("mdi/star", "size-3.5")
 		</button>
 		<figure>
-			@components.InlineIcon(item.Icon, "size-10 object-contain")
+			@components.IconImg(item.Icon, "size-10 object-contain")
 		</figure>
 	</div>
 
@@ -298,20 +317,24 @@ templ ProxyCardInner(item ProxyData) {
 			if item.ProxyStatus == model.ProxyStatusRunning && item.HealthStatus != "" {
 				<div
 					class={ "health-dot", item.HealthStatus }
-					title={ "health: " + item.HealthStatus + " " + item.HealthLatency }
+					title={ "health: " + item.HealthStatus + " " + item.HealthLatency + healthTooltip(item.HealthError) }
 				></div>
 			}
 		</div>
+		@DomainStatusBadges(item)
+		if item.ErrorMessage != "" {
+			<div class="text-xs text-error mt-0.5 line-clamp-2" title={ item.ErrorMessage }>{ item.ErrorMessage }</div>
+		}
 
 		<div class="openbtn">
-			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating {
+			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 				<a
 					href={ templ.URL(item.URL) }
 					class={ templ.KV("btn-disabled", !item.Enabled) }
 					target="_blank"
 					rel="noopener noreferrer"
 				>
-					if item.ProxyStatus == model.ProxyStatusAuthenticating {
+					if item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 						Authenticate
 					} else {
 						Open
@@ -343,7 +366,7 @@ templ ProxyModalContent(item ProxyData) {
 
 		<div class="flex items-center gap-3 mb-5">
 			<div class="size-14 rounded-xl bg-base-200/80 flex items-center justify-center shrink-0 border border-base-content/8">
-				@components.InlineIcon(item.Icon, "size-9 object-contain")
+				@components.IconImg(item.Icon, "size-9 object-contain")
 			</div>
 			<div class="min-w-0 flex-1">
 				<h3 class="text-lg font-bold leading-tight text-base-content">{ item.Label }</h3>
@@ -418,11 +441,40 @@ templ ModalStatusBadge(item ProxyData) {
 	<span id={ "modal-status-" + dom.SafeID(item.Name) } class={ "badge badge-sm shrink-0 ml-auto font-medium", statusBadgeColor(item.ProxyStatus.String()) }>{ item.ProxyStatus.String() }</span>
 }
 
+templ DomainStatusBadges(item ProxyData) {
+	if item.Domain != "" {
+		<div class="flex gap-1 mt-1">
+			<span class={ "badge badge-xs", domainBadgeColor(item.DNSStatus) }>DNS: { item.DNSStatus }</span>
+			<span class={ "badge badge-xs", domainBadgeColor(item.TLSStatus) }>TLS: { item.TLSStatus }</span>
+		</div>
+	}
+}
+
+func domainBadgeColor(status string) string {
+	switch status {
+	case "active":
+		return "badge-success"
+	case "pending":
+		return "badge-warning"
+	case "error":
+		return "badge-error"
+	default:
+		return "badge-ghost"
+	}
+}
+
 func healthValue(h string) string {
 	if h == "" {
 		return "unknown"
 	}
 	return h
+}
+
+func healthTooltip(err string) string {
+	if err == "" {
+		return ""
+	}
+	return " — " + err
 }
 
 func modalname(name string) string {
@@ -440,9 +492,13 @@ var statusStyles = map[string]statusStyle{
 	"Initializing":                 {"bg-info animate-pulse", "badge-info"},
 	"Starting":                     {"bg-info animate-pulse", "badge-info"},
 	"Error":                        {"bg-error", "badge-error"},
+	"AuthFailed":                   {"bg-error", "badge-error"},
+	"AwaitingApproval":             {"bg-warning animate-pulse", "badge-warning"},
 	"Stopped":                      {"bg-error", "badge-error"},
 	"Stopping":                     {"bg-warning", "badge-warning"},
 	"Paused":                       {"bg-warning", "badge-warning"},
+	"DeviceConflict":               {"bg-warning animate-pulse", "badge-warning"},
+	"Reconciling":                  {"bg-info animate-pulse", "badge-info"},
 }
 
 var statusStyleDefault = statusStyle{"bg-base-content/30", "badge-ghost"}
@@ -479,7 +535,7 @@ templ ProxyListRow(item ProxyData) {
 
 		<div class="row-icon">
 			<figure>
-				@components.InlineIcon(item.Icon, "size-5 object-contain")
+				@components.IconImg(item.Icon, "size-5 object-contain")
 			</figure>
 		</div>
 
@@ -527,14 +583,14 @@ templ ProxyListRow(item ProxyData) {
 			>
 				@components.InlineIcon("mdi/information-variant", "size-3.5")
 			</button>
-			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating {
+			if isBrowserURL(item.URL) || item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 				<a
 					href={ templ.URL(item.URL) }
 					class={ "row-open-btn", templ.KV("btn-disabled", !item.Enabled) }
 					target="_blank"
 					rel="noopener noreferrer"
 				>
-					if item.ProxyStatus == model.ProxyStatusAuthenticating {
+					if item.ProxyStatus == model.ProxyStatusAuthenticating || item.ProxyStatus == model.ProxyStatusAwaitingApproval {
 						Auth
 					} else {
 						Open

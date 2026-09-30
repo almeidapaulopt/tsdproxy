@@ -13,8 +13,12 @@ import (
 	"strings"
 
 	"github.com/creasty/defaults"
-	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog"
+
+	"github.com/almeidapaulopt/tsdproxy/internal/core/secretstring"
 )
+
+const defaultControlURL = "https://controlplane.tailscale.com"
 
 // ValidateKeyFilePath resolves symlinks and verifies the path points to a
 // regular file, preventing reads through symlinks, FIFOs, or device files.
@@ -43,29 +47,41 @@ func ValidateKeyFilePath(path string) (string, error) {
 }
 
 type (
-	// config stores complete configuration.
+	// Data stores complete configuration.
 	//
-	config struct {
-		Docker               map[string]*DockerTargetProviderConfig `validate:"dive,required" yaml:"docker"`
-		Lists                map[string]*ListTargetProviderConfig   `validate:"dive,required" yaml:"lists"`
-		Tailscale            TailscaleProxyProviderConfig           `yaml:"tailscale"`
-		DefaultProxyProvider string                                 `validate:"required" default:"default" yaml:"defaultProxyProvider"`
-		APIKeyFile           string                                 `yaml:"apiKeyFile,omitempty"`
-		APIKey               string                                 `yaml:"apiKey,omitempty"`
-		Telemetry            TelemetryConfig                        `yaml:"telemetry"`
-		Webhooks             []WebhookConfig                        `yaml:"webhooks"`
-		Admins               []string                               `yaml:"admins,omitempty"`
-		Log                  LogConfig                              `yaml:"log"`
-		HTTP                 HTTPConfig                             `yaml:"http"`
-		ProxyAccessLog       bool                                   `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
-		AdminAllowLocalhost  bool                                   `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
+	Data struct {
+		Lists                map[string]*ListTargetProviderConfig    `validate:"dive,required" yaml:"lists"`
+		TLSProviders         map[string]*TLSProviderConfig           `yaml:"tlsProviders"`
+		Docker               map[string]*DockerTargetProviderConfig  `validate:"dive,required" yaml:"docker"`
+		Incus                map[string]*IncusTargetProviderConfig   `validate:"dive,required" yaml:"incus"`
+		Proxmox              map[string]*ProxmoxTargetProviderConfig `validate:"dive,required" yaml:"proxmox"`
+		DNSProviders         map[string]*DNSProviderConfig           `yaml:"dnsProviders"`
+		Icons                IconsConfig                             `yaml:"icons"`
+		Tailscale            TailscaleProxyProviderConfig            `yaml:"tailscale"`
+		DefaultProxyProvider string                                  `validate:"required" default:"default" yaml:"defaultProxyProvider"`
+		APIKey               secretstring.SecretString               `yaml:"apiKey,omitempty"`
+		DefaultTLSProvider   string                                  `yaml:"defaultTLSProvider"`
+		DefaultDNSProvider   string                                  `yaml:"defaultDNSProvider"`
+		APIKeyFile           string                                  `yaml:"apiKeyFile,omitempty"`
+		Webhooks             []WebhookConfig                         `yaml:"webhooks"`
+		Log                  LogConfig                               `yaml:"log"`
+		HTTP                 HTTPConfig                              `yaml:"http"`
+		Telemetry            TelemetryConfig                         `yaml:"telemetry"`
+		Admins               []string                                `yaml:"admins,omitempty"`
+		ShutdownDrainSeconds int                                     `validate:"numeric,min=0,max=300" default:"0" yaml:"shutdownDrainSeconds"`
+		ProxyAccessLog       bool                                    `validate:"boolean" default:"true" yaml:"proxyAccessLog"`
+		AdminAllowLocalhost  bool                                    `default:"false" validate:"boolean" yaml:"adminAllowLocalhost"`
+		CleanupDNS           bool                                    `default:"true" yaml:"cleanupDNS"`
+		CleanupTLS           bool                                    `default:"true" yaml:"cleanupTLS"`
 	}
 
 	WebhookConfig struct {
-		URL     string            `yaml:"url"`
-		Headers map[string]string `yaml:"headers,omitempty"`
-		Type    string            `yaml:"type"`
-		Events  []string          `yaml:"events,omitempty"`
+		Headers             map[string]string `yaml:"headers,omitempty"`
+		URL                 string            `yaml:"url"`
+		Type                string            `yaml:"type"`
+		Template            string            `yaml:"template,omitempty"`
+		TemplateContentType string            `yaml:"templateContentType,omitempty"`
+		Events              []string          `yaml:"events,omitempty"`
 	}
 
 	// LogConfig stores logging configuration.
@@ -87,17 +103,86 @@ type (
 		Port     uint16 `validate:"numeric,min=1,max=65535,required" default:"8080" yaml:"port"`
 	}
 
+	// IconsConfig stores icon configuration.
+	IconsConfig struct {
+		Dir        string `yaml:"dir,omitempty"`
+		DefaultSet string `yaml:"defaultSet" default:"sh"`
+		Download   bool   `yaml:"download" default:"true"`
+	}
+
 	// DockerTargetProviderConfig struct stores Docker target provider configuration.
 	DockerTargetProviderConfig struct {
-		Host                     string `validate:"required,uri" default:"unix:///var/run/docker.sock" yaml:"host"`
+		SSHPrivateKeyFile        string `validate:"omitempty,file" yaml:"sshPrivateKeyFile,omitempty"`
 		TargetHostname           string `validate:"ip|hostname" default:"172.31.0.1" yaml:"targetHostname"`
 		DefaultProxyProvider     string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
-		TryDockerInternalNetwork bool   `validate:"boolean" default:"false" yaml:"tryDockerInternalNetwork"`
-		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		SSHAgentSocket           string `validate:"omitempty" yaml:"sshAgentSocket,omitempty"`
+		SSHKnownHostsFile        string `validate:"omitempty,file" yaml:"sshKnownHostsFile,omitempty"`
+		SSHPrivateKeyPassphrase  string `yaml:"sshPrivateKeyPassphrase,omitempty"`
+		Host                     string `validate:"required,uri" default:"unix:///var/run/docker.sock" yaml:"host"`
+		HealthCheckCooldown      int    `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckInterval      int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures      int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
+		RateLimitRPS             int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst           int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
 		HealthCheckEnabled       bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
-		HealthCheckInterval      int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
-		HealthCheckFailures      int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
-		HealthCheckCooldown      int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
+		AutoRestart              bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		SSHInsecureSkipHostCheck bool   `validate:"boolean" default:"false" yaml:"sshInsecureSkipHostCheck"`
+		TryDockerInternalNetwork bool   `validate:"boolean" default:"false" yaml:"tryDockerInternalNetwork"`
+		RateLimitEnabled         bool   `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
+		AllowContainerFunnel     bool   `validate:"boolean" default:"false" yaml:"allowContainerFunnel"`
+		AllowTLSValidateDisable  bool   `validate:"boolean" default:"false" yaml:"allowTlsValidateDisable"`
+	}
+
+	// IncusTargetProviderConfig struct stores Incus target provider configuration.
+	// Connection is either local (Socket) or remote HTTPS (URL); when both are
+	// empty the Incus SDK auto-detects the local unix socket. Socket and URL
+	// are mutually exclusive.
+	IncusTargetProviderConfig struct {
+		Socket                  string `validate:"omitempty" yaml:"socket,omitempty"`
+		URL                     string `validate:"omitempty,uri" yaml:"url,omitempty"`
+		TLSClientCertFile       string `validate:"omitempty,file" yaml:"tlsClientCertFile,omitempty"`
+		TLSClientKeyFile        string `validate:"omitempty,file" yaml:"tlsClientKeyFile,omitempty"`
+		TLSServerCertFile       string `validate:"omitempty,file" yaml:"tlsServerCertFile,omitempty"`
+		Project                 string `validate:"omitempty" default:"default" yaml:"project"`
+		TargetHostname          string `validate:"omitempty,ip|hostname" yaml:"targetHostname,omitempty"`
+		DefaultProxyProvider    string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
+		HealthCheckCooldown     int    `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckInterval     int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures     int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
+		RateLimitRPS            int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst          int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
+		TLSIdenticalCertificate bool   `validate:"boolean" default:"false" yaml:"tlsIdenticalCertificate"`
+		TLSInsecureSkipVerify   bool   `validate:"boolean" default:"false" yaml:"tlsInsecureSkipVerify"`
+		HealthCheckEnabled      bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		AutoRestart             bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		RateLimitEnabled        bool   `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
+		AllowInstanceFunnel     bool   `validate:"boolean" default:"false" yaml:"allowInstanceFunnel"`
+		AllowTLSValidateDisable bool   `validate:"boolean" default:"false" yaml:"allowTlsValidateDisable"`
+	}
+
+	// ProxmoxTargetProviderConfig struct stores Proxmox target provider
+	// configuration. Connection is always remote HTTPS (URL) authenticated
+	// with an API token in the format "<user>@<realm>!<tokenid>=<secret>".
+	ProxmoxTargetProviderConfig struct {
+		URL                     string                    `validate:"required,uri" yaml:"url"`
+		APIToken                secretstring.SecretString `yaml:"apiToken,omitempty"`
+		APITokenFile            string                    `validate:"omitempty,file" yaml:"apiTokenFile,omitempty"`
+		TLSCACertFile           string                    `validate:"omitempty,file" yaml:"tlsCaCertFile,omitempty"`
+		Node                    string                    `validate:"omitempty,hostname" yaml:"node,omitempty"`
+		TargetHostname          string                    `validate:"omitempty,ip|hostname" yaml:"targetHostname,omitempty"`
+		DefaultProxyProvider    string                    `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
+		PollIntervalSeconds     int                       `validate:"numeric,min=1,max=3600" default:"10" yaml:"pollIntervalSeconds"`
+		HealthCheckCooldown     int                       `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		HealthCheckInterval     int                       `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures     int                       `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
+		RateLimitRPS            int                       `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst          int                       `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
+		TLSInsecureSkipVerify   bool                      `validate:"boolean" default:"false" yaml:"tlsInsecureSkipVerify"`
+		HealthCheckEnabled      bool                      `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		AutoRestart             bool                      `validate:"boolean" default:"true" yaml:"autoRestart"`
+		RateLimitEnabled        bool                      `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
+		AllowGuestFunnel        bool                      `validate:"boolean" default:"false" yaml:"allowGuestFunnel"`
+		AllowTLSValidateDisable bool                      `validate:"boolean" default:"false" yaml:"allowTlsValidateDisable"`
 	}
 
 	// TailscaleProxyProviderConfig struct stores Tailscale ProxyProvider configuration
@@ -106,108 +191,115 @@ type (
 		DataDir   string                            `validate:"dir" default:"/data/" yaml:"dataDir"`
 	}
 
+	// AuthRetryConfig stores the authentication retry policy configuration.
+	AuthRetryConfig struct {
+		InitialBackoff string `default:"2s" yaml:"initialBackoff"`
+		MaxBackoff     string `default:"30s" yaml:"maxBackoff"`
+		MaxAttempts    int    `default:"3" validate:"min=1,max=10" yaml:"maxAttempts"`
+		Enabled        bool   `default:"true" yaml:"enabled"`
+	}
+
 	// TailscaleServerConfig struct stores Tailscale Server configuration
 	TailscaleServerConfig struct {
-		AuthKey            string `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
-		AuthKeyFile        string `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
-		ClientID           string `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
-		ClientSecret       string `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
-		Tags               string `default:"" validate:"omitempty" yaml:"tags,omitempty"`
-		ControlURL         string `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
-		PreventDuplicates  bool   `default:"false" yaml:"preventDuplicates"`
-		MaxCertConcurrency int64  `default:"2" validate:"min=1" yaml:"maxCertConcurrency"`
+		Hostname            string                    `default:"" validate:"omitempty" yaml:"hostname,omitempty"`
+		ClientID            string                    `default:"" validate:"omitempty" yaml:"clientId,omitempty"`
+		ReconcileInterval   string                    `default:"0" yaml:"reconcileInterval"`
+		ClientSecret        secretstring.SecretString `default:"" validate:"omitempty" yaml:"clientSecret,omitempty"`
+		ClientSecretFile    string                    `default:"" validate:"omitempty" yaml:"clientSecretFile,omitempty"`
+		Tags                string                    `default:"" validate:"omitempty" yaml:"tags,omitempty"`
+		AuthKeyFile         string                    `default:"" validate:"omitempty" yaml:"authKeyFile,omitempty"`
+		ControlURL          string                    `default:"https://controlplane.tailscale.com" validate:"uri" yaml:"controlUrl"`
+		AuthKey             secretstring.SecretString `default:"" validate:"omitempty" yaml:"authKey,omitempty"`
+		AuthRetry           AuthRetryConfig           `yaml:"authRetry"`
+		MaxCertConcurrency  int64                     `default:"2" validate:"min=1,max=100" yaml:"maxCertConcurrency"`
+		PreventDuplicates   bool                      `default:"false" yaml:"preventDuplicates"`
+		Shared              bool                      `default:"false" yaml:"shared"`
+		Services            bool                      `default:"false" yaml:"services"`
+		AutoApproveDevices  bool                      `default:"false" yaml:"autoApproveDevices"`
+		AutoRemoveConflicts bool                      `default:"false" yaml:"autoRemoveConflicts"`
+		AutoProvisionACL    bool                      `default:"false" yaml:"autoProvisionAcl"`
 	}
 
 	// ListTargetProviderConfig struct stores a proxy list target provider configuration.
 	ListTargetProviderConfig struct {
 		Filename              string `validate:"required,file" yaml:"filename"`
 		DefaultProxyProvider  string `validate:"omitempty" yaml:"defaultProxyProvider,omitempty"`
+		HealthCheckInterval   int    `validate:"numeric,min=1,max=86400" default:"30" yaml:"healthCheckInterval"`
+		HealthCheckFailures   int    `validate:"numeric,min=1,max=100" default:"3" yaml:"healthCheckFailures"`
+		HealthCheckCooldown   int    `validate:"numeric,min=0,max=86400" default:"0" yaml:"healthCheckCooldown"`
+		RateLimitRPS          int    `validate:"numeric,min=1" default:"100" yaml:"rateLimitRps"`
+		RateLimitBurst        int    `validate:"numeric,min=1" default:"200" yaml:"rateLimitBurst"`
 		DefaultProxyAccessLog bool   `default:"true" validate:"boolean" yaml:"defaultProxyAccessLog"`
-		AutoRestart          bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
-		HealthCheckEnabled   bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
-		HealthCheckInterval  int    `validate:"numeric,min=1" default:"30" yaml:"healthCheckInterval"`
-		HealthCheckFailures  int    `validate:"numeric,min=1" default:"3" yaml:"healthCheckFailures"`
-		HealthCheckCooldown  int    `validate:"numeric,min=0" default:"0" yaml:"healthCheckCooldown"`
+		AutoRestart           bool   `validate:"boolean" default:"true" yaml:"autoRestart"`
+		HealthCheckEnabled    bool   `validate:"boolean" default:"true" yaml:"healthCheckEnabled"`
+		RateLimitEnabled      bool   `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
+	}
+
+	DNSProviderConfig struct {
+		Provider     string                    `validate:"required,oneof=cloudflare magicdns" yaml:"provider"`
+		APIToken     secretstring.SecretString `yaml:"apiToken,omitempty"`
+		APITokenFile string                    `yaml:"apiTokenFile,omitempty"`
+	}
+
+	TLSProviderConfig struct {
+		Provider    string `validate:"required,oneof=tailscale acme" yaml:"provider"`
+		Email       string `yaml:"email,omitempty"`
+		CA          string `default:"https://acme-v02.api.letsencrypt.org/directory" yaml:"ca,omitempty"`
+		CertStorage string `yaml:"certStorage,omitempty"`
 	}
 )
 
-// Config  is a global variable to store configuration.
-var Config *config
-
-// GetConfig loads, validates and returns configuration.
-func InitializeConfig() error {
-	Config = &config{}
-	Config.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
-	Config.Docker = make(map[string]*DockerTargetProviderConfig)
-	Config.Lists = make(map[string]*ListTargetProviderConfig)
+// InitializeConfig loads, validates and returns configuration.
+// Returns (*Data, error) on success so callers can inject the
+// config into their constructors. The logger is used for config
+// loading diagnostics (the configured logger doesn't exist yet).
+func InitializeConfig(log zerolog.Logger) (*Data, error) {
+	cfg := &Data{}
+	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
+	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
+	cfg.Lists = make(map[string]*ListTargetProviderConfig)
+	cfg.Incus = make(map[string]*IncusTargetProviderConfig)
+	cfg.Proxmox = make(map[string]*ProxmoxTargetProviderConfig)
+	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
+	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
 
 	file := flag.String("config", "/config/tsdproxy.yaml", "loag configuration from file")
 	flag.Parse()
 
-	fileConfig := NewConfigFile(log.Logger, *file, Config)
+	fileConfig := NewConfigFile(log, *file, cfg)
 
 	log.Info().Str("file", *file).Msg("loading configuration")
 
-	if err := fileConfig.Load(); err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		log.Info().Str("file", *file).Msg("generating default configuration")
-
-		if err := defaults.Set(Config); err != nil {
-			log.Error().Err(err).Msg("error loading defaults")
-		}
-
-		applyDockerDefaults()
-
-		Config.generateDefaultProviders()
-		if err := fileConfig.Save(); err != nil {
-			return err
-		}
+	if err := cfg.loadConfigFile(fileConfig, *file, log); err != nil {
+		return nil, err
 	}
 
 	// Load default values.
 	// Make sure to set default values after loading from file
 	// unless defaults of map type are not loaded.
-	if err := defaults.Set(Config); err != nil {
+	if err := defaults.Set(cfg); err != nil {
 		log.Error().Err(err).Msg("error loading defaults")
 	}
 
-	applyDockerDefaults()
+	cfg.applyDockerDefaults(log)
 
-	// load auth keys from files
-	for _, d := range Config.Tailscale.Providers {
-		if d != nil && d.ClientSecret != "" && d.ClientID != "" {
-			continue
-		}
-
-		if d != nil && d.AuthKeyFile != "" {
-			authkey, err := Config.getAuthKeyFromFile(d.AuthKeyFile)
-			if err != nil {
-				return err
-			}
-			d.AuthKey = authkey
-		}
+	if err := cfg.loadSecretsFromFiles(); err != nil {
+		return nil, err
 	}
 
-	// load API key from file
-	if Config.APIKeyFile != "" {
-		key, err := Config.getAuthKeyFromFile(Config.APIKeyFile)
-		if err != nil {
-			return fmt.Errorf("error reading API key file: %w", err)
-		}
-		if key == "" {
-			return fmt.Errorf("API key file %q is empty", Config.APIKeyFile)
-		}
-		Config.APIKey = key
+	// Load auth key from env var (TSDPROXY_AUTHKEY) for all providers.
+	cfg.loadTailscaleAuthKeyEnvOverrides()
+
+	// Load env var overrides before validation so that TSDPROXY_TAILSCALE_*_CLIENTID
+	// and TSDPROXY_TAILSCALE_*_CLIENTSECRET are available to the validator (e.g.
+	// services mode requires clientId for the VIP Services API).
+	cfg.LoadTailscaleEnvOverrides()
+
+	if err := cfg.validate(log); err != nil {
+		return nil, err
 	}
 
-	// validate config
-	if err := Config.validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return cfg, nil
 }
 
 // applyDockerDefaults adjusts configuration defaults when running inside a
@@ -218,16 +310,16 @@ func InitializeConfig() error {
 // values are impractical: 127.0.0.1 is unreachable via port mapping and
 // port-mapped dashboard requests arrive from the Docker bridge gateway
 // (private IP) without a Tailscale identity.
-func applyDockerDefaults() {
+func (c *Data) applyDockerDefaults(log zerolog.Logger) {
 	if !isRunningInDocker() {
 		return
 	}
-	if Config.HTTP.Hostname == "127.0.0.1" {
-		Config.HTTP.Hostname = "0.0.0.0"
+	if c.HTTP.Hostname == "127.0.0.1" {
+		c.HTTP.Hostname = "0.0.0.0"
 		log.Info().Msg("running in Docker: defaulting http.hostname to 0.0.0.0")
 	}
-	if !Config.AdminAllowLocalhost {
-		Config.AdminAllowLocalhost = true
+	if !c.AdminAllowLocalhost {
+		c.AdminAllowLocalhost = true
 		log.Info().Msg("running in Docker: enabling adminAllowLocalhost")
 	}
 }
@@ -238,7 +330,180 @@ func isRunningInDocker() bool {
 	return err == nil
 }
 
-func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
+func (c *Data) loadConfigFile(fileConfig *File, path string, log zerolog.Logger) error {
+	if err := fileConfig.Load(); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		log.Info().Str("file", path).Msg("generating default configuration")
+
+		if err := defaults.Set(c); err != nil {
+			log.Error().Err(err).Msg("error loading defaults")
+		}
+
+		c.applyDockerDefaults(log)
+
+		if err := c.generateDefaultProviders(); err != nil {
+			return err
+		}
+		if err := fileConfig.Save(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *Data) loadSecretsFromFiles() error {
+	if err := c.loadTailscaleAuthKeys(); err != nil {
+		return err
+	}
+
+	if err := c.loadAPIKey(); err != nil {
+		return err
+	}
+
+	if err := c.loadTailscaleClientSecrets(); err != nil {
+		return err
+	}
+
+	if err := c.loadDNSProviderTokens(); err != nil {
+		return err
+	}
+
+	if err := c.loadProxmoxTokens(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Data) loadProxmoxTokens() error {
+	for name, p := range c.Proxmox {
+		if p == nil || p.APITokenFile == "" {
+			continue
+		}
+		token, err := c.getAuthKeyFromFile(p.APITokenFile)
+		if err != nil {
+			return fmt.Errorf("error reading Proxmox provider %q API token file: %w", name, err)
+		}
+		if token == "" {
+			return fmt.Errorf("proxmox provider %q API token file %s is empty", name, p.APITokenFile)
+		}
+		p.APIToken = secretstring.SecretString(token)
+	}
+
+	return nil
+}
+
+func (c *Data) loadTailscaleAuthKeys() error {
+	for _, d := range c.Tailscale.Providers {
+		if d == nil || (d.ClientSecret != "" && d.ClientID != "") {
+			continue
+		}
+
+		if d.AuthKeyFile != "" {
+			authkey, err := c.getAuthKeyFromFile(d.AuthKeyFile)
+			if err != nil {
+				return err
+			}
+			d.AuthKey = secretstring.SecretString(authkey)
+		}
+	}
+
+	return nil
+}
+
+func (c *Data) loadAPIKey() error {
+	if c.APIKeyFile == "" {
+		return nil
+	}
+
+	key, err := c.getAuthKeyFromFile(c.APIKeyFile)
+	if err != nil {
+		return fmt.Errorf("error reading API key file: %w", err)
+	}
+
+	if key == "" {
+		return fmt.Errorf("API key file %q is empty", c.APIKeyFile)
+	}
+
+	c.APIKey = secretstring.SecretString(key)
+
+	return nil
+}
+
+func (c *Data) loadDNSProviderTokens() error {
+	for name, d := range c.DNSProviders {
+		if d == nil || d.APITokenFile == "" {
+			continue
+		}
+		token, err := c.getAuthKeyFromFile(d.APITokenFile)
+		if err != nil {
+			return fmt.Errorf("error reading DNS provider %q API token file: %w", name, err)
+		}
+		d.APIToken = secretstring.SecretString(token)
+	}
+
+	return nil
+}
+
+func (c *Data) loadTailscaleClientSecrets() error {
+	for name, d := range c.Tailscale.Providers {
+		if d == nil || d.ClientSecretFile == "" {
+			continue
+		}
+		secret, err := c.getAuthKeyFromFile(d.ClientSecretFile)
+		if err != nil {
+			return fmt.Errorf("error reading tailscale provider %q client secret file: %w", name, err)
+		}
+		if secret == "" {
+			return fmt.Errorf("tailscale provider %q client secret file %s is empty", name, d.ClientSecretFile)
+		}
+		d.ClientSecret = secretstring.SecretString(secret)
+	}
+
+	return nil
+}
+
+// loadTailscaleEnvOverrides checks for TSDPROXY_TAILSCALE_<NAME>_CLIENTID and
+// TSDPROXY_TAILSCALE_<NAME>_CLIENTSECRET environment variables and overrides
+// the corresponding config fields if they are empty. This allows users to
+// supply OAuth credentials without hardcoding them in the YAML config file.
+//
+// Env var names are derived from the Tailscale provider name:
+//
+//	provider "default"  → TSDPROXY_TAILSCALE_DEFAULT_CLIENTID
+//	provider "my-eu-prod" → TSDPROXY_TAILSCALE_MY-EU-PROD_CLIENTSECRET
+func (c *Data) LoadTailscaleEnvOverrides() {
+	for name, d := range c.Tailscale.Providers {
+		if d == nil {
+			continue
+		}
+		prefix := "TSDPROXY_TAILSCALE_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+
+		if val, ok := os.LookupEnv(prefix + "_CLIENTID"); ok && d.ClientID == "" {
+			d.ClientID = val
+		}
+		if val, ok := os.LookupEnv(prefix + "_CLIENTSECRET"); ok && d.ClientSecret == "" {
+			d.ClientSecret = secretstring.SecretString(val)
+		}
+	}
+}
+
+func (c *Data) loadTailscaleAuthKeyEnvOverrides() {
+	authKey := os.Getenv("TSDPROXY_AUTHKEY")
+	if authKey == "" {
+		return
+	}
+	for _, d := range c.Tailscale.Providers {
+		if d != nil && d.AuthKey == "" {
+			d.AuthKey = secretstring.SecretString(authKey)
+		}
+	}
+}
+
+func (c *Data) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	resolved, err := ValidateKeyFilePath(authKeyFile)
 	if err != nil {
 		return "", err
@@ -247,5 +512,6 @@ func (c *config) getAuthKeyFromFile(authKeyFile string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error reading auth key file %s: %w", authKeyFile, err)
 	}
+	defer clear(data) // zero secret buffer after use
 	return strings.TrimSpace(string(data)), nil
 }

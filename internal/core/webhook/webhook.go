@@ -13,13 +13,16 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"text/template"
 	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
+	"github.com/almeidapaulopt/tsdproxy/internal/core/httpclient"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const (
@@ -27,18 +30,27 @@ const (
 	webhookWorkers   = 8
 	webhookQueueSize = 256
 
-	contentTypeJSON = "application/json"
-	fieldInline     = "inline"
-	fieldText       = "text"
-	fieldName       = "name"
-	fieldValue      = "value"
+	contentTypeJSON      = "application/json"
+	contentTypeTextPlain = "text/plain"
+	providerDiscord      = "discord"
+	providerSlack        = "slack"
+	providerNtfy         = "ntfy"
+	statusRunning        = "running"
+	statusError          = "error"
+	fieldInline          = "inline"
+	fieldText            = "text"
+	fieldName            = "name"
+	fieldValue           = "value"
 
-	webhookTimeout    = 10 * time.Second
-	webhookMaxBody    = 512
-	webhookMaxStatus  = 300
-	discordColorGreen = 5763719
-	discordColorRed   = 15548997
-	discordColorGrey  = 5766978
+	webhookTimeout     = 10 * time.Second
+	webhookMaxBody     = 512
+	webhookMaxStatus   = 300
+	discordColorGreen  = 5763719
+	discordColorRed    = 15548997
+	discordColorGrey   = 5766978
+	discordColorYellow = 16426522
+	discordColorBlue   = 3447003
+	discordColorOrange = 16098851
 )
 
 type (
@@ -53,52 +65,132 @@ type (
 	sendJob struct {
 		event Event
 		cfg   config.WebhookConfig
+		index int
 	}
 
 	Sender struct {
-		log     zerolog.Logger
-		ctx     context.Context
-		client  *http.Client
-		cancel  context.CancelFunc
-		queue   chan sendJob
-		configs []config.WebhookConfig
-		wg      sync.WaitGroup
-		closeMu sync.Mutex
-		closed  atomic.Bool
+		log       zerolog.Logger
+		ctx       context.Context
+		client    httpclient.Doer
+		templates map[int]*template.Template
+		cancel    context.CancelFunc
+		queue     chan sendJob
+		configs   []config.WebhookConfig
+		wg        sync.WaitGroup
+		closeMu   sync.Mutex
+		started   bool
+		closed    bool
 	}
 )
 
-func NewSender(log zerolog.Logger, configs []config.WebhookConfig) *Sender {
+func NewSender(log zerolog.Logger, configs []config.WebhookConfig, doer ...httpclient.Doer) *Sender {
+	var client httpclient.Doer
+	if len(doer) > 0 && doer[0] != nil {
+		client = doer[0]
+	} else {
+		client = &http.Client{Timeout: webhookTimeout}
+	}
+	logger := log.With().Str("module", "webhook").Logger()
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sender{
-		log:     log.With().Str("module", "webhook").Logger(),
-		client:  &http.Client{Timeout: webhookTimeout},
-		configs: configs,
-		ctx:     ctx,
-		cancel:  cancel,
-		queue:   make(chan sendJob, webhookQueueSize),
+		log:       logger,
+		client:    client,
+		configs:   configs,
+		templates: parseWebhookTemplates(logger, configs),
+		ctx:       ctx,
+		cancel:    cancel,
+		queue:     make(chan sendJob, webhookQueueSize),
+	}
+	return s
+}
+
+// Start spawns the worker goroutines that drain the send queue.
+// It must be called after NewSender and before Send. Calling Start on a
+// sync sender (created with NewSyncSender, which has no queue) is a no-op.
+func (s *Sender) Start() {
+	if s.queue == nil {
+		return
 	}
 	s.wg.Add(webhookWorkers)
 	for range webhookWorkers {
 		go s.worker()
 	}
-	return s
+	s.started = true
+}
+
+// NewSyncSender returns a Sender without spawning worker goroutines.
+// It is intended for one-shot use with SendSync (e.g. the test-webhook
+// endpoint) so the request handler does not pay the cost of creating
+// and tearing down 8 idle workers. Close is a no-op for sync senders.
+func NewSyncSender(log zerolog.Logger, configs []config.WebhookConfig, doer ...httpclient.Doer) *Sender {
+	var client httpclient.Doer
+	if len(doer) > 0 && doer[0] != nil {
+		client = doer[0]
+	} else {
+		client = &http.Client{Timeout: webhookTimeout}
+	}
+	logger := log.With().Str("module", "webhook").Logger()
+	return &Sender{
+		log:       logger,
+		client:    client,
+		configs:   configs,
+		templates: parseWebhookTemplates(logger, configs),
+		ctx:       context.Background(),
+	}
+}
+
+var templateFuncs = template.FuncMap{
+	"toUpper": strings.ToUpper,
+	"toLower": strings.ToLower,
+	"title":   cases.Title(language.English).String,
+	"trim":    strings.TrimSpace,
+	"sprintf": fmt.Sprintf,
+}
+
+func parseWebhookTemplates(log zerolog.Logger, configs []config.WebhookConfig) map[int]*template.Template {
+	templates := make(map[int]*template.Template)
+	for i, cfg := range configs {
+		if cfg.Template == "" {
+			continue
+		}
+		tmpl, err := template.New(fmt.Sprintf("webhook-%d", i)).
+			Funcs(templateFuncs).
+			Parse(cfg.Template)
+		if err != nil {
+			log.Error().
+				Err(err).
+				Str("url", redactURL(cfg.URL)).
+				Int("index", i).
+				Msg("invalid webhook template, using default payload")
+			continue
+		}
+		templates[i] = tmpl
+	}
+	return templates
 }
 
 func (s *Sender) Close() {
 	s.closeMu.Lock()
-	s.closed.Store(true)
-	close(s.queue)
-	s.closeMu.Unlock()
-
-	s.wg.Wait()
-	s.cancel()
+	defer s.closeMu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	if s.queue != nil {
+		close(s.queue)
+		s.wg.Wait()
+	}
+	if s.cancel != nil {
+		s.cancel()
+	}
 }
 
 func (s *Sender) worker() {
 	defer s.wg.Done()
 	for job := range s.queue {
-		_ = s.sendWithRetry(job.cfg, job.event)
+		if err := s.sendWithRetry(job.index, job.cfg, job.event); err != nil {
+			s.log.Error().Err(err).Str("url", redactURL(job.cfg.URL)).Msg("webhook delivery failed")
+		}
 	}
 }
 
@@ -106,15 +198,15 @@ func (s *Sender) Send(event Event) {
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 
-	if s.closed.Load() {
+	if s.closed {
 		return
 	}
-	for _, cfg := range s.configs {
+	for i, cfg := range s.configs {
 		if !eventMatchesFilter(event, cfg.Events) {
 			continue
 		}
 		select {
-		case s.queue <- sendJob{cfg: cfg, event: event}:
+		case s.queue <- sendJob{index: i, cfg: cfg, event: event}:
 		default:
 			s.log.Warn().Msg("webhook queue full, dropping event")
 		}
@@ -123,11 +215,11 @@ func (s *Sender) Send(event Event) {
 
 func (s *Sender) SendSync(event Event) error {
 	var firstErr error
-	for _, cfg := range s.configs {
+	for i, cfg := range s.configs {
 		if !eventMatchesFilter(event, cfg.Events) {
 			continue
 		}
-		if err := s.sendWithRetry(cfg, event); err != nil && firstErr == nil {
+		if err := s.sendWithRetry(i, cfg, event); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -146,7 +238,7 @@ func eventMatchesFilter(event Event, filter []string) bool {
 	return false
 }
 
-func (s *Sender) sendWithRetry(cfg config.WebhookConfig, event Event) error {
+func (s *Sender) sendWithRetry(index int, cfg config.WebhookConfig, event Event) error {
 	safeURL := redactURL(cfg.URL)
 
 	backoff := time.Second
@@ -157,7 +249,7 @@ func (s *Sender) sendWithRetry(cfg config.WebhookConfig, event Event) error {
 		default:
 		}
 
-		if err := s.sendOne(cfg, event); err != nil {
+		if err := s.sendOne(index, cfg, event); err != nil {
 			s.log.Warn().
 				Err(err).
 				Str("url", safeURL).
@@ -188,19 +280,37 @@ func (s *Sender) sendWithRetry(cfg config.WebhookConfig, event Event) error {
 	return err
 }
 
-func (s *Sender) sendOne(cfg config.WebhookConfig, event Event) error {
+func (s *Sender) sendOne(index int, cfg config.WebhookConfig, event Event) error {
 	var body []byte
 	var contentType string
 
-	switch strings.ToLower(cfg.Type) {
-	case "discord":
-		body, contentType = s.formatDiscord(event)
-	case "slack":
-		body, contentType = s.formatSlack(event)
-	case "ntfy":
-		body, contentType = s.formatNtfy(event)
-	default:
-		body, contentType = s.formatGeneric(event)
+	if tmpl := s.templates[index]; tmpl != nil {
+		var rendered bytes.Buffer
+		if err := tmpl.Execute(&rendered, event); err != nil {
+			s.log.Error().
+				Err(err).
+				Str("url", redactURL(cfg.URL)).
+				Int("index", index).
+				Msg("failed to render webhook template")
+			return fmt.Errorf("error rendering webhook template: %w", err)
+		}
+		body = rendered.Bytes()
+		if cfg.TemplateContentType != "" {
+			contentType = cfg.TemplateContentType
+		} else {
+			contentType = contentTypeJSON
+		}
+	} else {
+		switch strings.ToLower(cfg.Type) {
+		case providerDiscord:
+			body, contentType = s.formatDiscord(event)
+		case providerSlack:
+			body, contentType = s.formatSlack(event)
+		case providerNtfy:
+			body, contentType = s.formatNtfy(event)
+		default:
+			body, contentType = s.formatGeneric(event)
+		}
 	}
 
 	req, err := http.NewRequestWithContext(s.ctx, http.MethodPost, cfg.URL, bytes.NewReader(body))
@@ -228,7 +338,11 @@ func (s *Sender) sendOne(cfg config.WebhookConfig, event Event) error {
 }
 
 func (s *Sender) formatGeneric(event Event) ([]byte, string) {
-	b, _ := json.Marshal(event)
+	b, err := json.Marshal(event)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to marshal webhook payload")
+		return []byte(`{"error":"marshal failed"}`), contentTypeJSON
+	}
 	return b, contentTypeJSON
 }
 
@@ -253,16 +367,26 @@ func (s *Sender) formatDiscord(event Event) ([]byte, string) {
 			},
 		},
 	}
-	b, _ := json.Marshal(payload)
+	b, err := json.Marshal(payload)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to marshal webhook payload")
+		return []byte(`{"error":"marshal failed"}`), contentTypeJSON
+	}
 	return b, contentTypeJSON
 }
 
 func discordColor(status string) int {
 	switch strings.ToLower(status) {
-	case "running":
+	case statusRunning:
 		return discordColorGreen
-	case "error", "stopped":
+	case statusError, "stopped", "stopping", "authfailed":
 		return discordColorRed
+	case "authenticating", "awaitingapproval", "paused":
+		return discordColorOrange
+	case "deviceconflict":
+		return discordColorYellow
+	case "reconciling", "initializing", "starting":
+		return discordColorBlue
 	default:
 		return discordColorGrey
 	}
@@ -283,7 +407,11 @@ func (s *Sender) formatSlack(event Event) ([]byte, string) {
 			},
 		},
 	}
-	b, _ := json.Marshal(payload)
+	b, err := json.Marshal(payload)
+	if err != nil {
+		s.log.Error().Err(err).Msg("failed to marshal webhook payload")
+		return []byte(`{"error":"marshal failed"}`), contentTypeJSON
+	}
 	return b, contentTypeJSON
 }
 
@@ -291,7 +419,7 @@ func (s *Sender) formatNtfy(event Event) ([]byte, string) {
 	name := sanitizeWebhookField(event.ProxyName)
 	payload := fmt.Sprintf("Proxy: %s\nStatus: %s\nPrevious: %s",
 		name, event.Status, event.OldStatus)
-	return []byte(payload), "text/plain"
+	return []byte(payload), contentTypeTextPlain
 }
 
 func NewEvent(proxyName string, oldStatus, newStatus model.ProxyStatus) Event {

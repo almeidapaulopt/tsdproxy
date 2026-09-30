@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -16,24 +17,20 @@ const (
 	TailscaleDefaultProviderName = "default"
 )
 
-// generateDefaultProviders method Generate the config from environment variables
+// generateDefaultProviders generates the config from environment variables
 // used in 0.x.x versions
-func (c *config) generateDefaultProviders() {
-	// Legacy Hostname from DOCKER_HOST from environment
-	//
-	c.generateDockerConfig()
+func (c *Data) generateDefaultProviders() error {
+	errDocker := c.generateDockerConfig()
+	errTailscale := c.generateTailscaleConfig()
 
-	c.generateTailscaleConfig()
+	return errors.Join(errDocker, errTailscale)
 }
 
-// generateDockerConfig method generate the Docker Config provider from environment variables
-func (c *config) generateDockerConfig() {
-	// Legacy Hostname from DOCKER_HOST from environment
-	//
+// generateDockerConfig generates the Docker Config provider from environment variables
+func (c *Data) generateDockerConfig() error {
 	docker := new(DockerTargetProviderConfig)
-	// set DockerConfig defaults
 	if err := defaults.Set(docker); err != nil {
-		fmt.Printf("Error loading defaults: %v", err)
+		return fmt.Errorf("set docker defaults: %w", err)
 	}
 	if os.Getenv("DOCKER_HOST") != "" {
 		docker.Host = os.Getenv("DOCKER_HOST")
@@ -50,32 +47,21 @@ func (c *config) generateDockerConfig() {
 	}
 
 	c.Docker[DockerDefaultName] = docker
+
+	return nil
 }
 
-// generateTailscaleConfig method  generate the Tailscale Config provider from environment variables
-func (c *config) generateTailscaleConfig() {
+// generateTailscaleConfig generates the Tailscale Config provider from environment variables
+func (c *Data) generateTailscaleConfig() error {
 	ts := new(TailscaleServerConfig)
-	// set TailscaleConfig defaults
 	if err := defaults.Set(ts); err != nil {
-		fmt.Printf("Error loading defaults: %v", err)
+		return fmt.Errorf("set tailscale defaults: %w", err)
 	}
 
 	authKeyFile := os.Getenv("TSDPROXY_AUTHKEYFILE")
-	authKey := os.Getenv("TSDPROXY_AUTHKEY")
 	controlURL := os.Getenv("TSDPROXY_CONTROLURL")
 	dataDir := os.Getenv("TSDPROXY_DATADIR")
 
-	if authKeyFile != "" {
-		var err error
-		authKey, err = c.getAuthKeyFromFile(authKeyFile)
-		if err != nil {
-			fmt.Println("Error loading auth key from file")
-		}
-	}
-
-	if authKey != "" {
-		ts.AuthKey = authKey
-	}
 	if authKeyFile != "" {
 		ts.AuthKeyFile = authKeyFile
 	}
@@ -92,4 +78,6 @@ func (c *config) generateTailscaleConfig() {
 	if c.DefaultProxyProvider == "" {
 		c.DefaultProxyProvider = TailscaleDefaultProviderName
 	}
+
+	return nil
 }

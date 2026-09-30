@@ -1,8 +1,6 @@
 # TSDProxy - AGENTS.md
 
-**Review existing AGENTS.md before editing**. This file contains high-signal guidance for OpenCode sessions working in the TSDProxy repository.
-
-## CRITICAL CONTEXT
+## OVERVIEW
 
 - **Go version**: `go 1.26` — require explicit version in `GOVERSION` build arg during releases
 - **Frontend build**: Use `bun run build`, result embedded by Go via `go:embed dist`. Do NOT use npm/vite directly in binary builds.

@@ -4,13 +4,15 @@
 package config
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/consts"
 
@@ -19,15 +21,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const configReloadDebounce = 500 * time.Millisecond
+
 type File struct {
-	data any
-	log  zerolog.Logger
-
-	onChange func(fsnotify.Event)
-
-	filename string
-
-	mtx sync.Mutex
+	log        zerolog.Logger
+	data       any
+	onChange   func(fsnotify.Event)
+	debounce   *time.Timer
+	stopCh     chan struct{}
+	done       chan struct{}
+	filename   string
+	onChangeMu sync.RWMutex
+	closeOnce  sync.Once
+	debounceMu sync.Mutex
+	mtx        sync.Mutex
+	watching   atomic.Bool
 }
 
 func NewConfigFile(log zerolog.Logger, filename string, data any) *File {
@@ -35,6 +43,8 @@ func NewConfigFile(log zerolog.Logger, filename string, data any) *File {
 		filename: filename,
 		data:     data,
 		log:      log.With().Str("module", "file").Str("files", filename).Logger(),
+		stopCh:   make(chan struct{}),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -44,7 +54,7 @@ func (f *File) Load() error {
 		return err
 	}
 
-	err = unmarshalStrict(data, f.data)
+	err = unmarshalNormalized(data, f.data, f.log)
 	if err != nil {
 		return err
 	}
@@ -76,8 +86,8 @@ func (f *File) Save() error {
 
 // OnConfigChange sets the event handler that is called when a config file changes.
 func (f *File) OnChange(run func(in fsnotify.Event)) {
-	f.mtx.Lock()
-	defer f.mtx.Unlock()
+	f.onChangeMu.Lock()
+	defer f.onChangeMu.Unlock()
 
 	f.onChange = run
 }
@@ -86,9 +96,13 @@ func (f *File) OnChange(run func(in fsnotify.Event)) {
 func (f *File) Watch() error {
 	f.log.Debug().Str("file", f.filename).Msg("Start watching file")
 
+	f.watching.Store(true)
+
 	errChan := make(chan error, 1)
 
 	go func() {
+		defer close(f.done)
+
 		watcher, err := fsnotify.NewWatcher()
 		if err != nil {
 			errChan <- fmt.Errorf("failed to create a new watcher: %w", err)
@@ -113,10 +127,30 @@ func (f *File) Watch() error {
 		}
 
 		errChan <- nil
+
 		eventsWG.Wait()
 	}()
 
 	return <-errChan
+}
+
+// Close signals the Watch goroutine to stop and waits for it to exit.
+// It is safe to call Close multiple times.
+// If Watch was never called, Close is a no-op.
+func (f *File) Close() {
+	if !f.watching.Load() {
+		return
+	}
+	f.closeOnce.Do(func() {
+		close(f.stopCh)
+
+		f.debounceMu.Lock()
+		if f.debounce != nil {
+			f.debounce.Stop()
+		}
+		f.debounceMu.Unlock()
+	})
+	<-f.done // wait outside closeOnce so all callers observe completion
 }
 
 func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
@@ -127,8 +161,20 @@ func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
 	}
 	for {
 		select {
+		case <-f.stopCh:
+			f.debounceMu.Lock()
+			if f.debounce != nil {
+				f.debounce.Stop()
+			}
+			f.debounceMu.Unlock()
+			return
 		case event, ok := <-watcher.Events:
 			if !ok {
+				f.debounceMu.Lock()
+				if f.debounce != nil {
+					f.debounce.Stop()
+				}
+				f.debounceMu.Unlock()
 				return
 			}
 			f.handleEvent(event, file, &realFile)
@@ -136,6 +182,12 @@ func (f *File) watchEvents(watcher *fsnotify.Watcher, file string) {
 			if ok {
 				f.log.Error().Err(err).Msg("watching config file error")
 			}
+
+			f.debounceMu.Lock()
+			if f.debounce != nil {
+				f.debounce.Stop()
+			}
+			f.debounceMu.Unlock()
 			return
 		}
 	}
@@ -151,19 +203,45 @@ func (f *File) handleEvent(event fsnotify.Event, file string, realFile *string) 
 		(currentFile != "" && currentFile != *realFile) {
 		*realFile = currentFile
 
-		if f.onChange != nil {
-			f.onChange(event)
+		f.debounceMu.Lock()
+		if f.debounce != nil {
+			f.debounce.Stop()
 		}
+		f.debounce = time.AfterFunc(configReloadDebounce, func() {
+			f.onChangeMu.RLock()
+			fn := f.onChange
+			f.onChangeMu.RUnlock()
+			if fn != nil {
+				fn(event)
+			}
+		})
+		f.debounceMu.Unlock()
 	}
 }
 
-func unmarshalStrict(data []byte, out any) error {
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-
-	if err := dec.Decode(out); err != nil && !errors.Is(err, io.EOF) {
+func unmarshalNormalized(data []byte, out any, log zerolog.Logger) error {
+	lookup := buildKeyLookup(out)
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
 		return err
 	}
-
+	if root.Kind == 0 || (root.Kind == yaml.DocumentNode && len(root.Content) == 0) {
+		return nil
+	}
+	issues := normalizeNodeKeys(&root, lookup, log)
+	if len(issues) > 0 {
+		var b strings.Builder
+		for _, iss := range issues {
+			fmt.Fprintf(&b, "line %d column %d: unknown field %q", iss.Line, iss.Column, iss.Original)
+			if len(iss.Suggestions) > 0 {
+				fmt.Fprintf(&b, " — did you mean %s?", quoteList(iss.Suggestions))
+			}
+			b.WriteString("\n")
+		}
+		return fmt.Errorf("configuration contains unknown fields:\n%s", b.String())
+	}
+	if err := root.Decode(out); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
 	return nil
 }

@@ -7,26 +7,31 @@ prev: /docs
 ## Quick Start
 
 Using Docker Compose, you can easily configure the proxy to your Tailscale
-containers. Here’s an example of how you can configure your services using
-Docker Compose:
+containers. Here's an example of how to configure your services using
+Docker Compose.
 
 {{% steps %}}
 
 ### Create a TSDProxy docker-compose.yaml
 
-```yaml docker-compose.yml
+```yaml {filename="docker-compose.yml"}
 services:
   tsdproxy:
     image: almeidapaulopt/tsdproxy:2
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - datadir:/data
-      - <PATH_TO_YOUR_CONFIG_DIR>:/config
+      - ./config:/config
     restart: unless-stopped
     ports:
       - "8080:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    labels:
+      tsdproxy.enable: "true"
+      tsdproxy.name: "dash"
+      tsdproxy.dash.visible: "false"
+
 volumes:
   datadir:
 ```
@@ -35,53 +40,53 @@ volumes:
 > The `extra_hosts` entry maps `host.docker.internal` to the Docker host gateway.
 > This allows TSDProxy to detect the Docker host IP for routing traffic to containers.
 
+### Configure TSDProxy
+
+Create the configuration file `./config/tsdproxy.yaml` with the following:
+
+```yaml {filename="./config/tsdproxy.yaml"}
+defaultProxyProvider: default
+
+docker:
+  local:
+    host: unix:///var/run/docker.sock
+    targetHostname: host.docker.internal
+    defaultProxyProvider: default
+
+tailscale:
+  providers:
+    default:
+      authKey: ""
+      authKeyFile: ""
+      controlUrl: https://controlplane.tailscale.com
+  dataDir: /data/
+
+http:
+  hostname: 0.0.0.0
+  port: 8080
+
+dashboard:
+  adminAllowLocalhost: true
+
+log:
+  level: info
+  json: false
+  proxyAccessLog: true
+```
+
+> [!IMPORTANT]
+> Edit the config file to add your AuthKey if you want automated authentication.
+> See [Authentication Methods]({{< ref "/docs/security/auth-methods" >}}) for details.
+
 ### Start the TSDProxy container
 
 ```bash
 docker compose up -d
 ```
 
-### Configure TSDProxy
-
-After the TSDProxy container is started, a configuration file
-`/config/tsdproxy.yaml` is created and populated with the following:
-
-```yaml  {filename="/config/tsdproxy.yaml"}
-defaultProxyProvider: default
-docker:
-  local: # name of the docker target provider
-    host: unix:///var/run/docker.sock # host of the docker socket or daemon
-    targetHostname: host.docker.internal # hostname or IP of docker server (ex: host.docker.internal or 172.31.0.1)
-    defaultProxyProvider: default # name of which proxy provider to use
-lists: {}
-tailscale:
-  providers:
-    default: # name of the provider
-      authKey: "" # optional, define authkey here
-      authKeyFile: "" # optional, use this to load authkey from file. If this is defined, Authkey is ignored
-      controlUrl: https://controlplane.tailscale.com # use this to override the default control URL
-  dataDir: /data/
-http:
-  hostname: 0.0.0.0
-  port: 8080
-log:
-  level: info # set logging level info, error or trace
-  json: false # set to true to enable json logging
-proxyAccessLog: true # set to true to enable container access log
-```
-
-#### Edit the configuration file
-
-1. Change your docker host if you are not using the socket.
-2. Restart the service if you changed the configuration.
-
-```bash
-docker compose restart
-```
-
 ### Run a sample service
 
-Here we’ll use the nginx image to serve a sample service.
+Here we'll use the nginx image to serve a sample service.
 The container name is `sample-nginx`, expose port 8111, and add the
 `tsdproxy.enable` label.
 
@@ -91,41 +96,16 @@ docker run -d --name sample-nginx -p 8111:80 --label "tsdproxy.enable=true" ngin
 
 ### Open Dashboard
 
-1. Visit the dashboard at http://<IP_ADDRESS>:8080.
+1. Visit the dashboard at `http://<IP_ADDRESS>:8080`.
 2. Sample-nginx should appear in the dashboard. Click the button and
-authenticate with Tailscale.
+   authenticate with Tailscale.
 3. After authentication, the proxy will be enabled.
 
-> [!IMPORTANT]
-> The auto-generated config sets `http.hostname: 0.0.0.0` so the dashboard is
-> reachable through Docker port mapping. If you regenerate the config or upgrade
-> from a previous version, note that **the default is `127.0.0.1`** (localhost only).
-> When running inside Docker, the hostname is automatically overridden to `0.0.0.0`.
-> For non-Docker setups, set `hostname: 0.0.0.0` explicitly if needed.
-> See [Troubleshooting]({{< ref "/docs/troubleshooting#dashboard-unreachable-after-upgrading-to-v220" >}}).
-
-> [!IMPORTANT]
-> All dashboard endpoints require authentication. When accessing via Docker port
-> mapping (not through a Tailscale proxy), enable
-> `adminAllowLocalhost: true` in your config. In Docker, this trusts requests
-> from the Docker bridge network automatically.
+> [!WARNING]
+> The example config has `adminAllowLocalhost: true`, which allows unauthenticated
+> dashboard access from the Docker bridge network. This is convenient for getting
+> started, but should be disabled in production. Remove or set it to `false` and
+> access the dashboard through a Tailscale proxy instead.
 > See [Admin Allowlist]({{< ref "/docs/security/admin-allowlist" >}}) for details.
-
-> [!TIP]
-> For automated authentication without manual browser login, configure OAuth or
-> an AuthKey in the [Tailscale provider settings]({{< ref "/docs/advanced/tailscale" >}}).
-
-> [!IMPORTANT]
-> By default, each new proxy requires manual authentication through the Dashboard
-> (click the proxy card and authenticate with Tailscale). For automated, headless
-> operation, configure [OAuth]({{< ref "/docs/advanced/tailscale#oauth" >}}) or
-> an [AuthKey]({{< ref "/docs/advanced/tailscale#authkey" >}}) **before** adding
-> services. See [Authentication Methods]({{< ref "/docs/security/auth-methods" >}})
-> for a comparison.
-
-> [!IMPORTANT]
-> The first time you run the proxy, it will take a few seconds to start, because
-> it needs to connect to the Tailscale network, generate the certificates, and start
-> the proxy.
 
 {{% /steps %}}

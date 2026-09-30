@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/core/httpclient"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 )
 
@@ -37,9 +39,11 @@ func (s HealthStatus) String() string {
 	case HealthDown:
 		return "down"
 	default:
-		return "unknown"
+		return healthStrUnknown
 	}
 }
+
+const healthStrUnknown = "unknown"
 
 // HealthResult holds the latest health check result for a proxy target.
 type HealthResult struct {
@@ -54,27 +58,29 @@ type healthChecker struct {
 	cooldownUntil       time.Time
 	target              atomic.Value
 	ctx                 context.Context
+	transport           *http.Transport
 	result              atomic.Pointer[HealthResult]
 	cancel              context.CancelFunc
+	done                chan struct{}
 	onRedetect          func() error
+	onResult            func(HealthResult)
+	httpClient          httpclient.Doer
 	scheme              string
 	interval            time.Duration
-	consecutiveFailures int
-	retryAttempt        int
 	cooldown            time.Duration
 	failThreshold       int
+	retryAttempt        int
+	consecutiveFailures int
 	tlsValidate         bool
-	transport           *http.Transport
-	httpClient          *http.Client
 }
 
 const (
-	healthCheckTimeout = 5 * time.Second //nolint:mnd
-	maxBackoff         = 24 * time.Hour  //nolint:mnd
+	healthCheckTimeout = 5 * time.Second
+	maxBackoff         = 24 * time.Hour
 )
 
 // maxBackoffShift is the maximum bit shift that stays within int64 positive range.
-const maxBackoffShift = 62 //nolint:mnd
+const maxBackoffShift = 62
 
 func nextBackoff(interval time.Duration, attempt int) time.Duration {
 	if attempt > maxBackoffShift {
@@ -102,15 +108,16 @@ func newHealthChecker(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsValidate}, //nolint
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !tlsValidate}, //nolint:gosec // G402: config-driven TLS validation toggle
 		DialContext:     (&net.Dialer{Timeout: healthCheckTimeout}).DialContext,
 	}
 
 	hc := &healthChecker{
-		log:           log.With().Str("component", "health").Logger(),
-		scheme:        scheme,
-		ctx:           ctx,
-		cancel:        cancel,
+		log:    log.With().Str("component", "health").Logger(),
+		scheme: scheme,
+		ctx:    ctx,
+		cancel: cancel,
+
 		interval:      interval,
 		failThreshold: failThreshold,
 		cooldown:      cooldown,
@@ -144,18 +151,24 @@ func (hc *healthChecker) getTarget() string {
 }
 
 func (hc *healthChecker) start() {
+	hc.done = make(chan struct{})
 	go hc.run()
 }
 
 func (hc *healthChecker) stop() {
 	hc.cancel()
+	if hc.done != nil {
+		<-hc.done
+	}
 	if hc.transport != nil {
 		hc.transport.CloseIdleConnections()
 	}
 }
 
 func (hc *healthChecker) run() {
+	defer close(hc.done)
 	hc.check()
+	hc.notifyResult()
 
 	ticker := time.NewTicker(hc.interval)
 	defer ticker.Stop()
@@ -166,7 +179,17 @@ func (hc *healthChecker) run() {
 			return
 		case <-ticker.C:
 			hc.check()
+			hc.notifyResult()
 		}
+	}
+}
+
+func (hc *healthChecker) notifyResult() {
+	if hc.onResult == nil {
+		return
+	}
+	if r := hc.result.Load(); r != nil {
+		hc.onResult(*r)
 	}
 }
 
@@ -279,14 +302,14 @@ func (hc *healthChecker) checkUDP(ctx context.Context) HealthResult {
 	var result HealthResult
 	result.CheckedAt = time.Now()
 
-	addr, err := net.ResolveUDPAddr("udp", hc.getTarget())
+	addr, err := net.ResolveUDPAddr(model.ProtoUDP, hc.getTarget())
 	if err != nil {
 		result.Status = HealthDown
 		result.Error = fmt.Sprintf("error resolving address: %v", err)
 		return result
 	}
 
-	conn, err := net.DialUDP("udp", nil, addr)
+	conn, err := net.DialUDP(model.ProtoUDP, nil, addr)
 	if err != nil {
 		result.Status = HealthDown
 		result.Error = err.Error()
@@ -364,4 +387,167 @@ func (hc *healthChecker) GetHealth() HealthResult {
 		return HealthResult{Status: HealthUnknown}
 	}
 	return *r
+}
+
+// clampDuration converts seconds to time.Duration, clamping to [min, max].
+// Prevents time.NewTicker panic from negative durations caused by int64 overflow.
+func clampDuration(seconds int, minVal, maxVal time.Duration) time.Duration {
+	d := time.Duration(seconds) * time.Second
+	if d < minVal {
+		return minVal
+	}
+	if d > maxVal {
+		return maxVal
+	}
+	return d
+}
+
+func (proxy *Proxy) startHealthChecker() {
+	if !proxy.Config.HealthCheckEnabled {
+		if proxy.metrics != nil {
+			proxy.metrics.SetProxyUp(proxy.Config.Hostname, -1)
+		}
+		return
+	}
+
+	// NOTE: Only the first non-redirect port (sorted by name) gets a health checker.
+	// If the proxy has multiple ports, only the first one is monitored.
+	keys := make([]string, 0, len(proxy.Config.Ports))
+	for k := range proxy.Config.Ports {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		pc := proxy.Config.Ports[k]
+		if pc.IsRedirect {
+			continue
+		}
+		target := pc.GetFirstTarget()
+		if target == nil || target.Host == "" {
+			continue
+		}
+
+		scheme := pc.ProxyProtocol
+		var checkTarget string
+		if scheme == model.ProtoHTTP || scheme == model.ProtoHTTPS {
+			checkTarget = target.String()
+		} else {
+			checkTarget = target.Host
+		}
+
+		// Clamp health check durations to safe ranges to prevent
+		// time.Duration overflow when converting from int seconds.
+		interval := clampDuration(proxy.Config.HealthCheckInterval, time.Second, healthCheckMaxInterval)
+		cooldown := clampDuration(proxy.Config.HealthCheckCooldown, 0, healthCheckMaxCooldown)
+
+		hc := newHealthChecker(proxy.log, checkTarget, scheme, interval, proxy.Config.HealthCheckFailures, cooldown, pc.TLSValidate, func() error {
+			return proxy.reResolveHealthTarget()
+		})
+
+		if proxy.metrics != nil {
+			hostname := proxy.Config.Hostname
+			hc.onResult = func(result HealthResult) {
+				switch result.Status {
+				case HealthHealthy:
+					proxy.metrics.SetProxyUp(hostname, 1)
+				case HealthDown:
+					proxy.metrics.SetProxyUp(hostname, 0)
+				default:
+					proxy.metrics.SetProxyUp(hostname, -1)
+				}
+			}
+		}
+
+		proxy.mtx.Lock()
+		proxy.healthPortName = k
+		proxy.health = hc
+		proxy.mtx.Unlock()
+
+		if proxy.metrics != nil {
+			proxy.metrics.SetProxyUp(proxy.Config.Hostname, -1)
+		}
+
+		hc.start()
+		return
+	}
+}
+
+func (proxy *Proxy) stopHealthChecker() {
+	proxy.mtx.RLock()
+	hc := proxy.health
+	proxy.mtx.RUnlock()
+	if hc != nil {
+		// stop() blocks until the health check goroutine has exited,
+		// ensuring no in-flight checks access proxy state after return.
+		hc.stop()
+	}
+}
+
+func (proxy *Proxy) reResolveHealthTarget() error {
+	if !proxy.Config.AutoRestart {
+		return nil
+	}
+
+	if proxy.reResolveConfig == nil {
+		return nil
+	}
+
+	newCfg, err := proxy.reResolveConfig()
+	if err != nil {
+		return fmt.Errorf("re-resolution failed: %w", err)
+	}
+
+	if proxy.ctx.Err() != nil {
+		return nil
+	}
+
+	// RLock protects iterating proxy.Config.Ports map (read-only after construction).
+	// Actual target mutation uses targetState.mtx internally, and proxy.health uses atomic operations.
+	// The lock also ensures we don't race with startHealthChecker which writes under proxy.mtx.Lock().
+	proxy.mtx.RLock()
+	defer proxy.mtx.RUnlock()
+
+	for portName, newPC := range newCfg.Ports {
+		if newPC.IsRedirect {
+			continue
+		}
+
+		oldPC, ok := proxy.Config.Ports[portName]
+		if !ok {
+			continue
+		}
+
+		oldTarget := oldPC.GetFirstTarget()
+		newTarget := newPC.GetFirstTarget()
+
+		if oldTarget == nil || newTarget == nil {
+			continue
+		}
+
+		if oldTarget.String() == newTarget.String() {
+			continue
+		}
+
+		proxy.log.Info().
+			Str("port", portName).
+			Str("old_target", oldTarget.String()).
+			Str("new_target", newTarget.String()).
+			Msg("health re-resolution: target changed, hot-swapping")
+
+		oldPC.ReplaceTarget(oldTarget, newTarget)
+
+		if portName == proxy.healthPortName && proxy.health != nil {
+			scheme := oldPC.ProxyProtocol
+			var checkTarget string
+			if scheme == model.ProtoHTTP || scheme == model.ProtoHTTPS {
+				checkTarget = newTarget.String()
+			} else {
+				checkTarget = newTarget.Host
+			}
+			proxy.health.SetTarget(checkTarget)
+		}
+	}
+
+	return nil
 }

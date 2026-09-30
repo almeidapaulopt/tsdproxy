@@ -26,14 +26,34 @@ const (
 	// Dashboard defaults
 	DefaultDashboardVisible = true
 	DefaultDashboardIcon    = "tsdproxy"
+
+	// Rate limit defaults
+	DefaultRateLimitEnabled = true
+	DefaultRateLimitRPS     = 100
+	DefaultRateLimitBurst   = 200
+
+	// Rate limit bounds (min/max for label validation)
+	RateLimitMinRPS   = 1
+	RateLimitMaxRPS   = 10000
+	RateLimitMinBurst = 1
+	RateLimitMaxBurst = 100000
+
+	// Health check bounds (min/max for label validation, shared by the
+	// Docker and Incus target providers)
+	HealthCheckMinIntervalSeconds = 1
+	HealthCheckMaxIntervalSeconds = 86400
+	HealthCheckMinFailures        = 1
+	HealthCheckMaxFailures        = 100
+	HealthCheckMinCooldownSeconds = 0
+	HealthCheckMaxCooldownSeconds = 86400
 )
 
 type Preferences struct {
-	Dark         bool     `json:"dark"`
-	Grouped      bool     `json:"grouped"`
 	FilterHealth string   `json:"filterHealth"`
 	FilterStatus string   `json:"filterStatus"`
-	Pinned       []string `json:"pinned"`
 	Sort         string   `json:"sort"`
 	View         string   `json:"view"`
+	Pinned       []string `json:"pinned"`
+	Dark         bool     `json:"dark"`
+	Grouped      bool     `json:"grouped"`
 }
