@@ -15,11 +15,19 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /healthcheck ./cmd/healthcheck/main.go
 
 
 FROM scratch
-LABEL org.opencontainers.image.source="https://github.com/stephenrjr/tsdproxy"
-LABEL maintainer="stephenrjr@gmail.com" \
-      version="2.3.4_13" \
-      description="Fresh image built to bump v2.3.4 dependencies (especilly tsnet)"
 
+ARG VERSION=0.0.0
+ARG TAILSCALE_VERSION=0.0.0
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="TSDproxy" \
+      org.opencontainers.image.description="Temporary image based on v2.3.4 containing patched dependencies (especially tsnet)." \
+      org.opencontainers.image.source="https://github.com/stephenrjr/tsdproxy" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.maintainer="stephenrjr@gmail.com"
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
