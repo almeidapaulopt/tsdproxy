@@ -220,7 +220,7 @@ jobs:
           sha256sum tsdproxy_* | tee checksums.txt
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0.24.0
+        uses: anchore/sbom-action@v0.24.2
         with:
           format: spdx-json
           output-file: ${{ github.workspace }}/dist/sbom.spdx.json
