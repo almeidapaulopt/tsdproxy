@@ -3,7 +3,7 @@ default: dev
 # Change these variables as necessary.
 MAIN_PACKAGE_PATH := ./cmd/server/
 BINARY_NAME := tsdproxy
-PACKAGE := github.com/almeidapaulopt/tsdproxy
+PACKAGE := github.com/stephenrjr/tsdproxy
 
 
 

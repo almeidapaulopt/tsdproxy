@@ -1,239 +1,68 @@
-# PROJECT KNOWLEDGE BASE
+# TSDProxy - AGENTS.md
 
 ## OVERVIEW
 
-TSDProxy — Go reverse proxy that auto-exposes Docker containers via Tailscale. Labels Docker containers with `tsdproxy.*` to create per-container Tailscale machines with automatic HTTPS. Stack: Go 1.26, templ (UI), Vite/Bun (frontend), Hugo (docs), zerolog (logging).
+- **Go version**: `go 1.26` — require explicit version in `GOVERSION` build arg during releases
+- **Frontend build**: Use `bun run build`, result embedded by Go via `go:embed dist`. Do NOT use npm/vite directly in binary builds.
+- **E2E tests**: Requires `TS_AUTHKEY` env var; runs against real containers on Tailscale network
+- **Config format**: YAML (`tsdproxy.yaml`). See `/internal/config/configfile.go` for I/O handling
 
-## STRUCTURE
+## WORKSPACE STRUCTURE
 
 ```
 tsdproxy/
-├── cmd/
-│   └── server/main.go          # Main binary; also handles `healthcheck` subcommand for Docker HEALTHCHECK
-├── internal/
-│   ├── api/                    # REST API routes (JSON endpoints)
-│   ├── config/                 # Config loading, validation, fsnotify file watching
-│   ├── consts/                 # Shared constants (headers, proxy manager keys)
-│   ├── core/                   # HTTP server, logging, health, sessions, CSRF, version, telemetry
-│   │   ├── metrics/            # Prometheus-style metrics
-│   │   └── webhook/            # Webhook dispatch on proxy events
-│   ├── dashboard/              # SSE dashboard routes + streaming + preferences + API
-│   ├── dnsproviders/           # DNS Provider interface + Cloudflare/MagicDNS implementations
-│   ├── dom/                    # ID generation utility
-│   ├── lifecycle/              # Shared lifecycle status tracking (used by DNS + TLS providers)
-│   ├── model/                  # Shared types + port label grammar: Config, PortConfig, ProxyStatus, Ports/ApplyPortOptions
-│   ├── proxymanager/           # Central orchestrator: wires target→proxy→DNS→TLS providers
-│   ├── proxyproviders/         # ProxyProvider interface + Tailscale (per-proxy & shared)
-│   │   └── tailscale/          # Tailscale provider: Proxy, SharedProxy, SharedServer, SNIRouter
-│   ├── targetproviders/        # TargetProvider interface + Docker/List implementations
-│   │   ├── docker/             # Docker label parsing, container resolution, port mapping
-│   │   ├── incus/              # Incus instance config (user.tsdproxy.*) target provider
-│   │   ├── proxmox/            # Proxmox VE target provider (notes-based config, polling, hand-rolled REST client)
-│   │   ├── settings/           # Shared typed access to per-target settings maps (Bool/String/Int/AuthKeyFromFile)
-│   │   └── list/               # Static YAML file-based target provider
-│   ├── tlsproviders/           # TLS Provider interface + ACME/Tailscale implementations
-│   └── ui/                     # templ server-rendered components (proxy cards, pages, layouts)
-├── web/                        # Frontend: Vite/Bun + htmx, go:embed dist via statigz+brotli
-├── docs/                       # Hugo docs site (separate go.mod: github.com/imfing/hextra-starter-template)
-├── dev/                        # Dev docker-compose configs + sample tsdproxy.yaml + data
-├── e2e/                        # E2E tests (//go:build e2e, testcontainers + real Tailscale)
-└── contrib/                    # Community templates (Unraid)
+├── cmd/          # Entry binaries: server, healthcheck
+├── internal/     # Backend Go code (main implementation)
+│   ├── config/       # Config loading/validation/file watching
+│   ├── core/         # HTTP server, zerolog logging
+│   ├── dashboard/    # SSE streaming UI endpoints
+│   ├── model/        # Shared types
+│   ├── proxymanager/ # Orchestrator wiring target→proxy providers
+│   └── proxyproviders/# Tailscale proxy provider impls
+├── web/            # Frontend assets, embedded in binary via go:embed dist
+├── docs/           # Hugo docs (separate go.mod)
+├── dev/            # Docker compose configs + sample YAML
+├── e2e/            //go:build e2e tests
+└── tools/          # Development utilities and scripts
 ```
 
-## WHERE TO LOOK
+## DEVELOPMENT WORKFLOW
 
-| Task | Location | Notes |
-|------|----------|-------|
-| Add a new target provider | `internal/targetproviders/` | Implement `TargetProvider` (6 methods); see `proxmox/` for a polling (no event API) provider with a hand-rolled REST client |
-| Add a new proxy provider | `internal/proxyproviders/` | Implement `Provider` + `ProxyInterface` (+ optional `RawTCPListener`, `DomainRequiredProvider`) |
-| Add a new DNS provider | `internal/dnsproviders/` | Implement `Provider` (4 methods); for ACME also implement `certmagic.DNSProvider` |
-| Add a new TLS provider | `internal/tlsproviders/` | Implement `Provider` (4 methods) |
-| Change Docker label parsing | `internal/targetproviders/docker/consts.go` | All label constants (`tsdproxy.*`) |
-| Change port label format or options | `internal/model/port.go` | `Ports`, `ApplyPortOptions`, `PortOptionGates`; option strings + health/ratelimit bounds in `port.go`/`default.go` |
-| Change port mapping logic | `internal/targetproviders/docker/container.go` | `getPorts()`, `getTargetURL()` |
-| Modify dashboard UI | `internal/ui/pages/proxylist.templ` | templ template for proxy cards |
-| Add frontend assets | `web/` | Build with `bun run build`, embedded via go:embed |
-| Change config format | `internal/config/config.go` | Struct definitions; `configfile.go` for I/O |
-| Add HTTP routes | `internal/dashboard/dash.go` | `AddRoutes()` method |
-| Change logging | `internal/core/log.go` | zerolog setup + HTTP middleware |
-| Change release process | `.github/workflows/release.yaml` | Multi-arch Docker, version embedding |
-| Tailscale auth flow | `internal/proxyproviders/tailscale/provider.go` | OAuth vs AuthKey resolution |
-| Shared Tailscale mode | `internal/proxyproviders/tailscale/shared_server.go` | Ref-counted tsnet.Server, SNI routing |
-| DNS record management | `internal/dnsproviders/` | LifecycleManager wraps create/delete/validate with retry |
-| TLS certificate provisioning | `internal/tlsproviders/` | LifecycleManager wraps provision/cleanup |
-| Add E2E tests | `e2e/` | `//go:build e2e`, real tsdproxy binary + Tailscale + testcontainers |
-| Wire new provider into orchestrator | `internal/proxymanager/proxymanager.go` | Add case in `add*Providers()` switch |
+**Standard sequence**: `gofmt` → `go vet` → `go test ./...` → `bun run build` (frontend) → typecheck docs
 
-## CODE MAP
+**Linter**: `golangci-lint run --timeout 5m`
 
-| Symbol | Type | Location | Role |
-|--------|------|----------|------|
-| `WebApp` | Struct | `cmd/server/main.go` | Root app container, owns all subsystems |
-| `InitializeApp` | Func | `cmd/server/main.go` | Bootstrap: config→logger→HTTP→health→proxy→dashboard |
-| `TargetProvider` | Interface | `internal/targetproviders/targetproviders.go` | 6-method contract: WatchEvents, AddTarget, DeleteProxy, ReResolve, Close |
-| `Provider` | Interface | `internal/proxyproviders/proxyproviders.go` | Factory: ResolveAuthKey + NewProxy |
-| `ProxyInterface` | Interface | `internal/proxyproviders/proxyproviders.go` | Per-proxy: Start, Close, GetListener, GetURL, WatchEvents, Whois |
-| `RawTCPListener` | Interface | `internal/proxyproviders/proxyproviders.go` | Optional: GetRawTCPListener for custom TLS termination |
-| `DomainRequiredProvider` | Interface | `internal/proxyproviders/proxyproviders.go` | Optional: IsDomainRequired (shared Tailscale needs domains) |
-| `dnsproviders.Provider` | Interface | `internal/dnsproviders/dnsproviders.go` | CreateRecord, DeleteRecord, ValidateRecord |
-| `tlsproviders.Provider` | Interface | `internal/tlsproviders/tlsproviders.go` | Provision, GetCertificate, Cleanup |
-| `ProxyManager` | Struct | `internal/proxymanager/proxymanager.go` | Orchestrator: watches events, manages proxy lifecycle, wires all 4 provider types |
-| `Proxy` | Struct | `internal/proxymanager/proxy.go` | Per-container proxy: start/stop/status/ports |
-| `SharedServer` | Struct | `internal/proxyproviders/tailscale/shared_server.go` | Ref-counted shared tsnet.Server with event-loop state machine |
-| `ServicesServer` | Struct | `internal/proxyproviders/tailscale/services_server.go` | VIP Service-based shared tsnet.Server with event-loop state machine |
-| `ServiceProxy` | Struct | `internal/proxyproviders/tailscale/service_proxy.go` | Services mode facade: acquires/releases VIP ServiceListeners |
-| `AuthManager` | Struct | `internal/proxyproviders/tailscale/auth_manager.go` | 5-level auth key resolution chain + OAuth key generation |
-| `NodeLifecycle` | Struct | `internal/proxyproviders/tailscale/node_lifecycle.go` | Full node lifecycle: startup, state cleanup, device reconciliation, retry |
-| `StatusWatcher` | Struct | `internal/proxyproviders/tailscale/status_watcher.go` | Polls tsnet backend state, classifies into ProxyStatus events |
-| `DeviceReconciler` | Struct | `internal/proxyproviders/tailscale/device_reconciler.go` | Prevents Tailscale "-1" hostname suffix duplication |
-| `StateManager` | Struct | `internal/proxyproviders/tailscale/state_manager.go` | Stale state detection/cleanup via persisted meta comparison |
-| `PortRouter` | Struct | `internal/proxyproviders/tailscale/port_router.go` | SNI/HTTP Host routing: TLS ClientHello peeking, domain dispatch |
-| `WhoisCache` | Struct | `internal/proxyproviders/tailscale/whois_cache.go` | TTL-based cache + singleflight dedup for Tailscale identity |
-| `HTTPServer` | Struct | `internal/core/http.go` | HTTP mux + middleware chain |
-| `InitializeConfig()` | Func | `internal/config/config.go` | Returns `(*ConfigData, error)` — callers inject the result into constructors |
-| `Config` (per-proxy) | Struct | `internal/model/proxyconfig.go` | Per-proxy config: hostname, ports, tailscale, dashboard, providers |
-| `PortConfig` | Struct | `internal/model/port.go` | Port mapping: target, proxy port, TLS, redirect |
-| `Dashboard` | Struct | `internal/dashboard/dash.go` | SSE streaming dashboard |
-| `ConfigFile` | Struct | `internal/config/configfile.go` | YAML I/O with fsnotify live-reload |
-| `LifecycleManager` (DNS) | Struct | `internal/dnsproviders/lifecycle.go` | SetupDNS/CleanupDNS with retry + status tracking |
-| `LifecycleManager` (TLS) | Struct | `internal/tlsproviders/lifecycle.go` | Provision/Cleanup with status tracking |
-| `httpclient.Doer` | Interface | `internal/core/httpclient/httpclient.go` | HTTP client abstraction (`Do(req) (*http.Response, error)`). Satisfied by `*http.Client`. Injected into cloudflare, webhook, healthChecker. |
-| `docker.APIClient` | Interface | `internal/targetproviders/docker/docker_client.go` | Docker SDK abstraction (6 methods: ContainerInspect, ServiceInspect, Events, ContainerList, NetworkList, Close). Satisfied by `*client.Client`. |
-| `TSNetServer` | Interface | `internal/proxyproviders/tailscale/tsnet_interface.go` | tsnet.Server abstraction (10 methods: Listen, ListenTLS, ListenFunnel, ListenPacket, TailscaleIPs, CertDomains, Start, Close, LocalClient, ListenService). Satisfied by `*tsnet.Server`. |
+**Codegen**: `go generate ./...` (if non-identity scripts exist)
 
-## ARCHITECTURE
+## KEY ENTRYPOINTS
+
+- Main binary: `cmd/server/main.go` (`InitializeApp()` → config→logger→HTTP)
+- Config singleton: `internal/config/config.go` (`Config` global var accessed everywhere)
+- Docker labels parsed in: `internal/targetproviders/docker/consts.go` (all label constants centralized here)
+
+## ARCHITECTURE FLOW
 
 ```
-Docker containers ──labels──► TargetProvider (Docker/List)
-                                    │
-                                    ▼
-                              ProxyManager ◄── config
-                                    │
-                          ┌─────────┼─────────┐
-                          ▼         ▼         ▼
-                   ProxyProvider  DNSProvider  TLSProvider
-                   (Tailscale)   (CF/MagicDNS) (ACME/Tailscale)
-                          │
-                          ▼
-                   tsnet.Server (per-proxy or shared)
-                          │
-                          ▼
-                   HTTP/TCP reverse proxy → container port
+Docker containers ──(tsdproxy.enable label)──► TargetProvider (Docker/List)
+                                               │
+                                               ▼
+                                       ProxyManager ◄── config
+                                               │
+                                               ▼
+                                       ProxyProvider (Tailscale)
+                                               │
+                                               ▼
+                                          tsnet.Server
 ```
 
-Data flow: TargetProvider watches containers → emits TargetEvent → ProxyManager creates Proxy → resolves ProxyProvider + DNSProvider + TLSProvider → Proxy spins up tsnet.Server → reverse-proxies traffic to container.
+Data flow: Target watch → event emitters → Proxy lifecycle → Tailscale machine → reverse proxy to container.
 
-Provider resolution per-proxy: `cfg.ProxyProvider` → target provider default → global default. Same cascade for DNS and TLS providers.
+## IMPORTANT QUirks
 
-### Supported Exposure Modes
+1. **Frontend embedding**: `web/` contents embedded from `go.mod` replace in `internal/core/http.go`. Build `dist` folder first via bun before Go embed works.
 
-1. **Tailscale-only per proxy** — each proxy gets its own Tailscale connection, DNS via MagicDNS, TLS via Tailscale certs.
-2. **Per-proxy Tailscale + external DNS/ACME** — own Tailscale connection, hostname via external DNS (Cloudflare), TLS via ACME/Let's Encrypt.
-3. **Shared Tailscale + external DNS/ACME** — multiple proxies share one tsnet.Server, each hostname via external DNS + ACME cert. Only HTTPS ports supported (SNI routing requires TLS ClientHello; TCP/HTTP ports rejected at startup).
-4. **Services/VIP mode** — multiple proxies share one tsnet.Server using Tailscale VIP Services. Each service gets auto-assigned FQDN from Tailscale. No custom domain support. No UDP support.
+2. **Port resolution order**: In `getTargetURL()` logic (internal/targetproviders/docker/container.go): self-host → probe (5 retries) → published + gateway → container IP. Same for all protocols (HTTP/TCP/UDP).
 
-Keep all four modes working when changing proxy startup, DNS provisioning, TLS provider selection, or shared Tailscale lifecycle.
+3. **Live config reload**: fsnotify watches `/config/tsdproxy.yaml`. Changes trigger automatic Proxy re-initialization without restart.
 
-### Provider Extensibility
-
-Four parallel provider hierarchies, each with interface at top level and implementations in subdirectories:
-
-- `internal/targetproviders/` → `docker/`, `list/`
-- `internal/proxyproviders/` → `tailscale/`
-- `internal/dnsproviders/` → `cloudflare/`, `magicdns/`
-- `internal/tlsproviders/` → `acme/`, `tailscale/`
-
-Registration is config-driven via switch statements in `ProxyManager.add*Providers()`. Compile-time interface checks: `var _ Interface = (*Impl)(nil)`.
-
-### Target URL Resolution
-
-`getTargetURL()` in `internal/targetproviders/docker/container.go` — protocol-agnostic chain (same for HTTP/TCP/UDP):
-
-1. **resolveSelfHost** — container IS tsdproxy → `127.0.0.1:internalPort`
-2. **resolveByProbing** — dial container IPs and gateways (5 retries, 5s sleep)
-3. **resolvePublished** — `defaultTargetHostname:publishedPort`
-4. **resolveViaGateway** — Docker network gateway + published port (bridge-mode only)
-5. **resolveContainerIP** — direct container IP + internal port, last resort (bridge-mode only)
-
-Steps 4–5 skipped for host-network containers.
-
-## CONVENTIONS
-
-- **SPDX headers required**: Every `.go` file must start with `SPDX-FileCopyrightText` + `SPDX-License-Identifier: MIT` (enforced by `goheader` linter)
-- **Config via dependency injection**: `*config.Data` passed through constructors (not global singleton)
-- **Interface-driven deps**: External dependencies abstracted behind interfaces: `httpclient.Doer` (HTTP), `docker.APIClient` (Docker SDK), `TSNetServer` (tsnet). Injected via variadic constructor params with backward-compatible defaults.
-- **Provider pattern**: Four provider types pluggable via interfaces; register via config-driven switch in `proxymanager.go`
-- **Zero-value defaults**: `github.com/creasty/defaults` for struct defaults; `model/default.go` for constants
-- **Error handling**: Three-tier: `fmt.Errorf("context: %w", err)` wrapping → sentinel `ErrFoo` vars → custom `XxxError` types
-- **Logging**: zerolog with `log.With().Str("key", val).Logger()` for context. `"module"` or `"component"` key. Trace for function boundaries, Debug for lifecycle, Info for state changes, Error with `.Err(err)`.
-- **Unit tests**: Co-located `*_test.go` files, run with `go test ./...` (or `make test` using gotestsum). `t.Parallel()` is default; exceptions must carry a `// NOTE:` comment explaining why (e.g. global state mutation). Stdlib `t.Fatalf`/`t.Errorf` only — no testify in unit tests (e2e tests may use testify).
-- **Goroutine leak verification**: Every package with concurrent code ships a `goleak_test.go` calling `goleak.VerifyTestMain(m)` in `TestMain`. Use `goleak.IgnoreTopFunction(...)` / `IgnoreAnyFunction(...)` for known long-lived goroutines (e.g. webhook worker, http2 readLoop).
-- **E2E tests**: `e2e/` — `//go:build e2e`, testcontainers + real Tailscale. Env vars: `TSDPROXY_E2E_AUTHKEY`/`TSDPROXY_E2E_AUTHKEY_FILE`, `TSDPROXY_E2E_CLIENTID`/`TSDPROXY_E2E_CLIENTSECRET`, `TS_TAGS`
-- **Bug-fix TDD protocol (MANDATORY)**: When fixing a bug, follow this sequence:
-  1. **Reproduce first** — Write a failing test that reproduces the bug. Run it and confirm it FAILS. This proves the bug exists and that your test actually exercises it.
-  2. **Apply the fix** — Make the minimal code change required.
-  3. **Verify the test passes** — Run the same test again and confirm it PASSES.
-  4. **If the test itself needs changes during the fix** — Run the updated test WITHOUT the fix applied first (it MUST fail), then run it WITH the fix applied (it MUST pass). This guards against tests that pass for the wrong reason or that no longer actually exercise the bug.
-  - Never skip step 1. A fix without a failing test first is not a verified fix — it is a guess.
-  - **Bug-regression artifacts**: `*_bug_test.go` filename suffix for dedicated regression files; `TestXxx_BUG` function suffix for tests designed to FAIL today (encoding invariants not yet enforced). Header block: ID, description, attack scenario, expected post-fix behavior, "Today: this test fails because…" line. GHSA references in test names/comments for security regressions.
-- **Frontend build**: `web/` uses Bun + Vite; `web/dist/` embedded via `go:embed` + statigz + brotli
-- **UI framework**: `templ` for server-rendered HTML; htmx 4 + `hx-sse` for live updates
-- **Import aliases**: Descriptive when packages collide: `cloudflaredns`, `magicdns`, `acmetls`, `tailscaletls`, `tsproxy`
-- **Import ordering**: Three groups via goimports: stdlib → third-party → project-internal (`github.com/almeidapaulopt/tsdproxy`)
-- **nolint convention**: Avoid `//nolint` directives unless strictly necessary. When unavoidable, use specific linter name (`//nolint:gosec`, `//nolint:mnd`) with a brief justification — never bare `//nolint`. Prefer fixing the underlying issue (extract function, rename, simplify) over suppressing.
-- **Magic numbers**: Define named constants for default values, bounds, and thresholds. Do NOT use `//nolint:mnd` to suppress — extract a constant instead (e.g. `const defaultRateLimitMaxRPS = 10000`). Existing `//nolint:mnd` in legacy code is a known debt, not a pattern to follow.
-
-## DASHBOARD STACK
-
-- **Frontend framework:** htmx 4 with `hx-sse` extension. `<hx-partial>` for SSE DOM updates.
-- **SSE pattern:** Server sends pre-rendered HTML fragments. `<hx-partial hx-target="..." hx-swap="...">` targets DOM elements server-side.
-- **Modals:** Loaded into `#modal-root` outside `#proxy-list` via `hx-get`, decoupled from live list updates.
-- **Sorting/filtering/grouping:** Server-side via `hx-get`; returns ready-to-swap HTML.
-- **User preferences:** Persisted per Tailscale user as JSON at `{DataDir}/dashboard/preferences/{userID}.json`. Identity key: `ResolveWhois(r).ID`, fallback `__localhost__`. Schema: `dark`, `view`, `sort`, `grouped`, `filterStatus`, `filterHealth`, `pinned`. Search is transient.
-- **Proxy actions:** `hx-post` with `hx-swap="none"` — SSE drives state updates.
-
-## COMMANDS
-
-```bash
-# Development
-make dev                    # Start docker containers + assets + server with hot reload (air)
-make build                  # Build binary to ./tmp/tsdproxy (ldflags version injection)
-make run                    # Build + run (needs make bootstrap first)
-
-# Testing
-make test                   # Run all unit tests (gotestsum -race -buildvcs)
-make test/cover             # Tests with coverage report
-make test/e2e               # E2E tests with gotestsum -tags=e2e (needs TSDPROXY_E2E_AUTHKEY)
-
-# Quality
-make audit                  # Full audit: golangci-lint, staticcheck, go vet, deadcode, govulncheck, gosec
-make ci                     # Destructive clean rebuild + test (CI equivalent)
-golangci-lint run --fix     # Run golangci-lint and auto-fix issues where possible
-
-# Frontend
-cd web && bun run dev       # Vite dev server (proxies to Go backend on :8080)
-cd web && bun run build     # Build frontend to web/dist/
-
-# Docker
-make docker_image           # Build local Docker image (Dockerfile)
-make dev_docker             # Run dev container
-
-# Docs
-make docs                   # Hugo docs server (localhost:1313)
-
-# Release (CI)
-# Tags v1.* → .github/workflows/release.yaml (stable, DockerHub + GHCR + Homebrew + AUR + cosign)
-# Push to main → .github/workflows/release-dev.yaml (dev snapshot, Docker images only)
-```
-
-## NOTES
-
-- **Version embedding**: CI ldflags inject `internal/core.version`. Makefile ldflags match — `make build` shows real version when `VERSION` is set
-- **Tailscale version injection**: CI overwrites `tailscale.com/version.*` vars via ldflags to stamp Tailscale with TSDProxy context
-- **Config live-reload**: `internal/config/configfile.go` uses fsnotify to watch config file changes
-- **Health check**: The server binary's `healthcheck` subcommand pings `http://127.0.0.1:8080/health/ready/` — Docker HEALTHCHECK
-- **Docker labels**: All container labels start with `tsdproxy.` (see `internal/targetproviders/docker/consts.go`)
-- **docs/ is separate Go module**: `github.com/imfing/hextra-starter-template` — `go test ./...` at root ignores it
-- **Three Dockerfiles**: `Dockerfile` (local multi-stage build from source), `Dockerfile.ci` (CI release images from pre-built binaries), `dev/Dockerfile.dev` (hot-reload dev)
-- **Icon pipeline**: `web/scripts/download-icons.js` downloads SVGs from GitHub with SHA256 verification, cached by content-hash
-- **Per-target serialization**: ProxyManager uses per-ID mutex (`sync.Map` of `*sync.Mutex`) so start/stop for same container can't interleave
+4. **E2E setup**: `e2e/` tests need running Docker containers with TSDProxy binary + real Tailscale network access (TS_AUTHKEY auth or direct machine keys).

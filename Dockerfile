@@ -1,13 +1,9 @@
 # SPDX-FileCopyrightText: 2024 Paulo Almeida <almeidapaulopt@gmail.com>
 # SPDX-License-Identifier: MIT
 
-FROM --platform=$BUILDPLATFORM oven/bun:1 AS frontend
-WORKDIR /app/web
-COPY web/package.json web/bun.lock* ./
-RUN bun install --frozen-lockfile
-COPY web/ ./
-COPY internal/ /app/internal/
-RUN bun run build
+# Use an official Go image as the build base
+FROM golang:1.27 AS builder
+RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
 
 FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 
@@ -25,25 +21,20 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
-COPY --from=frontend /app/web/dist ./web/dist
+ARG VERSION=0.0.0
+ARG TAILSCALE_VERSION=0.0.0
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
 
-RUN go install github.com/a-h/templ/cmd/templ@latest && templ generate
+LABEL org.opencontainers.image.title="TSDproxy" \
+      org.opencontainers.image.description="Temporary image based on v2.3.4 containing patched dependencies (especially tsnet)." \
+      org.opencontainers.image.source="https://github.com/stephenrjr/tsdproxy" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.maintainer="stephenrjr@gmail.com"
 
-# GOARM derived from TARGETVARIANT: v6→6, v7→7; empty for non-arm arches
-RUN GOARM=${TARGETVARIANT#v} go build \
-      -ldflags "-s -w \
-        -X github.com/almeidapaulopt/tsdproxy/internal/core.version=${VERSION} \
-        -X tailscale.com/version.Short=${TAILSCALE_VERSION} \
-        -X tailscale.com/version.Long=${TAILSCALE_VERSION}-TSDProxy \
-        -X tailscale.com/version.GitCommit=${GIT_COMMIT} \
-        -X tailscale.com/version.shortStamp=${TAILSCALE_VERSION} \
-        -X tailscale.com/version.longStamp=${TAILSCALE_VERSION}-TSDProxy \
-        -X tailscale.com/version.gitCommitStamp=${GIT_COMMIT}" \
-      -o /tsdproxyd ./cmd/server/
-
-FROM alpine:latest AS certs
-RUN apk add --no-cache ca-certificates && update-ca-certificates 2>/dev/null || true
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 FROM scratch
 
