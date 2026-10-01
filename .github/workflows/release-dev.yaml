@@ -32,7 +32,7 @@ jobs:
           echo "tailscale_version=$TS_VER" >> "$GITHUB_OUTPUT"
           echo "git_commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
           cache: false
@@ -86,7 +86,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
           cache: false
