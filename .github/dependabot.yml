@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: "daily"
 
-  - package-ecosystem: "npm"
+  - package-ecosystem: "bun"
     directory: "/web"
     schedule:
       interval: "weekly"
