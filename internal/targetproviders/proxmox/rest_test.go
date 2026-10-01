@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -22,9 +23,14 @@ func newPVE(
 ) (func(mutate ...func(*config.ProxmoxTargetProviderConfig)) *config.ProxmoxTargetProviderConfig, func() string) {
 	t.Helper()
 
-	var auth string
+	var (
+		mu   sync.Mutex
+		auth string
+	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
 		auth = req.Header.Get("Authorization")
+		mu.Unlock()
 
 		if req.URL.Path == "/api2/json/version" {
 			w.Header().Set("Content-Type", "application/json")
@@ -36,15 +42,19 @@ func newPVE(
 	t.Cleanup(server.Close)
 
 	return func(mutate ...func(*config.ProxmoxTargetProviderConfig)) *config.ProxmoxTargetProviderConfig {
-		provider := &config.ProxmoxTargetProviderConfig{
-			URL:      server.URL,
-			APIToken: secretstring.SecretString("root@pam!test=secret-uuid"),
+			provider := &config.ProxmoxTargetProviderConfig{
+				URL:      server.URL,
+				APIToken: secretstring.SecretString("root@pam!test=secret-uuid"),
+			}
+			for _, m := range mutate {
+				m(provider)
+			}
+			return provider
+		}, func() string {
+			mu.Lock()
+			defer mu.Unlock()
+			return auth
 		}
-		for _, m := range mutate {
-			m(provider)
-		}
-		return provider
-	}, func() string { return auth }
 }
 
 func TestRestClient_TokenFormatValidated(t *testing.T) {
