@@ -12,7 +12,7 @@ require (
 	github.com/libdns/libdns v1.1.1
 	github.com/lxc/incus/v7 v7.5.1
 	github.com/moby/moby/api v1.56.1
-	github.com/moby/moby/client v0.6.0
+	github.com/moby/moby/client v0.6.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
 	github.com/rs/zerolog v1.35.1
