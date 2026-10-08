@@ -125,8 +125,8 @@ proxyname: # Name of the proxy
 
   ports:
     port/protocol: #example 443/https, 80/http, 22/tcp, 56000-56002/udp
-    targets: # list of targets (in this version only the first will be used)
-      - http://sub.domain.com:8111 # change to your target
+      targets: # list of targets (in this version only the first will be used)
+        - http://sub.domain.com:8111 # change to your target
     tailscale: # (optional)
       funnel: true # (optional) (defaults to false), enable funnel mode
     isRedirect: true # (optional) (defaults to false), redirect to the target 
@@ -146,3 +146,4 @@ proxyname: # Name of the proxy
 > See available icons in [icons](../../advanced/icons).
 
 {{% /steps %}}
+
