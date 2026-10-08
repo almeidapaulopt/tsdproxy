@@ -152,4 +152,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ---
 
-[![Star History Chart](https://api.star-history.com/svg?repos=almeidapaulopt/tsdproxy&type=Date)](https://star-history.com/#almeidapaulopt/tsdproxy&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=almeidapaulopt/tsdproxy&type=Date)](https://star-history.dera.page/#almeidapaulopt/tsdproxy&Date)
