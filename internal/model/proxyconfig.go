@@ -25,6 +25,7 @@ type (
 		Domain              string    `validate:"omitempty,fqdn" yaml:"domain"`
 		DNSProvider         string    `validate:"omitempty" yaml:"dnsProvider"`
 		TLSProvider         string    `validate:"omitempty" yaml:"tlsProvider"`
+		ResolvedTLSProvider string    `yaml:"-"` // Implementation name selected before traffic exposure starts.
 		Tailscale           Tailscale `validate:"dive"`
 		Dashboard           Dashboard `validate:"dive"`
 		HealthCheckInterval int       `default:"30" validate:"numeric,min=1"`
