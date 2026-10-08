@@ -3,7 +3,7 @@ module github.com/almeidapaulopt/tsdproxy
 go 1.26.7
 
 require (
-	github.com/a-h/templ v0.3.1020
+	github.com/a-h/templ v0.3.1070
 	github.com/caddyserver/certmagic v0.25.4
 	github.com/creasty/defaults v1.11.0
 	github.com/fsnotify/fsnotify v1.10.1
