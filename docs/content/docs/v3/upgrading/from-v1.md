@@ -49,6 +49,43 @@ nas1:
         - https://192.168.1.2:5001
 ```
 
+### Check Docker backend connectivity
+
+Successful Tailscale registration and certificate provisioning do not confirm
+that TSDProxy can reach the application backend. If applications time out with
+HTTP 502 after upgrading, check the Docker provider settings in `tsdproxy.yaml`.
+
+For reachable container networks, enable target URL probing under `docker.local`:
+
+```yaml {filename="/config/tsdproxy.yaml"}
+docker:
+  local:
+    tryDockerInternalNetwork: true
+```
+
+TSDProxy must be able to reach the target container's network and application
+port, normally by sharing a Docker network with the container. Enabling probing
+does not make isolated networks reachable. A container label
+`tsdproxy.autodetect: "false"` overrides this provider setting; remove or update
+that label if you want the container to use probing.
+
+In a reported migration, commenting out an unsuitable
+`targetHostname: host.docker.internal` and enabling `tryDockerInternalNetwork`
+restored access. Omitting `targetHostname` still applies its default
+(`172.31.0.1`); it does not clear the effective hostname or enable automatic
+discovery on its own. If probing fails, the fallback hostname and port must
+still be reachable.
+
+If you use host-based access instead, set `targetHostname` to a Docker host
+address that resolves and is reachable from TSDProxy, and publish the
+application's port on that host so TSDProxy can reach it. Step 1's
+`host.docker.internal:host-gateway` mapping supplies the hostname mapping; it
+does not publish application ports or guarantee connectivity through firewalls
+or port bindings.
+
+See [Docker server configuration]({{< ref "/docs/v3/serverconfig#trydockerinternalnetwork" >}})
+for provider settings and per-container overrides.
+
 ## Step 3: Migrate Docker Labels
 
 | V1 | V2 |
@@ -64,7 +101,14 @@ nas1:
 docker compose pull && docker compose up -d
 ```
 
-Check Dashboard at `http://<IP>:8080`.
+Check Dashboard at `http://<IP>:8080`, then open an application's proxied URL
+and confirm it returns the expected response. A healthy Tailscale node and a
+valid certificate alone are not enough to verify the upgrade.
+
+If HTTP 502 persists, inspect the TSDProxy logs (for example,
+`docker compose logs tsdproxy`) for target URL auto-detection attempts and the
+selected backend address and port. Check that this backend is reachable from
+TSDProxy's container or network, using the connectivity guidance in Step 2.
 
 ## Post-Upgrade: v2.2.0 Breaking Changes
 
