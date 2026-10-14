@@ -282,6 +282,9 @@ func commonPrefixLen(a, b string) int {
 // returned as keyIssue entries together with suggestions scoped to the
 // struct type expected at the offending location.
 //
+// The root Data key "files" is accepted as a deprecated alias of "lists"
+// before unknown keys are collected.
+//
 // node is typically the DocumentNode returned by yaml.Unmarshal into a
 // *yaml.Node; DocumentNode and zero-value nodes are handled
 // transparently. Rewrites are performed in place on the tree, so a
@@ -347,6 +350,9 @@ func walkMapValues(node *yaml.Node, typ reflect.Type, lookup *keyLookup, issues 
 }
 
 func walkStructMapping(node *yaml.Node, typ reflect.Type, lookup *keyLookup, issues *[]keyIssue, log zerolog.Logger, path string) {
+	if indirectType(typ) == dataType {
+		aliasDeprecatedFilesKey(node, log)
+	}
 	for i := 0; i < len(node.Content); i += 2 {
 		keyNode := node.Content[i]
 		valNode := node.Content[i+1]
@@ -395,6 +401,84 @@ func recurseFieldValue(valNode *yaml.Node, fieldType reflect.Type, lookup *keyLo
 		walkNode(valNode, ft, lookup, issues, log, path)
 	case reflect.Slice, reflect.Array:
 		walkNode(valNode, ft.Elem(), lookup, issues, log, path)
+	}
+}
+
+const (
+	legacyFilesKey = "files"
+	listsKey       = "lists"
+)
+
+// dataType is the root configuration struct. The files alias applies only
+// there; nested mappings keep strict unknown-key checks.
+var dataType = reflect.TypeOf(Data{})
+
+// aliasDeprecatedFilesKey accepts the v1 root key "files" as an alias of
+// "lists" before unknown keys are collected. When lists is absent, the key
+// is rewritten so Decode fills Data.Lists. When both are present and files
+// is empty, that pair is removed. A non-empty files value beside lists is
+// left unchanged so load fails with the unknown-field error.
+//
+// files stays out of the struct and the key lookup: File.Save would write
+// the deprecated key back, and Decode would drop a populated provider map
+// if the key remained unknown.
+func aliasDeprecatedFilesKey(node *yaml.Node, log zerolog.Logger) {
+	filesIdx, hasFiles, hasLists := findFilesAndListsKeys(node)
+	if !hasFiles {
+		return
+	}
+	original := node.Content[filesIdx].Value
+	if !hasLists {
+		warnDeprecatedFilesKey(log, original, "deprecated config key files accepted as lists")
+		node.Content[filesIdx].Value = listsKey
+		return
+	}
+	if !yamlValueEmpty(node.Content[filesIdx+1]) {
+		return
+	}
+	node.Content = append(node.Content[:filesIdx], node.Content[filesIdx+2:]...)
+	warnDeprecatedFilesKey(log, original, "ignoring empty deprecated config key files; using lists")
+}
+
+func findFilesAndListsKeys(node *yaml.Node) (filesIdx int, hasFiles, hasLists bool) {
+	for i := 0; i < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		if keyNode.Kind != yaml.ScalarNode {
+			continue
+		}
+		switch normalizeKey(keyNode.Value) {
+		case legacyFilesKey:
+			if !hasFiles {
+				filesIdx = i
+				hasFiles = true
+			}
+		case listsKey:
+			hasLists = true
+		}
+	}
+	return filesIdx, hasFiles, hasLists
+}
+
+func warnDeprecatedFilesKey(log zerolog.Logger, original, message string) {
+	log.Warn().
+		Str("from", original).
+		Str("to", listsKey).
+		Msg(message)
+}
+
+// yamlValueEmpty reports an empty mapping, an empty sequence, or a null
+// scalar (tag !!null, null, ~, or an empty value).
+func yamlValueEmpty(n *yaml.Node) bool {
+	if n == nil || n.Kind == 0 {
+		return true
+	}
+	switch n.Kind {
+	case yaml.MappingNode, yaml.SequenceNode:
+		return len(n.Content) == 0
+	case yaml.ScalarNode:
+		return n.ShortTag() == "!!null" || n.Value == ""
+	default:
+		return false
 	}
 }
 

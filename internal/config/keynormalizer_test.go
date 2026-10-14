@@ -4,6 +4,7 @@
 package config
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -322,4 +323,114 @@ func TestQuoteList(t *testing.T) {
 	assert.Equal(t, `"only"`, quoteList([]string{"only"}))
 	assert.Equal(t, `"a" or "b"`, quoteList([]string{"a", "b"}))
 	assert.Equal(t, `"a", "b" or "c"`, quoteList([]string{"a", "b", "c"}))
+}
+
+func TestNormalize_V1FilesKey(t *testing.T) {
+	yamlIn := strings.Join([]string{
+		"defaultProxyProvider: default",
+		"docker:",
+		"  local:",
+		"    host: unix:///var/run/docker.sock",
+		"    targetHostname: 172.31.0.1",
+		"    defaultProxyProvider: default",
+		"files: {}",
+		"tailscale:",
+		"  providers:",
+		"    default:",
+		"      controlUrl: https://controlplane.tailscale.com",
+		"http:",
+		"  hostname: 0.0.0.0",
+		"  port: 8080",
+		"log:",
+		"  level: info",
+		"  json: false",
+		"proxyAccessLog: true",
+	}, "\n")
+	cfg := &Data{}
+	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
+	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
+	cfg.Lists = make(map[string]*ListTargetProviderConfig)
+	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
+	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
+	var buf bytes.Buffer
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.New(&buf))
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Lists)
+	assert.Equal(t, "default", cfg.DefaultProxyProvider)
+	logged := buf.String()
+	assert.Contains(t, logged, "warn")
+	assert.Contains(t, logged, "files")
+	assert.Contains(t, logged, "lists")
+}
+
+func TestNormalize_PopulatedFilesAlias(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+	}{
+		{name: "files", key: "files"},
+		{name: "Files", key: "Files"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlIn := tc.key + ":\n  media:\n    filename: /config/media.yaml\n    defaultProxyProvider: default\n"
+			cfg := &Data{}
+			cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
+			cfg.Docker = make(map[string]*DockerTargetProviderConfig)
+			cfg.Lists = make(map[string]*ListTargetProviderConfig)
+			cfg.DNSProviders = make(map[string]*DNSProviderConfig)
+			cfg.TLSProviders = make(map[string]*TLSProviderConfig)
+			err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
+			require.NoError(t, err)
+			require.Contains(t, cfg.Lists, "media")
+			got := cfg.Lists["media"]
+			require.NotNil(t, got)
+			assert.Equal(t, "/config/media.yaml", got.Filename)
+			assert.Equal(t, "default", got.DefaultProxyProvider)
+		})
+	}
+}
+
+func TestNormalize_EmptyFilesBesideLists(t *testing.T) {
+	yamlIn := "lists:\n  media:\n    filename: /config/media.yaml\nfiles: {}\n"
+	cfg := &Data{}
+	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
+	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
+	cfg.Lists = make(map[string]*ListTargetProviderConfig)
+	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
+	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
+	require.NoError(t, err)
+	require.Contains(t, cfg.Lists, "media")
+	require.NotNil(t, cfg.Lists["media"])
+	assert.Equal(t, "/config/media.yaml", cfg.Lists["media"].Filename)
+}
+
+func TestNormalize_FilesAndListsConflict(t *testing.T) {
+	yamlIn := "lists:\n  media:\n    filename: /config/media.yaml\nfiles:\n  other:\n    filename: /config/other.yaml\n"
+	cfg := &Data{}
+	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
+	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
+	cfg.Lists = make(map[string]*ListTargetProviderConfig)
+	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
+	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
+	err := unmarshalNormalized([]byte(yamlIn), cfg, zerolog.Nop())
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "unknown field")
+	assert.Contains(t, msg, "\"files\"")
+}
+
+func TestNormalize_RejectsUnknownRootKey(t *testing.T) {
+	cfg := &Data{}
+	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
+	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
+	cfg.Lists = make(map[string]*ListTargetProviderConfig)
+	cfg.DNSProviders = make(map[string]*DNSProviderConfig)
+	cfg.TLSProviders = make(map[string]*TLSProviderConfig)
+	err := unmarshalNormalized([]byte("notAField: true\n"), cfg, zerolog.Nop())
+	require.Error(t, err)
+	msg := err.Error()
+	assert.Contains(t, msg, "unknown field")
+	assert.Contains(t, msg, "notAField")
 }
