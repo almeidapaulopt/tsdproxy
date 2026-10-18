@@ -825,6 +825,99 @@ func TestApplyPortOptions(t *testing.T) {
 			t.Error("expected TLSValidate=false after trimming whitespace")
 		}
 	})
+
+	t.Run("tcp_idle_timeout option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_idle_timeout=15m"})
+		if port.TCPIdleTimeout != 15*time.Minute {
+			t.Errorf("expected TCPIdleTimeout=15m, got %v", port.TCPIdleTimeout)
+		}
+		if port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=false")
+		}
+	})
+
+	t.Run("tcp_idle_timeout=0 disables timeout", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_idle_timeout=0"})
+		if !port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=true")
+		}
+		if port.TCPIdleTimeout != 0 {
+			t.Errorf("expected TCPIdleTimeout=0, got %v", port.TCPIdleTimeout)
+		}
+	})
+
+	t.Run("no_tcp_idle_timeout option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tcp_idle_timeout"})
+		if !port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=true")
+		}
+		if port.TCPIdleTimeout != 0 {
+			t.Errorf("expected TCPIdleTimeout=0, got %v", port.TCPIdleTimeout)
+		}
+	})
+
+	t.Run("no_idle_timeout alias option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_idle_timeout"})
+		if !port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=true")
+		}
+		if port.TCPIdleTimeout != 0 {
+			t.Errorf("expected TCPIdleTimeout=0, got %v", port.TCPIdleTimeout)
+		}
+	})
+
+	t.Run("idle_timeout alias option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"idle_timeout=30s"})
+		if port.TCPIdleTimeout != 30*time.Second {
+			t.Errorf("expected TCPIdleTimeout=30s, got %v", port.TCPIdleTimeout)
+		}
+	})
+
+	t.Run("tcp_keepalive option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_keepalive"})
+		if !port.TCPKeepAliveEnabled {
+			t.Error("expected TCPKeepAliveEnabled=true")
+		}
+		if port.TCPKeepAlive != DefaultTCPKeepAlive {
+			t.Errorf("expected TCPKeepAlive=%v, got %v", DefaultTCPKeepAlive, port.TCPKeepAlive)
+		}
+	})
+
+	t.Run("tcp_keepalive with custom duration", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_keepalive=1m"})
+		if !port.TCPKeepAliveEnabled {
+			t.Error("expected TCPKeepAliveEnabled=true")
+		}
+		if port.TCPKeepAlive != time.Minute {
+			t.Errorf("expected TCPKeepAlive=1m, got %v", port.TCPKeepAlive)
+		}
+	})
+
+	t.Run("no_tcp_keepalive option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TCPKeepAliveEnabled: true, TCPKeepAlive: time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tcp_keepalive"})
+		if port.TCPKeepAliveEnabled {
+			t.Error("expected TCPKeepAliveEnabled=false")
+		}
+		if port.TCPKeepAlive != 0 {
+			t.Errorf("expected TCPKeepAlive=0, got %v", port.TCPKeepAlive)
+		}
+	})
 }
 
 func TestApplyPortOptions_OperatorGated(t *testing.T) {

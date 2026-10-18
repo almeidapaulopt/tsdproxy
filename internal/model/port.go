@@ -11,20 +11,25 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 )
 
 type (
 	PortConfig struct {
-		targets       *targetState
-		name          string        `validate:"string" yaml:"name"`
-		ProxyProtocol string        `validate:"string" yaml:"proxyProtocol"`
-		ProxyPort     int           `validate:"hostname_port" yaml:"proxyPort"`
-		TLSValidate   bool          `validate:"boolean" yaml:"tlsValidate"`
-		NoAutoDetect  bool          `validate:"boolean" yaml:"noAutoDetect"`
-		IsRedirect    bool          `validate:"boolean" yaml:"isRedirect"`
-		Tailscale     TailscalePort `validate:"dive" yaml:"tailscale"`
+		targets                *targetState
+		name                   string        `validate:"string" yaml:"name"`
+		ProxyProtocol          string        `validate:"string" yaml:"proxyProtocol"`
+		ProxyPort              int           `validate:"hostname_port" yaml:"proxyPort"`
+		TLSValidate            bool          `validate:"boolean" yaml:"tlsValidate"`
+		NoAutoDetect           bool          `validate:"boolean" yaml:"noAutoDetect"`
+		IsRedirect             bool          `validate:"boolean" yaml:"isRedirect"`
+		TCPIdleTimeout         time.Duration `yaml:"tcpIdleTimeout"`
+		TCPIdleTimeoutDisabled bool          `yaml:"tcpIdleTimeoutDisabled"`
+		TCPKeepAlive           time.Duration `yaml:"tcpKeepAlive"`
+		TCPKeepAliveEnabled    bool          `yaml:"tcpKeepAliveEnabled"`
+		Tailscale              TailscalePort `validate:"dive" yaml:"tailscale"`
 	}
 
 	TailscalePort struct {
@@ -46,9 +51,13 @@ const (
 	// Port label options — comma-separated suffix of a port label value
 	// (e.g. "443/https:80/http,no_tlsvalidate"). Shared by all target
 	// providers; not every provider supports every option.
-	PortOptionNoTLSValidate   = "no_tlsvalidate"
-	PortOptionTailscaleFunnel = "tailscale_funnel"
-	PortOptionNoAutoDetect    = "no_autodetect"
+	PortOptionNoTLSValidate    = "no_tlsvalidate"
+	PortOptionTailscaleFunnel  = "tailscale_funnel"
+	PortOptionNoAutoDetect     = "no_autodetect"
+	PortOptionNoTCPIdleTimeout = "no_tcp_idle_timeout"
+	PortOptionNoIdleTimeout    = "no_idle_timeout"
+	PortOptionTCPKeepAlive     = "tcp_keepalive"
+	PortOptionNoTCPKeepAlive   = "no_tcp_keepalive"
 
 	defaultProxyPort = 443
 
@@ -157,12 +166,13 @@ func (p *PortConfig) String() string {
 // defaultPortConfig initializes a PortConfig with default values.
 func defaultPortConfig(name string) PortConfig {
 	return PortConfig{
-		name:          name,
-		ProxyProtocol: ProtoHTTPS,
-		ProxyPort:     defaultProxyPort,
-		TLSValidate:   DefaultTLSValidate,
-		IsRedirect:    false,
-		targets:       &targetState{},
+		name:           name,
+		ProxyProtocol:  ProtoHTTPS,
+		ProxyPort:      defaultProxyPort,
+		TLSValidate:    DefaultTLSValidate,
+		IsRedirect:     false,
+		TCPIdleTimeout: DefaultTCPIdleTimeout,
+		targets:        &targetState{},
 	}
 }
 
@@ -510,12 +520,13 @@ func expandPortConfigs(proxyPorts, targetPorts []int, proxyProtocol, targetProto
 		}
 
 		cfg := PortConfig{
-			name:          name,
-			ProxyProtocol: proxyProtocol,
-			ProxyPort:     proxyPort,
-			IsRedirect:    false,
-			TLSValidate:   DefaultTLSValidate,
-			targets:       &targetState{targets: []*url.URL{targetURL}},
+			name:           name,
+			ProxyProtocol:  proxyProtocol,
+			ProxyPort:      proxyPort,
+			IsRedirect:     false,
+			TLSValidate:    DefaultTLSValidate,
+			TCPIdleTimeout: DefaultTCPIdleTimeout,
+			targets:        &targetState{targets: []*url.URL{targetURL}},
 		}
 
 		key := fmt.Sprintf("range_%d", i)
@@ -552,12 +563,13 @@ func ExpandPortRangeShortLabel(s string) (map[string]PortConfig, error) {
 	for idx, p := 0, start; p <= end; idx, p = idx+1, p+1 {
 		name := fmt.Sprintf("%d/%s", p, proxyProtocol)
 		cfg := PortConfig{
-			name:          name,
-			ProxyProtocol: proxyProtocol,
-			ProxyPort:     p,
-			IsRedirect:    false,
-			TLSValidate:   DefaultTLSValidate,
-			targets:       &targetState{},
+			name:           name,
+			ProxyProtocol:  proxyProtocol,
+			ProxyPort:      p,
+			IsRedirect:     false,
+			TLSValidate:    DefaultTLSValidate,
+			TCPIdleTimeout: DefaultTCPIdleTimeout,
+			targets:        &targetState{},
 		}
 		key := fmt.Sprintf("range_%d", idx)
 		result[key] = cfg
@@ -600,6 +612,60 @@ type TargetResolver func(ctx context.Context, port PortConfig) (PortConfig, erro
 func ApplyPortOptions(log zerolog.Logger, gates PortOptionGates, labelKey string, port *PortConfig, options []string) {
 	for _, opt := range options {
 		opt = strings.TrimSpace(opt)
+		if opt == "" {
+			continue
+		}
+
+		key, val, hasVal := strings.Cut(opt, "=")
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+
+		if hasVal {
+			switch key {
+			case "tcp_idle_timeout", "idle_timeout":
+				switch val {
+				case "0", "0s", "off", "false", "none", "disabled":
+					port.TCPIdleTimeout = 0
+					port.TCPIdleTimeoutDisabled = true
+				default:
+					d, err := parsePortDuration(val)
+					if err != nil {
+						log.Warn().Err(err).Str("option", opt).Str("port", labelKey).
+							Msg("invalid tcp idle timeout duration; ignoring")
+						continue
+					}
+					if d <= 0 {
+						port.TCPIdleTimeout = 0
+						port.TCPIdleTimeoutDisabled = true
+					} else {
+						port.TCPIdleTimeout = d
+						port.TCPIdleTimeoutDisabled = false
+					}
+				}
+			case "tcp_keepalive", "keepalive":
+				switch val {
+				case "0", "0s", "off", "false", "disabled":
+					port.TCPKeepAliveEnabled = false
+					port.TCPKeepAlive = 0
+				case "1", "on", "true", "enabled":
+					port.TCPKeepAliveEnabled = true
+					port.TCPKeepAlive = DefaultTCPKeepAlive
+				default:
+					d, err := parsePortDuration(val)
+					if err != nil {
+						log.Warn().Err(err).Str("option", opt).Str("port", labelKey).
+							Msg("invalid tcp keepalive duration; ignoring")
+						continue
+					}
+					port.TCPKeepAliveEnabled = true
+					port.TCPKeepAlive = d
+				}
+			default:
+				warnUnknownOption(log, gates, labelKey, opt)
+			}
+			continue
+		}
+
 		switch opt {
 		case PortOptionNoTLSValidate:
 			if !gates.AllowTLSValidateDisable {
@@ -621,10 +687,30 @@ func ApplyPortOptions(log zerolog.Logger, gates PortOptionGates, labelKey string
 				continue
 			}
 			port.NoAutoDetect = true
+		case PortOptionNoTCPIdleTimeout, PortOptionNoIdleTimeout:
+			port.TCPIdleTimeout = 0
+			port.TCPIdleTimeoutDisabled = true
+		case PortOptionTCPKeepAlive:
+			port.TCPKeepAliveEnabled = true
+			port.TCPKeepAlive = DefaultTCPKeepAlive
+		case PortOptionNoTCPKeepAlive:
+			port.TCPKeepAliveEnabled = false
+			port.TCPKeepAlive = 0
 		default:
 			warnUnknownOption(log, gates, labelKey, opt)
 		}
 	}
+}
+
+func parsePortDuration(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err == nil {
+		return d, nil
+	}
+	if seconds, errAtoi := strconv.Atoi(s); errAtoi == nil {
+		return time.Duration(seconds) * time.Second, nil
+	}
+	return 0, err
 }
 
 // Ports parses every "<prefix>*" entry of m into a PortConfigList. Each value
@@ -693,7 +779,14 @@ func Ports(ctx context.Context, log zerolog.Logger, m map[string]string, prefix 
 // warnUnknownOption warns about an option the provider does not recognize,
 // listing the options it does accept.
 func warnUnknownOption(log zerolog.Logger, gates PortOptionGates, labelKey, opt string) {
-	valid := []string{PortOptionNoTLSValidate, PortOptionTailscaleFunnel}
+	valid := []string{
+		PortOptionNoTLSValidate,
+		PortOptionTailscaleFunnel,
+		PortOptionNoTCPIdleTimeout,
+		PortOptionNoIdleTimeout,
+		PortOptionTCPKeepAlive,
+		PortOptionNoTCPKeepAlive,
+	}
 	if gates.SupportNoAutoDetect {
 		valid = append(valid, PortOptionNoAutoDetect)
 	}
