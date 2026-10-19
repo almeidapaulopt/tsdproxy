@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -335,6 +336,65 @@ func TestClient_GetPorts_PortRangeWithTLSValidate(t *testing.T) {
 		if pc.TLSValidate {
 			t.Fatalf("port %s: expected TLSValidate to be inherited as false", key)
 		}
+	}
+}
+
+func TestClient_GetPorts_PortRangeWithTCPTimeouts(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, nil)
+	idle := 45 * time.Second
+	keepalive := 10 * time.Second
+	ports := c.getPorts(map[string]port{
+		"2222-2224/tcp": {
+			Targets:        []string{"tcp://backend:2222"},
+			TCPIdleTimeout: &idle,
+			TCPKeepAlive:   &keepalive,
+		},
+	})
+
+	if len(ports) != 3 {
+		t.Fatalf("expected 3 ports from range, got %d", len(ports))
+	}
+	for key, pc := range ports {
+		if pc.TCPIdleTimeout != 45*time.Second {
+			t.Fatalf("port %s: expected TCPIdleTimeout=45s, got %v", key, pc.TCPIdleTimeout)
+		}
+		if pc.TCPIdleTimeoutDisabled {
+			t.Fatalf("port %s: expected TCPIdleTimeoutDisabled=false", key)
+		}
+		if !pc.TCPKeepAliveEnabled {
+			t.Fatalf("port %s: expected TCPKeepAliveEnabled=true", key)
+		}
+		if pc.TCPKeepAlive != 10*time.Second {
+			t.Fatalf("port %s: expected TCPKeepAlive=10s, got %v", key, pc.TCPKeepAlive)
+		}
+	}
+}
+
+func TestClient_ProcessSinglePort_TCPTimeouts(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, nil)
+	ports := make(model.PortConfigList)
+	idleZero := time.Duration(0)
+	keepaliveZero := time.Duration(0)
+
+	c.processSinglePort(ports, "8080/tcp", port{
+		Targets:        []string{"tcp://localhost:8080"},
+		TCPIdleTimeout: &idleZero,
+		TCPKeepAlive:   &keepaliveZero,
+	})
+
+	pc, ok := ports["8080/tcp"]
+	if !ok {
+		t.Fatal("expected 8080/tcp to be present")
+	}
+	if !pc.TCPIdleTimeoutDisabled {
+		t.Fatal("expected TCPIdleTimeoutDisabled=true")
+	}
+	if pc.TCPKeepAliveEnabled {
+		t.Fatal("expected TCPKeepAliveEnabled=false")
 	}
 }
 

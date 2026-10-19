@@ -744,15 +744,19 @@ func TestPortConfig_ConcurrentAddAndGet(t *testing.T) {
 	}
 }
 
-func TestApplyPortOptions(t *testing.T) {
-	t.Parallel()
-
-	gates := PortOptionGates{
+func defaultTestGates() PortOptionGates {
+	return PortOptionGates{
 		AllowTLSValidateDisable: true,
 		AllowFunnel:             true,
 		FunnelSettingName:       "allowContainerFunnel",
 		SupportNoAutoDetect:     true,
+		SupportTCPOptions:       true,
 	}
+}
+
+func TestApplyPortOptions_Defaults(t *testing.T) {
+	t.Parallel()
+	gates := defaultTestGates()
 
 	t.Run("empty options", func(t *testing.T) {
 		t.Parallel()
@@ -766,45 +770,6 @@ func TestApplyPortOptions(t *testing.T) {
 		}
 		if port.NoAutoDetect {
 			t.Error("expected NoAutoDetect=false by default")
-		}
-	})
-
-	t.Run("no_tlsvalidate option", func(t *testing.T) {
-		t.Parallel()
-		port := PortConfig{TLSValidate: true}
-		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tlsvalidate"})
-		if port.TLSValidate {
-			t.Error("expected TLSValidate=false")
-		}
-	})
-
-	t.Run("tailscale_funnel option", func(t *testing.T) {
-		t.Parallel()
-		port := PortConfig{TLSValidate: true}
-		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tailscale_funnel"})
-		if !port.Tailscale.Funnel {
-			t.Error("expected Funnel=true")
-		}
-	})
-
-	t.Run("no_autodetect option", func(t *testing.T) {
-		t.Parallel()
-		port := PortConfig{TLSValidate: true}
-		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_autodetect"})
-		if !port.NoAutoDetect {
-			t.Error("expected NoAutoDetect=true")
-		}
-	})
-
-	t.Run("multiple options", func(t *testing.T) {
-		t.Parallel()
-		port := PortConfig{TLSValidate: true}
-		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tlsvalidate", "tailscale_funnel"})
-		if port.TLSValidate {
-			t.Error("expected TLSValidate=false with no_tlsvalidate")
-		}
-		if !port.Tailscale.Funnel {
-			t.Error("expected Funnel=true with tailscale_funnel")
 		}
 	})
 
@@ -823,6 +788,180 @@ func TestApplyPortOptions(t *testing.T) {
 		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{" no_tlsvalidate "})
 		if port.TLSValidate {
 			t.Error("expected TLSValidate=false after trimming whitespace")
+		}
+	})
+}
+
+func TestApplyPortOptions_TLS(t *testing.T) {
+	t.Parallel()
+	gates := defaultTestGates()
+
+	t.Run("no_tlsvalidate option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tlsvalidate"})
+		if port.TLSValidate {
+			t.Error("expected TLSValidate=false")
+		}
+	})
+
+	t.Run("multiple options", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{TLSValidate: true}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tlsvalidate", "tailscale_funnel"})
+		if port.TLSValidate {
+			t.Error("expected TLSValidate=false with no_tlsvalidate")
+		}
+		if !port.Tailscale.Funnel {
+			t.Error("expected Funnel=true with tailscale_funnel")
+		}
+	})
+}
+
+func TestApplyPortOptions_TailscaleFunnel(t *testing.T) {
+	t.Parallel()
+	gates := defaultTestGates()
+
+	port := PortConfig{TLSValidate: true}
+	ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tailscale_funnel"})
+	if !port.Tailscale.Funnel {
+		t.Error("expected Funnel=true")
+	}
+}
+
+func TestApplyPortOptions_AutoDetect(t *testing.T) {
+	t.Parallel()
+	gates := defaultTestGates()
+
+	port := PortConfig{TLSValidate: true}
+	ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_autodetect"})
+	if !port.NoAutoDetect {
+		t.Error("expected NoAutoDetect=true")
+	}
+}
+
+func TestApplyPortOptions_TCPIdleTimeout(t *testing.T) {
+	t.Parallel()
+	gates := defaultTestGates()
+
+	t.Run("tcp_idle_timeout option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_idle_timeout=15m"})
+		if port.TCPIdleTimeout != 15*time.Minute {
+			t.Errorf("expected TCPIdleTimeout=15m, got %v", port.TCPIdleTimeout)
+		}
+		if port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=false")
+		}
+	})
+
+	t.Run("tcp_idle_timeout=0 disables timeout", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP, TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_idle_timeout=0"})
+		if !port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=true")
+		}
+		if port.TCPIdleTimeout != 0 {
+			t.Errorf("expected TCPIdleTimeout=0, got %v", port.TCPIdleTimeout)
+		}
+	})
+
+	t.Run("no_tcp_idle_timeout option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP, TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tcp_idle_timeout"})
+		if !port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=true")
+		}
+		if port.TCPIdleTimeout != 0 {
+			t.Errorf("expected TCPIdleTimeout=0, got %v", port.TCPIdleTimeout)
+		}
+	})
+
+	t.Run("invalid duration ignored", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP, TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_idle_timeout=invalid"})
+		if port.TCPIdleTimeout != 5*time.Minute {
+			t.Errorf("expected TCPIdleTimeout=5m, got %v", port.TCPIdleTimeout)
+		}
+	})
+}
+
+func TestApplyPortOptions_TCPKeepAlive(t *testing.T) {
+	t.Parallel()
+	gates := defaultTestGates()
+
+	t.Run("tcp_keepalive option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_keepalive"})
+		if !port.TCPKeepAliveEnabled {
+			t.Error("expected TCPKeepAliveEnabled=true")
+		}
+		if port.TCPKeepAlive != DefaultTCPKeepAlive {
+			t.Errorf("expected TCPKeepAlive=%v, got %v", DefaultTCPKeepAlive, port.TCPKeepAlive)
+		}
+	})
+
+	t.Run("tcp_keepalive with custom duration", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_keepalive=1m"})
+		if !port.TCPKeepAliveEnabled {
+			t.Error("expected TCPKeepAliveEnabled=true")
+		}
+		if port.TCPKeepAlive != time.Minute {
+			t.Errorf("expected TCPKeepAlive=1m, got %v", port.TCPKeepAlive)
+		}
+	})
+
+	t.Run("no_tcp_keepalive option", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP, TCPKeepAliveEnabled: true, TCPKeepAlive: time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"no_tcp_keepalive"})
+		if port.TCPKeepAliveEnabled {
+			t.Error("expected TCPKeepAliveEnabled=false")
+		}
+		if port.TCPKeepAlive != 0 {
+			t.Errorf("expected TCPKeepAlive=0, got %v", port.TCPKeepAlive)
+		}
+	})
+}
+
+func TestApplyPortOptions_TCPGated(t *testing.T) {
+	t.Parallel()
+
+	gates := PortOptionGates{
+		AllowTLSValidateDisable: true,
+		AllowFunnel:             true,
+		SupportNoAutoDetect:     true,
+		SupportTCPOptions:       false,
+	}
+
+	t.Run("tcp options rejected on http port when SupportTCPOptions is false", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoHTTP, TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_idle_timeout=15m", "no_tcp_idle_timeout", "tcp_keepalive"})
+		if port.TCPIdleTimeout != 5*time.Minute {
+			t.Errorf("expected TCPIdleTimeout=5m (unchanged), got %v", port.TCPIdleTimeout)
+		}
+		if port.TCPIdleTimeoutDisabled {
+			t.Error("expected TCPIdleTimeoutDisabled=false")
+		}
+		if port.TCPKeepAliveEnabled {
+			t.Error("expected TCPKeepAliveEnabled=false")
+		}
+	})
+
+	t.Run("tcp options accepted on tcp port even if gates.SupportTCPOptions is false", func(t *testing.T) {
+		t.Parallel()
+		port := PortConfig{ProxyProtocol: ProtoTCP, TCPIdleTimeout: 5 * time.Minute}
+		ApplyPortOptions(zerolog.Nop(), gates, "port.test", &port, []string{"tcp_idle_timeout=15m"})
+		if port.TCPIdleTimeout != 15*time.Minute {
+			t.Errorf("expected TCPIdleTimeout=15m, got %v", port.TCPIdleTimeout)
 		}
 	})
 }

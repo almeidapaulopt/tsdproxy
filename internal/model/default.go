@@ -3,6 +3,8 @@
 
 package model
 
+import "time"
+
 const (
 	// Default values to proxyconfig
 	//
@@ -10,6 +12,10 @@ const (
 	DefaultIdentityHeaders = true
 	DefaultProxyProvider   = ""
 	DefaultTLSValidate     = true
+
+	// TCP defaults
+	DefaultTCPIdleTimeout = 5 * time.Minute
+	DefaultTCPKeepAlive   = 15 * time.Second
 
 	// tailscale defaults
 	DefaultTailscaleEphemeral    = false

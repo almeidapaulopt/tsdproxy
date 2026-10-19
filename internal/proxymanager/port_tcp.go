@@ -57,17 +57,66 @@ type idleTimeoutConn struct {
 }
 
 func (c *idleTimeoutConn) Read(b []byte) (int, error) {
-	_ = c.SetReadDeadline(time.Now().Add(c.timeout))
+	if c.timeout > 0 {
+		_ = c.SetReadDeadline(time.Now().Add(c.timeout))
+	}
 	return c.Conn.Read(b)
 }
 
 func (c *idleTimeoutConn) Write(b []byte) (int, error) {
-	_ = c.SetWriteDeadline(time.Now().Add(c.timeout))
+	if c.timeout > 0 {
+		_ = c.SetWriteDeadline(time.Now().Add(c.timeout))
+	}
 	return c.Conn.Write(b)
 }
 
+type tcpKeepAliveSetter interface {
+	SetKeepAlive(bool) error
+	SetKeepAlivePeriod(d time.Duration) error
+}
+
+func (c *idleTimeoutConn) SetKeepAlive(keepalive bool) error {
+	if sc, ok := c.Conn.(tcpKeepAliveSetter); ok {
+		return sc.SetKeepAlive(keepalive)
+	}
+	return nil
+}
+
+func (c *idleTimeoutConn) SetKeepAlivePeriod(d time.Duration) error {
+	if sc, ok := c.Conn.(tcpKeepAliveSetter); ok {
+		return sc.SetKeepAlivePeriod(d)
+	}
+	return nil
+}
+
 func wrapIdleTimeout(c net.Conn, timeout time.Duration) net.Conn {
+	if timeout <= 0 {
+		_ = c.SetDeadline(time.Time{})
+		return c
+	}
 	return &idleTimeoutConn{Conn: c, timeout: timeout}
+}
+
+func (p *tcpPort) idleTimeout() time.Duration {
+	if p.pconfig.TCPIdleTimeoutDisabled {
+		return 0
+	}
+	if p.pconfig.TCPIdleTimeout > 0 {
+		return p.pconfig.TCPIdleTimeout
+	}
+	if p.pconfig.TCPIdleTimeout < 0 {
+		return 0
+	}
+	return tcpIdleTimeout
+}
+
+func setKeepAlive(c net.Conn, enabled bool, period time.Duration) {
+	if sc, ok := c.(tcpKeepAliveSetter); ok {
+		_ = sc.SetKeepAlive(enabled)
+		if enabled && period > 0 {
+			_ = sc.SetKeepAlivePeriod(period)
+		}
+	}
 }
 
 func newPortTCP(ctx context.Context, pconfig model.PortConfig, log zerolog.Logger, metrics *metrics.Metrics, proxyName, portName string) *tcpPort {
@@ -188,6 +237,13 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}
 
 	dialer := net.Dialer{Timeout: tcpDialTimeout}
+	if p.pconfig.TCPKeepAliveEnabled {
+		if p.pconfig.TCPKeepAlive > 0 {
+			dialer.KeepAlive = p.pconfig.TCPKeepAlive
+		} else {
+			dialer.KeepAlive = model.DefaultTCPKeepAlive
+		}
+	}
 	var err error
 	backendConn, err = dialer.DialContext(p.ctx, "tcp", target.Host)
 	if err != nil {
@@ -196,8 +252,14 @@ func (p *tcpPort) handleConn(clientConn net.Conn) {
 	}
 	defer closeBackend()
 
-	clientConn = wrapIdleTimeout(clientConn, tcpIdleTimeout)
-	backendConn = wrapIdleTimeout(backendConn, tcpIdleTimeout)
+	if p.pconfig.TCPKeepAliveEnabled {
+		setKeepAlive(clientConn, true, p.pconfig.TCPKeepAlive)
+		setKeepAlive(backendConn, true, p.pconfig.TCPKeepAlive)
+	}
+
+	timeout := p.idleTimeout()
+	clientConn = wrapIdleTimeout(clientConn, timeout)
+	backendConn = wrapIdleTimeout(backendConn, timeout)
 
 	stop := make(chan struct{})
 	defer close(stop)

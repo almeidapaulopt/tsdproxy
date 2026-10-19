@@ -106,6 +106,10 @@ Append these after a comma to any proxy port config:
 | `no_tlsvalidate` | Disable TLS certificate validation on the target |
 | `tailscale_funnel` | Expose the port publicly via Tailscale Funnel |
 | `no_autodetect` | Disable auto-detection of the target URL for this port |
+| `tcp_idle_timeout=<duration>` | Set idle timeout for TCP connections (e.g. `15m`, `1h`, or `0` to disable; default `5m`) |
+| `no_tcp_idle_timeout` | Disable idle timeout entirely for long-running TCP connections |
+| `tcp_keepalive[=<duration>]` | Enable TCP keep-alive probes with optional interval (default `15s`) |
+| `no_tcp_keepalive` | Disable TCP keep-alive probes |
 
 ### Common Patterns
 

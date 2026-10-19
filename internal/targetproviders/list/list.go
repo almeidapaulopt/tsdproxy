@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -49,10 +50,12 @@ type (
 	}
 
 	port struct {
-		Targets     []string            `yaml:"targets,omitempty"`
-		Tailscale   model.TailscalePort `validate:"dive" yaml:"tailscale"`
-		IsRedirect  bool                `default:"false" validate:"boolean" yaml:"isRedirect,omitempty"`
-		TLSValidate bool                `validate:"boolean" default:"true" yaml:"tlsValidate"`
+		Targets        []string            `yaml:"targets,omitempty"`
+		Tailscale      model.TailscalePort `validate:"dive" yaml:"tailscale"`
+		IsRedirect     bool                `default:"false" validate:"boolean" yaml:"isRedirect,omitempty"`
+		TLSValidate    bool                `validate:"boolean" default:"true" yaml:"tlsValidate"`
+		TCPIdleTimeout *time.Duration      `yaml:"tcpIdleTimeout,omitempty"`
+		TCPKeepAlive   *time.Duration      `yaml:"tcpKeepAlive,omitempty"`
 	}
 
 	ProxyConfigAPI struct {
@@ -398,6 +401,24 @@ func (c *Client) processPortRange(ports model.PortConfigList, k string, v port) 
 
 		cfg.TLSValidate = v.TLSValidate
 		cfg.Tailscale = v.Tailscale
+		if v.TCPIdleTimeout != nil {
+			if *v.TCPIdleTimeout <= 0 {
+				cfg.TCPIdleTimeout = 0
+				cfg.TCPIdleTimeoutDisabled = true
+			} else {
+				cfg.TCPIdleTimeout = *v.TCPIdleTimeout
+				cfg.TCPIdleTimeoutDisabled = false
+			}
+		}
+		if v.TCPKeepAlive != nil {
+			if *v.TCPKeepAlive <= 0 {
+				cfg.TCPKeepAliveEnabled = false
+				cfg.TCPKeepAlive = 0
+			} else {
+				cfg.TCPKeepAliveEnabled = true
+				cfg.TCPKeepAlive = *v.TCPKeepAlive
+			}
+		}
 
 		expandedKey := k + "." + rangeKey
 		ports[expandedKey] = cfg
@@ -419,6 +440,24 @@ func (c *Client) processSinglePort(ports model.PortConfigList, k string, v port)
 
 	port.TLSValidate = v.TLSValidate
 	port.Tailscale = v.Tailscale
+	if v.TCPIdleTimeout != nil {
+		if *v.TCPIdleTimeout <= 0 {
+			port.TCPIdleTimeout = 0
+			port.TCPIdleTimeoutDisabled = true
+		} else {
+			port.TCPIdleTimeout = *v.TCPIdleTimeout
+			port.TCPIdleTimeoutDisabled = false
+		}
+	}
+	if v.TCPKeepAlive != nil {
+		if *v.TCPKeepAlive <= 0 {
+			port.TCPKeepAliveEnabled = false
+			port.TCPKeepAlive = 0
+		} else {
+			port.TCPKeepAliveEnabled = true
+			port.TCPKeepAlive = *v.TCPKeepAlive
+		}
+	}
 
 	ports[k] = port
 }
