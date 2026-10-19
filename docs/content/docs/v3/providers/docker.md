@@ -141,6 +141,10 @@ labels:
 | `no_tlsvalidate` | Disable TLS validation on the target certificate. **Requires** `allowTlsValidateDisable: true` in the Docker provider config. |
 | `tailscale_funnel` | Activate Tailscale Funnel on the port. **Requires** `allowContainerFunnel: true` in the Docker provider config. |
 | `no_autodetect` | Disable auto-detection of the target URL for this port |
+| `tcp_idle_timeout=<duration>` | Set the idle timeout for TCP connections (e.g. `15m`, `1h`, or `0` to disable). Defaults to `5m` slowloris protection. Only applicable to TCP ports. |
+| `no_tcp_idle_timeout` | Disable idle timeout entirely for long-running TCP connections. Only applicable to TCP ports. |
+| `tcp_keepalive[=<duration>]` | Enable TCP keep-alive probes on client and backend connections with an optional interval (defaults to `15s`). Only applicable to TCP ports. |
+| `no_tcp_keepalive` | Disable TCP keep-alive probes. Only applicable to TCP ports. |
 
 > [!WARNING]
 > The `no_tlsvalidate` and `tailscale_funnel` options are **disabled by default**

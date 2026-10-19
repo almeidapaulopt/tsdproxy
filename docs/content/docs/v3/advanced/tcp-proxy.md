@@ -155,7 +155,37 @@ proxyname:
     <port>/tcp:
       targets:
         - tcp://<hostname>:<port>
+      tcpIdleTimeout: 1h # optional: custom timeout or 0 to disable (default: 5m)
+      tcpKeepAlive: 30s  # optional: enable keep-alive with custom interval
 ```
+
+## Idle timeout and keep-alive configuration
+
+TCP proxy connections default to a 5-minute idle timeout (`5m`) as slowloris protection. If no data flows in either direction for 5 minutes, the proxy closes the connection.
+
+For long-running TCP sessions (such as persistent SSH connections, database connection pools, or interactive shells), you can configure a custom idle timeout or disable it completely.
+
+### Port options
+
+Append options after a comma in your `tsdproxy.port.*` label:
+
+```yaml
+labels:
+  tsdproxy.enable: "true"
+  tsdproxy.name: "ssh-server"
+  # Custom 30-minute idle timeout with 1-minute keep-alive
+  tsdproxy.port.1: "22/tcp:22/tcp, tcp_idle_timeout=30m, tcp_keepalive=1m"
+
+  # Or disable the idle timeout completely
+  tsdproxy.port.2: "5432/tcp:5432/tcp, no_tcp_idle_timeout"
+```
+
+| Option | Description |
+|--------|-------------|
+| `tcp_idle_timeout=<duration>` | Set the idle timeout (e.g. `15m`, `1h`, or `0` to disable; default is `5m` slowloris protection) |
+| `no_tcp_idle_timeout` | Disable the idle timeout entirely for long-running connections |
+| `tcp_keepalive[=<duration>]` | Enable TCP keep-alive probes with optional interval (default `15s`) |
+| `no_tcp_keepalive` | Disable TCP keep-alive probes |
 
 ## UDP proxying
 

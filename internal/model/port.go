@@ -55,7 +55,6 @@ const (
 	PortOptionTailscaleFunnel  = "tailscale_funnel"
 	PortOptionNoAutoDetect     = "no_autodetect"
 	PortOptionNoTCPIdleTimeout = "no_tcp_idle_timeout"
-	PortOptionNoIdleTimeout    = "no_idle_timeout"
 	PortOptionTCPKeepAlive     = "tcp_keepalive"
 	PortOptionNoTCPKeepAlive   = "no_tcp_keepalive"
 
@@ -599,6 +598,9 @@ type PortOptionGates struct {
 	// SupportNoAutoDetect marks the provider as understanding the
 	// no_autodetect option (a Docker-only concept).
 	SupportNoAutoDetect bool
+	// SupportTCPOptions marks the port as supporting TCP-specific options
+	// (tcp_idle_timeout, no_tcp_idle_timeout, tcp_keepalive, no_tcp_keepalive).
+	SupportTCPOptions bool
 }
 
 // TargetResolver resolves the target URL of a non-redirect port. Providers
@@ -610,6 +612,10 @@ type TargetResolver func(ctx context.Context, port PortConfig) (PortConfig, erro
 // Options the operator has not enabled, or the provider does not support,
 // are ignored with a warning.
 func ApplyPortOptions(log zerolog.Logger, gates PortOptionGates, labelKey string, port *PortConfig, options []string) {
+	if port != nil && port.ProxyProtocol == ProtoTCP {
+		gates.SupportTCPOptions = true
+	}
+
 	for _, opt := range options {
 		opt = strings.TrimSpace(opt)
 		if opt == "" {
@@ -617,88 +623,133 @@ func ApplyPortOptions(log zerolog.Logger, gates PortOptionGates, labelKey string
 		}
 
 		key, val, hasVal := strings.Cut(opt, "=")
-		key = strings.TrimSpace(key)
-		val = strings.TrimSpace(val)
-
 		if hasVal {
-			switch key {
-			case "tcp_idle_timeout", "idle_timeout":
-				switch val {
-				case "0", "0s", "off", "false", "none", "disabled":
-					port.TCPIdleTimeout = 0
-					port.TCPIdleTimeoutDisabled = true
-				default:
-					d, err := parsePortDuration(val)
-					if err != nil {
-						log.Warn().Err(err).Str("option", opt).Str("port", labelKey).
-							Msg("invalid tcp idle timeout duration; ignoring")
-						continue
-					}
-					if d <= 0 {
-						port.TCPIdleTimeout = 0
-						port.TCPIdleTimeoutDisabled = true
-					} else {
-						port.TCPIdleTimeout = d
-						port.TCPIdleTimeoutDisabled = false
-					}
-				}
-			case "tcp_keepalive", "keepalive":
-				switch val {
-				case "0", "0s", "off", "false", "disabled":
-					port.TCPKeepAliveEnabled = false
-					port.TCPKeepAlive = 0
-				case "1", "on", "true", "enabled":
-					port.TCPKeepAliveEnabled = true
-					port.TCPKeepAlive = DefaultTCPKeepAlive
-				default:
-					d, err := parsePortDuration(val)
-					if err != nil {
-						log.Warn().Err(err).Str("option", opt).Str("port", labelKey).
-							Msg("invalid tcp keepalive duration; ignoring")
-						continue
-					}
-					port.TCPKeepAliveEnabled = true
-					port.TCPKeepAlive = d
-				}
-			default:
-				warnUnknownOption(log, gates, labelKey, opt)
-			}
-			continue
+			applyKeyValuePortOption(log, gates, labelKey, strings.TrimSpace(key), strings.TrimSpace(val), opt, port)
+		} else {
+			applyFlagPortOption(log, gates, labelKey, opt, port)
 		}
+	}
+}
 
-		switch opt {
-		case PortOptionNoTLSValidate:
-			if !gates.AllowTLSValidateDisable {
-				log.Warn().Str("option", opt).Str("port", labelKey).
-					Msg("requested no_tlsvalidate but operator has not enabled allowTlsValidateDisable; ignoring")
-				continue
-			}
-			port.TLSValidate = false
-		case PortOptionTailscaleFunnel:
-			if !gates.AllowFunnel {
-				log.Warn().Str("option", opt).Str("port", labelKey).
-					Msg("requested tailscale_funnel but operator has not enabled " + gates.FunnelSettingName + "; ignoring")
-				continue
-			}
-			port.Tailscale.Funnel = true
-		case PortOptionNoAutoDetect:
-			if !gates.SupportNoAutoDetect {
-				warnUnknownOption(log, gates, labelKey, opt)
-				continue
-			}
-			port.NoAutoDetect = true
-		case PortOptionNoTCPIdleTimeout, PortOptionNoIdleTimeout:
+func applyKeyValuePortOption(log zerolog.Logger, gates PortOptionGates, labelKey, key, val, opt string, port *PortConfig) {
+	switch key {
+	case "tcp_idle_timeout":
+		if !gates.SupportTCPOptions {
+			warnUnknownOption(log, gates, labelKey, opt)
+			return
+		}
+		applyTCPIdleTimeout(log, labelKey, val, opt, port)
+	case "tcp_keepalive":
+		if !gates.SupportTCPOptions {
+			warnUnknownOption(log, gates, labelKey, opt)
+			return
+		}
+		applyTCPKeepAlive(log, labelKey, val, opt, port)
+	default:
+		warnUnknownOption(log, gates, labelKey, opt)
+	}
+}
+
+func applyTCPIdleTimeout(log zerolog.Logger, labelKey, val, opt string, port *PortConfig) {
+	switch val {
+	case "0", "0s", "off", "false", "none", "disabled":
+		port.TCPIdleTimeout = 0
+		port.TCPIdleTimeoutDisabled = true
+	default:
+		d, err := parsePortDuration(val)
+		if err != nil {
+			log.Warn().Err(err).Str("option", opt).Str("port", labelKey).
+				Msg("invalid tcp idle timeout duration; ignoring")
+			return
+		}
+		if d <= 0 {
 			port.TCPIdleTimeout = 0
 			port.TCPIdleTimeoutDisabled = true
-		case PortOptionTCPKeepAlive:
-			port.TCPKeepAliveEnabled = true
-			port.TCPKeepAlive = DefaultTCPKeepAlive
-		case PortOptionNoTCPKeepAlive:
-			port.TCPKeepAliveEnabled = false
-			port.TCPKeepAlive = 0
-		default:
-			warnUnknownOption(log, gates, labelKey, opt)
+		} else {
+			port.TCPIdleTimeout = d
+			port.TCPIdleTimeoutDisabled = false
 		}
+	}
+}
+
+func applyTCPKeepAlive(log zerolog.Logger, labelKey, val, opt string, port *PortConfig) {
+	switch val {
+	case "0", "0s", "off", "false", "disabled":
+		port.TCPKeepAliveEnabled = false
+		port.TCPKeepAlive = 0
+	case "1", "on", "true", "enabled":
+		port.TCPKeepAliveEnabled = true
+		port.TCPKeepAlive = DefaultTCPKeepAlive
+	default:
+		d, err := parsePortDuration(val)
+		if err != nil {
+			log.Warn().Err(err).Str("option", opt).Str("port", labelKey).
+				Msg("invalid tcp keepalive duration; ignoring")
+			return
+		}
+		port.TCPKeepAliveEnabled = true
+		port.TCPKeepAlive = d
+	}
+}
+
+func applyTCPFlagOption(log zerolog.Logger, gates PortOptionGates, labelKey, opt string, port *PortConfig) bool {
+	switch opt {
+	case PortOptionNoTCPIdleTimeout:
+		if !gates.SupportTCPOptions {
+			warnUnknownOption(log, gates, labelKey, opt)
+			return true
+		}
+		port.TCPIdleTimeout = 0
+		port.TCPIdleTimeoutDisabled = true
+		return true
+	case PortOptionTCPKeepAlive:
+		if !gates.SupportTCPOptions {
+			warnUnknownOption(log, gates, labelKey, opt)
+			return true
+		}
+		port.TCPKeepAliveEnabled = true
+		port.TCPKeepAlive = DefaultTCPKeepAlive
+		return true
+	case PortOptionNoTCPKeepAlive:
+		if !gates.SupportTCPOptions {
+			warnUnknownOption(log, gates, labelKey, opt)
+			return true
+		}
+		port.TCPKeepAliveEnabled = false
+		port.TCPKeepAlive = 0
+		return true
+	}
+	return false
+}
+
+func applyFlagPortOption(log zerolog.Logger, gates PortOptionGates, labelKey, opt string, port *PortConfig) {
+	if applyTCPFlagOption(log, gates, labelKey, opt, port) {
+		return
+	}
+
+	switch opt {
+	case PortOptionNoTLSValidate:
+		if !gates.AllowTLSValidateDisable {
+			log.Warn().Str("option", opt).Str("port", labelKey).
+				Msg("requested no_tlsvalidate but operator has not enabled allowTlsValidateDisable; ignoring")
+			return
+		}
+		port.TLSValidate = false
+	case PortOptionTailscaleFunnel:
+		if !gates.AllowFunnel {
+			log.Warn().Str("option", opt).Str("port", labelKey).
+				Msg("requested tailscale_funnel but operator has not enabled " + gates.FunnelSettingName + "; ignoring")
+			return
+		}
+		port.Tailscale.Funnel = true
+	case PortOptionNoAutoDetect:
+		if !gates.SupportNoAutoDetect {
+			warnUnknownOption(log, gates, labelKey, opt)
+			return
+		}
+		port.NoAutoDetect = true
+	default:
+		warnUnknownOption(log, gates, labelKey, opt)
 	}
 }
 
@@ -738,7 +789,11 @@ func Ports(ctx context.Context, log zerolog.Logger, m map[string]string, prefix 
 			}
 
 			for rangeKey, port := range expanded {
-				ApplyPortOptions(log, gates, k, &port, parts[1:])
+				portGates := gates
+				if port.ProxyProtocol == ProtoTCP {
+					portGates.SupportTCPOptions = true
+				}
+				ApplyPortOptions(log, portGates, k, &port, parts[1:])
 
 				if !port.IsRedirect {
 					port, err = resolve(ctx, port)
@@ -760,7 +815,11 @@ func Ports(ctx context.Context, log zerolog.Logger, m map[string]string, prefix 
 			continue
 		}
 
-		ApplyPortOptions(log, gates, k, &port, parts[1:])
+		portGates := gates
+		if port.ProxyProtocol == ProtoTCP {
+			portGates.SupportTCPOptions = true
+		}
+		ApplyPortOptions(log, portGates, k, &port, parts[1:])
 
 		if !port.IsRedirect {
 			port, err = resolve(ctx, port)
@@ -782,13 +841,12 @@ func warnUnknownOption(log zerolog.Logger, gates PortOptionGates, labelKey, opt 
 	valid := []string{
 		PortOptionNoTLSValidate,
 		PortOptionTailscaleFunnel,
-		PortOptionNoTCPIdleTimeout,
-		PortOptionNoIdleTimeout,
-		PortOptionTCPKeepAlive,
-		PortOptionNoTCPKeepAlive,
 	}
 	if gates.SupportNoAutoDetect {
 		valid = append(valid, PortOptionNoAutoDetect)
+	}
+	if gates.SupportTCPOptions {
+		valid = append(valid, PortOptionNoTCPIdleTimeout, PortOptionTCPKeepAlive, PortOptionNoTCPKeepAlive)
 	}
 	log.Warn().Str("option", opt).Str("port", labelKey).
 		Msg("unrecognized port option (valid: " + strings.Join(valid, ", ") + ")")

@@ -137,6 +137,8 @@ proxyname: # Name of the proxy
       funnel: true # (optional) (defaults to false), enable funnel mode
     isRedirect: true # (optional) (defaults to false), redirect to the target 
     tlsValidate: false # (optional) /defaults to true), disable targets TLS validation
+    tcpIdleTimeout: 1h # (optional), TCP idle timeout (e.g. 15m, 1h, or 0 to disable; default 5m)
+    tcpKeepAlive: 30s # (optional), TCP keep-alive probe interval
 
   dashboard:
     visible: false # (optional) (defaults to true) doesn't show proxy in dashboard
