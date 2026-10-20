@@ -701,7 +701,9 @@ func TestUDPPort_EchoRelay(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	up.close()
-	<-errCh
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestUDPPort_GetOrCreateBackendConn_Existing(t *testing.T) {
@@ -927,7 +929,9 @@ func TestHTTPRedirect_RedirectsToTarget(t *testing.T) {
 	}
 
 	rp.close()
-	<-errCh
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestResolvePeerIP_DirectAddr(t *testing.T) {
@@ -1195,7 +1199,9 @@ func TestHTTPRedirect_NilTarget_Returns502(t *testing.T) {
 	}
 
 	rp.close()
-	<-errCh
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestTCPPort_CancelledContext(t *testing.T) {
@@ -1217,7 +1223,8 @@ func TestTCPPort_CancelledContext(t *testing.T) {
 	cancel()
 
 	select {
-	case <-errCh:
+	case err := <-errCh:
+		_ = err // cancellation error expected; test only asserts Start returns
 	case <-time.After(2 * time.Second):
 		t.Fatal("startWithListener did not return after context cancellation")
 	}
@@ -1635,7 +1642,8 @@ func TestHTTPPort_ConnectionLimit_BUG(t *testing.T) {
 		}
 		_ = p.close()
 		select {
-		case <-serveErr:
+		case err := <-serveErr:
+			_ = err // shutdown error not this test's subject
 		case <-time.After(2 * time.Second):
 		}
 		_ = frontLn.Close()
@@ -1837,7 +1845,8 @@ func TestUDPGetOrCreateBackendConn_CloseRaceDuringDial(t *testing.T) {
 	_, _ = up.getOrCreateBackendConn(addr, clientMap, &mapMtx, frontPC)
 
 	select {
-	case <-closeDone:
+	case err := <-closeDone:
+		_ = err // close error not this test's subject
 		// close() returned — no deadlock.
 	case <-time.After(5 * time.Second):
 		t.Fatal("udpPort.close() deadlocked with in-flight getOrCreateBackendConn")
