@@ -164,8 +164,8 @@ func TestSignalDisconnect_CancelledContext(t *testing.T) {
 	c.signalDisconnect(ctx, errChan)
 
 	select {
-	case <-errChan:
-		t.Fatal("should not send error when context is canceled")
+	case err := <-errChan:
+		t.Fatalf("should not send error when context is canceled: %v", err)
 	default:
 	}
 }
