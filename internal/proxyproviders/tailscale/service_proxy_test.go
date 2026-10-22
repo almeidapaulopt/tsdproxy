@@ -310,7 +310,9 @@ func TestServiceProxy_GetURL_MustNotBlockDuringStart(t *testing.T) {
 	}
 
 	close(mock.blockCh)
-	<-startDone
+	if err := <-startDone; err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestServiceProxy_GetListener_MustNotBlockDuringStart(t *testing.T) {
@@ -359,7 +361,9 @@ func TestServiceProxy_GetListener_MustNotBlockDuringStart(t *testing.T) {
 	}
 
 	close(mock.blockCh)
-	<-startDone
+	if err := <-startDone; err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func waitFor(t *testing.T, cond func() bool, msg string) {
