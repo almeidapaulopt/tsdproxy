@@ -347,6 +347,64 @@ func TestSortItems_ByProvider(t *testing.T) {
 	}
 }
 
+func TestSortItems_ByDisplayLabel(t *testing.T) {
+	items := []pages.ProxyViewItem{
+		{Name: "stack-wizarr-1", Category: "NicFlix", Data: pages.ProxyData{Label: "Wizarr", TargetProvider: "local"}},
+		{Name: "plex", Category: "NicFlix", Data: pages.ProxyData{Label: "Plex", TargetProvider: "external"}},
+		{Name: "stack-portainer-1", Category: "NicFlix", Data: pages.ProxyData{Label: "Portainer"}},
+		{Name: "sync", Category: "NicFlix", Data: pages.ProxyData{Label: "Sync"}},
+	}
+	sortItems(items, "name", nil)
+	if items[0].Name != "plex" || items[1].Name != "stack-portainer-1" || items[2].Name != "sync" || items[3].Name != "stack-wizarr-1" {
+		t.Fatalf("expected Plex, Portainer, Sync, Wizarr, got %v", names(items))
+	}
+
+	groups := groupItems(items)
+	if len(groups) != 1 || groups[0].Name != "NicFlix" {
+		t.Fatalf("expected one NicFlix group, got %v", groupNames(groups))
+	}
+	got := names(groups[0].Items)
+	if got[0] != "plex" || got[1] != "stack-portainer-1" || got[2] != "sync" || got[3] != "stack-wizarr-1" {
+		t.Fatalf("expected NicFlix label order, got %v", got)
+	}
+}
+
+func TestSortItems_ByDisplayLabelCase(t *testing.T) {
+	items := []pages.ProxyViewItem{
+		{Name: "z-tautulli", Data: pages.ProxyData{Label: "tautulli"}},
+		{Name: "a-plex", Data: pages.ProxyData{Label: "Plex"}},
+		{Name: "m-tsdproxy", Data: pages.ProxyData{Label: "TSDProxy"}},
+		{Name: "b-portainer", Data: pages.ProxyData{Label: "portainer"}},
+	}
+	sortItems(items, "name", nil)
+	if items[0].Data.Label != "Plex" || items[1].Data.Label != "portainer" || items[2].Data.Label != "tautulli" || items[3].Data.Label != "TSDProxy" {
+		t.Fatalf("expected Plex, portainer, tautulli, TSDProxy, got %s %s %s %s",
+			items[0].Data.Label, items[1].Data.Label, items[2].Data.Label, items[3].Data.Label)
+	}
+}
+
+func TestSortItems_LabelTieBreakByName(t *testing.T) {
+	items := []pages.ProxyViewItem{
+		{Name: "b", Data: pages.ProxyData{Label: "App"}},
+		{Name: "a", Data: pages.ProxyData{Label: "App"}},
+	}
+	sortItems(items, "name", nil)
+	if items[0].Name != "a" || items[1].Name != "b" {
+		t.Fatalf("expected a,b, got %v", names(items))
+	}
+}
+
+func TestSortItems_PinnedDisplayLabelLast(t *testing.T) {
+	items := []pages.ProxyViewItem{
+		{Name: "a", Data: pages.ProxyData{Label: "Alpha"}},
+		{Name: "z", Data: pages.ProxyData{Label: "Zulu"}},
+	}
+	sortItems(items, "name", map[string]bool{"z": true})
+	if items[0].Name != "z" || items[1].Name != "a" {
+		t.Fatalf("expected pinned z first, got %v", names(items))
+	}
+}
+
 func names(items []pages.ProxyViewItem) []string {
 	out := make([]string, len(items))
 	for i, it := range items {

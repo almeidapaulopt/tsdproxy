@@ -137,9 +137,21 @@ func sortItems(items []pages.ProxyViewItem, sortKey string, pinned map[string]bo
 			}
 			return items[i].Name < items[j].Name
 		default:
+			iLabel := strings.ToLower(displayLabel(items[i]))
+			jLabel := strings.ToLower(displayLabel(items[j]))
+			if iLabel != jLabel {
+				return iLabel < jLabel
+			}
 			return items[i].Name < items[j].Name
 		}
 	})
+}
+
+func displayLabel(item pages.ProxyViewItem) string {
+	if item.Data.Label != "" {
+		return item.Data.Label
+	}
+	return item.Name
 }
 
 func groupItems(items []pages.ProxyViewItem) []pages.DashboardGroup {
