@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/url"
 	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
@@ -49,6 +50,7 @@ type (
 	}
 
 	port struct {
+		LoadBalance string              `yaml:"loadBalance"`
 		Targets     []string            `yaml:"targets,omitempty"`
 		Tailscale   model.TailscalePort `validate:"dive" yaml:"tailscale"`
 		IsRedirect  bool                `default:"false" validate:"boolean" yaml:"isRedirect,omitempty"`
@@ -76,6 +78,7 @@ type (
 	}
 
 	PortAPI struct {
+		LoadBalance string           `yaml:"loadBalance,omitempty"`
 		Targets     []string         `yaml:"targets"`
 		TLSValidate bool             `yaml:"tlsValidate"`
 		IsRedirect  bool             `yaml:"isRedirect,omitempty"`
@@ -381,6 +384,18 @@ func (c *Client) getPorts(l map[string]port) model.PortConfigList {
 	return ports
 }
 
+func (c *Client) normalizeLoadBalance(portKey, raw string) string {
+	strategy := strings.ToLower(strings.TrimSpace(raw))
+	switch strategy {
+	case "", model.LoadBalanceFirst, model.LoadBalanceRoundRobin:
+		return strategy
+	default:
+		c.log.Warn().Str("port", portKey).Str("strategy", strategy).
+			Msg("unknown loadbalance strategy; defaulting to first")
+		return model.LoadBalanceFirst
+	}
+}
+
 func (c *Client) processPortRange(ports model.PortConfigList, k string, v port) {
 	expanded, err := model.ExpandPortRangeShortLabel(k)
 	if err != nil {
@@ -388,6 +403,7 @@ func (c *Client) processPortRange(ports model.PortConfigList, k string, v port) 
 		return
 	}
 
+	loadBalance := c.normalizeLoadBalance(k, v.LoadBalance)
 	for rangeKey, portCfg := range expanded {
 		cfg := portCfg
 		cfg.IsRedirect = v.IsRedirect
@@ -398,6 +414,7 @@ func (c *Client) processPortRange(ports model.PortConfigList, k string, v port) 
 
 		cfg.TLSValidate = v.TLSValidate
 		cfg.Tailscale = v.Tailscale
+		cfg.LoadBalance = loadBalance
 
 		expandedKey := k + "." + rangeKey
 		ports[expandedKey] = cfg
@@ -419,6 +436,7 @@ func (c *Client) processSinglePort(ports model.PortConfigList, k string, v port)
 
 	port.TLSValidate = v.TLSValidate
 	port.Tailscale = v.Tailscale
+	port.LoadBalance = c.normalizeLoadBalance(k, v.LoadBalance)
 
 	ports[k] = port
 }
