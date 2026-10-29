@@ -35,6 +35,7 @@ type (
 		tunnel                   *sshtunnel.Tunnel
 		containers               map[string]*container
 		assets                   *web.Assets
+		presets                  map[string]*config.PresetConfig
 		name                     string
 		defaultProxyProvider     string
 		defaultTargetHostname    string
@@ -58,7 +59,9 @@ type (
 var _ targetproviders.TargetProvider = (*Client)(nil)
 
 // New function returns a new Docker TargetProvider
-func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig, proxyAccessLogDefault bool, assets *web.Assets) (*Client, error) {
+func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderConfig,
+	proxyAccessLogDefault bool, assets *web.Assets, presets map[string]*config.PresetConfig,
+) (*Client, error) {
 	newlog := log.With().Str("docker", name).Logger()
 	newlog.Trace().Msg("New Docker TargetProvider")
 	defer newlog.Trace().Msg("End New Docker TargetProvider")
@@ -109,6 +112,7 @@ func New(log zerolog.Logger, name string, provider *config.DockerTargetProviderC
 		containers:               make(map[string]*container),
 		proxyAccessLogDefault:    proxyAccessLogDefault,
 		assets:                   assets,
+		presets:                  presets,
 		rateLimitEnabled:         provider.RateLimitEnabled,
 		rateLimitRPS:             provider.RateLimitRPS,
 		rateLimitBurst:           provider.RateLimitBurst,
@@ -197,6 +201,7 @@ func (c *Client) buildProxyConfig(id string) (*model.Config, *container, error) 
 		withAssets(c.assets),
 		withAllowContainerFunnel(c.allowContainerFunnel),
 		withAllowTLSValidateDisable(c.allowTLSValidateDisable),
+		withPresets(c.presets),
 	)
 
 	pcfg, err := ctn.newProxyConfig(ctx)

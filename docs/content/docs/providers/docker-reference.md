@@ -20,6 +20,7 @@ This is the only label you need. TSDProxy will use the container name as the Tai
 | Label | Default | Description |
 |-------|---------|-------------|
 | `tsdproxy.name` | container name | Tailscale hostname |
+| `tsdproxy.template` | — | Name of a preset defined under `presets` in `tsdproxy.yaml`. Expands the preset's ports and dashboard fields; explicit labels on the container override preset values. See [Server configuration]({{< ref "/docs/serverconfig" >}}#presets-section) |
 | `tsdproxy.proxyprovider` | default provider | Proxy provider to use |
 | `tsdproxy.autodetect` | `"true"` | Auto-detect the target URL |
 | `tsdproxy.containeraccesslog` | `"true"` | Enable access logging |

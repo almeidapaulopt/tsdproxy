@@ -18,6 +18,7 @@ const (
 	LabelContainerAccessLog = LabelPrefix + "containeraccesslog"
 	LabelProxyProvider      = LabelPrefix + "proxyprovider"
 	LabelPort               = LabelPrefix + "port."
+	LabelTemplate           = LabelPrefix + "template"
 	// Tailscale
 	LabelEphemeral    = LabelPrefix + "ephemeral"
 	LabelRunWebClient = LabelPrefix + "runwebclient"
@@ -56,6 +57,12 @@ const (
 
 	// docker only defaults
 	DefaultTargetScheme = "http"
+
+	// Port specification grammar separators, mirroring model's port label
+	// syntax (see model.NewPortLongLabel).
+	redirectSeparator = "->"
+	portSeparator     = ":"
+	protocolSeparator = "/"
 
 	// auto detect
 	dialTimeout     = 2 * time.Second

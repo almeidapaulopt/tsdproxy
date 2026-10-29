@@ -133,6 +133,7 @@ func TestLoadConfigFile_FileExists(t *testing.T) {
 		},
 		Docker:       make(map[string]*DockerTargetProviderConfig),
 		Lists:        make(map[string]*ListTargetProviderConfig),
+		Presets:      make(map[string]*PresetConfig),
 		DNSProviders: make(map[string]*DNSProviderConfig),
 		TLSProviders: make(map[string]*TLSProviderConfig),
 	}
@@ -190,4 +191,66 @@ func TestLoadConfigFile_InvalidYAML(t *testing.T) {
 	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
 	err := c.loadConfigFile(fileConfig, path, zerolog.Nop())
 	assert.Error(t, err, "should error with invalid YAML content")
+}
+
+func TestLoadConfigFile_Presets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yamlContent := "" +
+		"defaultProxyProvider: default\n" +
+		"presets:\n" +
+		"  gitea:\n" +
+		"    ports:\n" +
+		"      \"443/https:3000/http\": {}\n" +
+		"    dashboard:\n" +
+		"      icon: gitea\n" +
+		"      category: Development\n" +
+		"  insecure-app:\n" +
+		"    ports:\n" +
+		"      \"443/https:8443/https\":\n" +
+		"        noTLSValidate: true\n" +
+		"        funnel: true\n" +
+		"    dashboard:\n" +
+		"      visible: false\n"
+	require.NoError(t, os.WriteFile(path, []byte(yamlContent), 0o600))
+
+	c := &Data{
+		Tailscale: TailscaleProxyProviderConfig{
+			Providers: make(map[string]*TailscaleServerConfig),
+		},
+		Docker:       make(map[string]*DockerTargetProviderConfig),
+		Lists:        make(map[string]*ListTargetProviderConfig),
+		Presets:      make(map[string]*PresetConfig),
+		DNSProviders: make(map[string]*DNSProviderConfig),
+		TLSProviders: make(map[string]*TLSProviderConfig),
+	}
+	fileConfig := NewConfigFile(zerolog.Nop(), path, c)
+	require.NoError(t, c.loadConfigFile(fileConfig, path, zerolog.Nop()))
+
+	gitea, ok := c.Presets["gitea"]
+	require.True(t, ok, "gitea preset should load")
+	assert.Equal(t, map[string]*PresetPort{
+		"443/https:3000/http": {},
+	}, gitea.Ports)
+	assert.Equal(t, "gitea", gitea.Dashboard.Icon)
+	assert.Equal(t, "Development", gitea.Dashboard.Category)
+	assert.Empty(t, gitea.Dashboard.Label, "unset dashboard fields must stay zero")
+
+	insecure, ok := c.Presets["insecure-app"]
+	require.True(t, ok, "insecure-app preset should load")
+	port := insecure.Ports["443/https:8443/https"]
+	if assert.NotNil(t, port) {
+		assert.True(t, port.NoTLSValidate)
+		assert.True(t, port.Funnel)
+		assert.False(t, port.NoAutoDetect)
+	}
+	if assert.NotNil(t, insecure.Dashboard.Visible) {
+		assert.False(t, *insecure.Dashboard.Visible)
+	}
+
+	// defaults must not invent preset values (e.g. a default dashboard icon
+	// would override the container's image-based icon guess).
+	require.NoError(t, defaults.Set(c))
+	assert.Empty(t, c.Presets["gitea"].Dashboard.Label, "unset dashboard fields must stay zero after defaults")
+	assert.Equal(t, "gitea", c.Presets["gitea"].Dashboard.Icon, "explicit preset values must survive defaults")
 }
