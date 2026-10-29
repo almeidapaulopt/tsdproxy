@@ -418,8 +418,8 @@ func TestBug3_RestartProxy_AcquiresTargetLock(t *testing.T) {
 	}()
 
 	select {
-	case <-restartDone:
-		t.Fatal("RestartProxy should block on target lock")
+	case err := <-restartDone:
+		t.Fatal("RestartProxy should block on target lock", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
