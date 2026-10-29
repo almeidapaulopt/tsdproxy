@@ -65,6 +65,13 @@ lists:
     rateLimitEnabled: true # (optional) Enable rate limiting (default: true)
     rateLimitRps: 100 # (optional) Max requests per second per client IP (1–10000, default: 100)
     rateLimitBurst: 200 # (optional) Burst capacity per client IP (1–100000, default: 200)
+presets: # (optional) Named label presets referenced by tsdproxy.template
+  gitea: # Preset name
+    ports:
+      "443/https:3000/http": {} # Port spec, same syntax as tsdproxy.port.* label values
+    dashboard:
+      icon: gitea
+      category: Development
 tailscale:
   providers:
     default: # Name of the Tailscale provider
@@ -548,6 +555,56 @@ with the `tsdproxy.ratelimit.burst` Docker label.
 > Rate limiting is per-client-IP with a token bucket algorithm. Each connecting
 > IP gets its own bucket. The limiter tracks up to 4096 clients — the oldest
 > idle client is evicted first when the limit is reached.
+
+#### presets Section
+
+Defines named **label presets** that containers reference with the
+`tsdproxy.template` label, replacing repeated port and dashboard labels with a
+single line per container.
+
+```yaml {filename="/config/tsdproxy.yaml"}
+presets:
+  gitea: # Preset name, referenced by tsdproxy.template
+    ports:
+      "443/https:3000/http": {} # Port spec, same syntax as tsdproxy.port.* values
+      "22/tcp:22/tcp": # Optional per-port options (same as port label options)
+        noTLSValidate: false
+        funnel: false
+        noAutoDetect: false
+    dashboard:
+      icon: gitea # Optional: only set fields expand into labels
+      category: Development
+```
+
+A container then picks up the whole preset:
+
+```yaml
+services:
+  gitea:
+    image: gitea/gitea:latest
+    labels:
+      tsdproxy.enable: "true"
+      tsdproxy.template: gitea # Expands to the ports and dashboard above
+      tsdproxy.name: mygitea
+```
+
+**Precedence — explicit container labels always win (presets are composable):**
+
+- A `tsdproxy.dash.*` label on the container overrides the preset's dashboard value.
+- A `tsdproxy.port.*` label whose proxy port and protocol match a preset port
+  **replaces** that preset port (e.g. `tsdproxy.port.web: "443:3001"` overrides
+  the preset's `443/https` entry).
+- Explicit ports on **other** proxy ports are added on top of the preset ports.
+
+Preset port keys use the same syntax as `tsdproxy.port.*` label values, and
+per-port options mirror the port label options (`noTLSValidate`, `funnel`,
+`noAutoDetect`). Referencing an undefined preset name logs an error and leaves
+the container labels unchanged.
+
+> [!NOTE]
+> Presets apply to the Docker target provider. Funnel and TLS-validation
+> options still require the operator permissions (`allowContainerFunnel`,
+> `allowTlsValidateDisable`) — a preset cannot bypass them.
 
 #### dnsProviders Section
 

@@ -31,7 +31,7 @@ import (
 // addTargetProviders method adds TargetProviders from configuration file.
 func (pm *ProxyManager) addTargetProviders() {
 	for name, provider := range pm.cfg.Docker {
-		p, err := docker.New(pm.log, name, provider, pm.cfg.ProxyAccessLog, pm.assets)
+		p, err := docker.New(pm.log, name, provider, pm.cfg.ProxyAccessLog, pm.assets, pm.cfg.Presets)
 		if err != nil {
 			pm.log.Error().Err(err).Msg("Error creating Docker provider")
 			continue

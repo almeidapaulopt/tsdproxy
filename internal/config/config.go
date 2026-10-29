@@ -51,6 +51,7 @@ type (
 	//
 	Data struct {
 		Lists                map[string]*ListTargetProviderConfig    `validate:"dive,required" yaml:"lists"`
+		Presets              map[string]*PresetConfig                `validate:"dive" yaml:"presets"`
 		TLSProviders         map[string]*TLSProviderConfig           `yaml:"tlsProviders"`
 		Docker               map[string]*DockerTargetProviderConfig  `validate:"dive,required" yaml:"docker"`
 		Incus                map[string]*IncusTargetProviderConfig   `validate:"dive,required" yaml:"incus"`
@@ -235,6 +236,39 @@ type (
 		RateLimitEnabled      bool   `validate:"boolean" default:"true" yaml:"rateLimitEnabled"`
 	}
 
+	// PresetConfig stores a user-defined preset expanded when a container
+	// carries the tsdproxy.template label with the preset name.
+	//
+	// The shape mirrors the List provider target file: ports is a map of port
+	// specifications to per-port options, and dashboard groups the dashboard
+	// fields. Unlike the List provider, preset ports have no static targets —
+	// the target is resolved from the container itself.
+	PresetConfig struct {
+		Ports     map[string]*PresetPort `validate:"dive" yaml:"ports"`
+		Dashboard PresetDashboard        `yaml:"dashboard"`
+	}
+
+	// PresetPort stores per-port options layered on top of the port
+	// specification given by the presets map key. The key uses the same syntax
+	// as the value of a tsdproxy.port.* container label
+	// (e.g. "443/https:3000/http"), and each option mirrors the corresponding
+	// comma-separated port label option.
+	PresetPort struct {
+		Funnel        bool `validate:"boolean" yaml:"funnel,omitempty"`
+		NoTLSValidate bool `validate:"boolean" yaml:"noTLSValidate,omitempty"`
+		NoAutoDetect  bool `validate:"boolean" yaml:"noAutoDetect,omitempty"`
+	}
+
+	// PresetDashboard mirrors the tsdproxy.dash.* container labels. Zero
+	// values mean "not set": only non-zero fields expand into labels, so an
+	// unset icon still falls back to the image-based icon guess.
+	PresetDashboard struct {
+		Visible  *bool  `validate:"omitempty" yaml:"visible,omitempty"`
+		Icon     string `validate:"omitempty" yaml:"icon,omitempty"`
+		Category string `validate:"omitempty" yaml:"category,omitempty"`
+		Label    string `validate:"omitempty" yaml:"label,omitempty"`
+	}
+
 	DNSProviderConfig struct {
 		Provider     string                    `validate:"required,oneof=cloudflare magicdns" yaml:"provider"`
 		APIToken     secretstring.SecretString `yaml:"apiToken,omitempty"`
@@ -258,6 +292,7 @@ func InitializeConfig(log zerolog.Logger) (*Data, error) {
 	cfg.Tailscale.Providers = make(map[string]*TailscaleServerConfig)
 	cfg.Docker = make(map[string]*DockerTargetProviderConfig)
 	cfg.Lists = make(map[string]*ListTargetProviderConfig)
+	cfg.Presets = make(map[string]*PresetConfig)
 	cfg.Incus = make(map[string]*IncusTargetProviderConfig)
 	cfg.Proxmox = make(map[string]*ProxmoxTargetProviderConfig)
 	cfg.DNSProviders = make(map[string]*DNSProviderConfig)

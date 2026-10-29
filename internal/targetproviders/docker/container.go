@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/almeidapaulopt/tsdproxy/internal/config"
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
 	"github.com/almeidapaulopt/tsdproxy/internal/targetproviders/settings"
 	"github.com/almeidapaulopt/tsdproxy/web"
@@ -32,6 +33,7 @@ type (
 		defaultBridgeAddress     netip.Addr
 		ports                    map[string]string
 		labels                   map[string]string
+		presets                  map[string]*config.PresetConfig
 		assets                   *web.Assets
 		image                    string
 		id                       string
@@ -89,6 +91,8 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 		opt(c)
 	}
 
+	c.expandPreset()
+
 	c.autodetect = settings.Bool(c.labels, LabelAutoDetect, providerAutoDetect)
 	c.autoRestart = settings.Bool(c.labels, LabelAutoRestart, c.providerAutoRestart)
 	c.healthCheckEnabled = settings.Bool(c.labels, LabelHealthCheckEnabled, c.providerHealthEnabled)
@@ -107,6 +111,17 @@ func newContainer(logger zerolog.Logger, dcontainer ctypes.InspectResponse, dser
 	c.setContainerNetwork(dcontainer)
 
 	return c
+}
+
+// expandPreset expands the preset referenced by the tsdproxy.template label
+// into the container labels. Explicit container labels override preset values.
+func (c *container) expandPreset() {
+	name := strings.TrimSpace(c.labels[LabelTemplate])
+	if name == "" || len(c.presets) == 0 {
+		return
+	}
+
+	c.labels = applyPresetLabels(c.log, c.labels, c.presets, name)
 }
 
 func (c *container) setContainerPorts(dcontainer ctypes.InspectResponse, dservice swarm.Service) {
@@ -559,5 +574,11 @@ func withAllowContainerFunnel(allowed bool) ContainerOption {
 func withAllowTLSValidateDisable(allowed bool) ContainerOption {
 	return func(c *container) {
 		c.allowTLSValidateDisable = allowed
+	}
+}
+
+func withPresets(presets map[string]*config.PresetConfig) ContainerOption {
+	return func(c *container) {
+		c.presets = presets
 	}
 }
