@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.4",
     "@vite-pwa/assets-generator": "^2.0.0",
     "daisyui": "^5.7.47",
     "tailwindcss": "^4.3.3",
