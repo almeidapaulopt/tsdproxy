@@ -1,7 +1,7 @@
 ---
 title: Grafana + Prometheus Stack
-weight: 4
-prev: /docs/examples/nextcloud
+weight: 5
+prev: /docs/examples/nextcloud-aio
 ---
 
 A monitoring stack with Grafana and Prometheus. Each service gets its own Tailscale hostname, and the Prometheus metrics port stays private within the Docker network.

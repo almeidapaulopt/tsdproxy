@@ -2,11 +2,13 @@
 title: Nextcloud
 weight: 3
 prev: /docs/examples/home-assistant
-next: /docs/examples/grafana-stack
+next: /docs/examples/nextcloud-aio
 ---
 
 Expose a Nextcloud instance on your Tailscale network with automatic HTTPS
-using Services mode.
+using Services mode. Using [Nextcloud AIO](https://github.com/nextcloud/all-in-one)
+instead of the plain image? See [Nextcloud AIO]({{< ref "/docs/v3/examples/nextcloud-aio" >}})
+— AIO works differently.
 
 ## docker-compose.yml
 
