@@ -90,7 +90,7 @@ http:
 
 log:
   level: info
-  proxyAccessLog: true
+proxyAccessLog: true
 ```
 
 > [!TIP]

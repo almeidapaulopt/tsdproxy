@@ -89,13 +89,12 @@ http:
   hostname: 0.0.0.0
   port: 8080
 
-dashboard:
-  adminAllowLocalhost: true
+adminAllowLocalhost: true
 
 log:
   level: info
   json: false
-  proxyAccessLog: true
+proxyAccessLog: true
 ```
 
 > [!IMPORTANT]
