@@ -379,6 +379,16 @@ func processStructField(keyNode, valNode *yaml.Node, typ reflect.Type, lookup *k
 	}
 	fieldType, ok := lookup.fieldTypeByCanonical(typ, canonical)
 	if !ok {
+		// Known key used at the wrong level (e.g. `dashboard:` at the root,
+		// which is only valid inside preset templates). v2.3.4 rejected this
+		// via yaml KnownFields(true); dropping it silently would apply none
+		// of its settings. Report it as an unknown field at this location.
+		*issues = append(*issues, keyIssue{
+			Line:        keyNode.Line,
+			Column:      keyNode.Column,
+			Original:    original,
+			Suggestions: suggest(original, lookup.validFields(typ)),
+		})
 		return
 	}
 	childPath := canonical

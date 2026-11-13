@@ -168,6 +168,57 @@ func TestNormalize_RejectsTrulyUnknown(t *testing.T) {
 	assert.Contains(t, msg, "line")
 }
 
+func TestNormalize_RejectsMisplacedKnownKeys(t *testing.T) {
+	t.Parallel()
+
+	// Regression: a key that exists somewhere in the config schema but not at
+	// the location used was silently dropped instead of rejected. v2.3.4
+	// rejected these via yaml KnownFields(true); the key normalizer must keep
+	// that guarantee (see processStructField).
+	cases := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "top-level dashboard section (only valid inside preset templates)",
+			yaml: "dashboard:\n  adminAllowLocalhost: true\n",
+			want: "dashboard",
+		},
+		{
+			name: "proxyAccessLog nested under log (field is top-level)",
+			yaml: "log:\n  level: info\n  proxyAccessLog: true\n",
+			want: "proxyAccessLog",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := unmarshalNormalized([]byte(tc.yaml), &Data{}, zerolog.Nop())
+			if err == nil {
+				t.Fatalf("misplaced known key should be rejected, got nil error")
+			}
+			if !strings.Contains(err.Error(), "unknown field") || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error should report unknown field %q, got: %v", tc.want, err)
+			}
+		})
+	}
+
+	t.Run("correct top-level placement decodes all values", func(t *testing.T) {
+		validYaml := "adminAllowLocalhost: true\nproxyAccessLog: true\nlog:\n  level: info\n  json: true\n"
+		cfg := &Data{}
+		if err := unmarshalNormalized([]byte(validYaml), cfg, zerolog.Nop()); err != nil {
+			t.Fatalf("valid top-level settings should decode: %v", err)
+		}
+		if !cfg.AdminAllowLocalhost || !cfg.ProxyAccessLog {
+			t.Fatalf("top-level settings did not apply: adminAllowLocalhost=%v proxyAccessLog=%v",
+				cfg.AdminAllowLocalhost, cfg.ProxyAccessLog)
+		}
+		if cfg.Log.Level != "info" || !cfg.Log.JSON {
+			t.Fatalf("log settings did not apply: level=%q json=%v", cfg.Log.Level, cfg.Log.JSON)
+		}
+	})
+}
+
 func TestNormalize_ReportedLineAndColumn(t *testing.T) {
 	yamlIn := "tailscale:\n  dataDir: /tmp\n  bogus: 1\n"
 	cfg := &Data{}
