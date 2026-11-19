@@ -97,6 +97,7 @@ func (r *DeviceReconciler) listerForReconcile() deviceLister {
 }
 
 type reconcileOpts struct {
+	selfNodeID    string
 	force         bool
 	hasLocalState bool
 }
@@ -115,6 +116,16 @@ func WithForceClean() ReconcileOption {
 // with existing state).
 func WithLocalState(v bool) ReconcileOption {
 	return func(o *reconcileOpts) { o.hasLocalState = v }
+}
+
+// WithSelfNodeID tells Reconcile the stable node ID that the local tsnet
+// state belongs to. That device is never deleted, whatever its hostname or
+// online status: it is offline only because this node is restarting, and
+// deleting it would invalidate the state tsnet is about to resume. Knowing
+// the ID also lets Reconcile treat an exact-hostname device that is NOT this
+// node as an ordinary stale or conflicting duplicate. An empty ID is ignored.
+func WithSelfNodeID(id string) ReconcileOption {
+	return func(o *reconcileOpts) { o.selfNodeID = id }
 }
 
 // Reconcile checks for and removes offline Tailscale devices with the same
@@ -157,6 +168,15 @@ func (r *DeviceReconciler) processDevice(
 	onConflict func(hostname, nodeID string),
 ) {
 	if !r.isDeviceMatch(d, hostname, cfg) {
+		return
+	}
+
+	if cfg.selfNodeID != "" && d.NodeID == cfg.selfNodeID {
+		r.log.Debug().
+			Str("hostname", d.Hostname).
+			Str("node_id", d.NodeID).
+			Bool("online", d.ConnectedToControl).
+			Msg("device belongs to the local tsnet state, keeping it")
 		return
 	}
 
@@ -205,20 +225,25 @@ func (r *DeviceReconciler) processDevice(
 }
 
 // isDeviceMatch reports whether the device is a candidate for cleanup:
-// either an exact hostname match (skipped if local state exists and device is online),
-// or a Tailscale "-N" suffix duplicate.
+// either an exact hostname match (skipped if local state exists and the
+// device cannot be told apart from this node), or a Tailscale "-N" suffix
+// duplicate. The device this node's state belongs to is filtered out
+// separately in processDevice.
 func (r *DeviceReconciler) isDeviceMatch(d deviceEntry, hostname string, cfg reconcileOpts) bool {
 	if d.Hostname == hostname {
-		// When local tsnet state exists AND the exact-hostname device is
-		// still online, it's our own node from a previous run — tsnet will
-		// re-authenticate with existing state. Deleting it would force
-		// unnecessary re-auth.
-		//
-		// But if the device is offline, the auth state may be stale and
-		// tsnet may not successfully re-authenticate, causing Tailscale
-		// to append a "-1" suffix. Delete offline exact-match devices
-		// so the new node can claim the hostname cleanly.
-		return !cfg.hasLocalState || !d.ConnectedToControl
+		// The local state's node ID is known, so this device is a candidate
+		// unless it is that node (handled by the caller). An online device
+		// here is a real conflict and is reported, not assumed to be us.
+		if cfg.selfNodeID != "" {
+			return true
+		}
+		// Local state exists but its node ID could not be read. The
+		// exact-hostname device is then most likely this node from a
+		// previous run, online or not: it is offline whenever tsdproxy
+		// restarts. Deleting it invalidates the state, and tsnet resumes
+		// from that state (ignoring the auth key), so the node never comes
+		// back. Keeping a stale device costs at most a "-1" suffix.
+		return !cfg.hasLocalState
 	}
 
 	// Tailscale appends "-N" to device hostnames when a duplicate exists

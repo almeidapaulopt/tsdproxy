@@ -109,26 +109,7 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 		nl.log.Info().Msg("Creating new tsnet node")
 	}
 
-	// Reconcile stale/offline device duplicates. When local state was lost
-	// or regenerated, force-clean online devices too since we cannot
-	// re-authenticate without local state.
-	if nl.devices != nil {
-		nl.sendEvent(NodeEvent{Status: model.ProxyStatusReconciling})
-		reconcileCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-		opts := []ReconcileOption{WithLocalState(stateExists)}
-		if !stateExists {
-			opts = append(opts, WithForceClean())
-		}
-		nl.devices.Reconcile(reconcileCtx, nl.cfg.Hostname, nl.cfg.Tags,
-			func(hostname, nodeID string) {
-				nl.sendEvent(NodeEvent{
-					Status:       model.ProxyStatusDeviceConflict,
-					ErrorMessage: "online device with hostname " + hostname + " already exists (nodeID: " + nodeID + ")",
-				})
-			},
-			opts...)
-		cancel()
-	}
+	nl.reconcileDevices(ctx, datadir, stateExists)
 
 	tsServer := &tsnet.Server{
 		Hostname:      nl.cfg.Hostname,
@@ -181,6 +162,41 @@ func (nl *NodeLifecycle) Start(ctx context.Context) (*NodeRuntime, error) {
 	}()
 
 	return rt, nil
+}
+
+// reconcileDevices removes stale/offline device duplicates before tsnet
+// starts. When local state was lost or regenerated, it force-cleans online
+// devices too, since they cannot be re-authenticated without local state.
+// When local state exists, the device that state belongs to is kept: it is
+// offline only because this node is restarting, and tsnet is about to resume
+// it.
+func (nl *NodeLifecycle) reconcileDevices(ctx context.Context, datadir string, stateExists bool) {
+	if nl.devices == nil {
+		return
+	}
+
+	nl.sendEvent(NodeEvent{Status: model.ProxyStatusReconciling})
+
+	opts := []ReconcileOption{WithLocalState(stateExists)}
+	if stateExists {
+		if selfID := nl.state.LocalNodeID(datadir); selfID != "" {
+			nl.log.Debug().Str("node_id", selfID).Msg("local tsnet state belongs to this device, keeping it")
+			opts = append(opts, WithSelfNodeID(selfID))
+		}
+	} else {
+		opts = append(opts, WithForceClean())
+	}
+
+	reconcileCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+	nl.devices.Reconcile(reconcileCtx, nl.cfg.Hostname, nl.cfg.Tags,
+		func(hostname, nodeID string) {
+			nl.sendEvent(NodeEvent{
+				Status:       model.ProxyStatusDeviceConflict,
+				ErrorMessage: "online device with hostname " + hostname + " already exists (nodeID: " + nodeID + ")",
+			})
+		},
+		opts...)
 }
 
 func (nl *NodeLifecycle) startWithRetry(ctx context.Context, tsServer TSNetServer) error {

@@ -12,6 +12,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tailscale.com/ipn"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/model"
@@ -206,4 +208,60 @@ func TestNodeLifecycle_SendEvent_DropsOnFullBuffer(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("sendEvent blocked on full buffer — expected non-blocking drop")
 	}
+}
+
+// --- reconcileDevices ---
+
+// Regression: with preventDuplicates on, a restart found this node's own
+// device offline (because tsdproxy itself was down), deleted it, then resumed
+// the deleted node from local state and never came back. The lifecycle must
+// read its own node ID from local state and keep that device.
+//
+// This node is the suffixed "myhost-1" here, so only the node ID read from
+// state protects it; the exact-hostname fallback alone would delete it.
+func TestNodeLifecycle_ReconcileDevices_KeepsOwnOfflineDevice(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTailscaleState(t, dir, "profile-a",
+		ipn.LoginProfile{ID: "a", Key: "profile-a", NodeID: tailcfg.StableNodeID("self")},
+	)
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "stale", ConnectedToControl: false},
+			{Hostname: "myhost-1", NodeID: "self", ConnectedToControl: false},
+		},
+	}
+	nl := NewNodeLifecycle(zerolog.Nop(), NodeLifecycleConfig{
+		StateManager:     NewStateManager(zerolog.Nop()),
+		DeviceReconciler: newTestReconciler(mock),
+		NodeConfig:       NodeConfig{Hostname: "myhost", DataDir: dir, Tags: "tag:test"},
+	})
+
+	nl.reconcileDevices(context.Background(), dir, true)
+
+	assert.Equal(t, []string{"stale"}, mock.deletedIDs)
+}
+
+// Without local state there is no node to protect: every matching device is
+// removed, online ones included (force clean), as before.
+func TestNodeLifecycle_ReconcileDevices_NoState_ForceCleans(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "old", ConnectedToControl: true},
+		},
+	}
+	nl := NewNodeLifecycle(zerolog.Nop(), NodeLifecycleConfig{
+		StateManager:     NewStateManager(zerolog.Nop()),
+		DeviceReconciler: newTestReconciler(mock),
+		NodeConfig:       NodeConfig{Hostname: "myhost", DataDir: dir, Tags: "tag:test"},
+	})
+
+	nl.reconcileDevices(context.Background(), dir, false)
+
+	assert.Equal(t, []string{"old"}, mock.deletedIDs)
 }
