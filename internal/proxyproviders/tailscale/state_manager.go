@@ -4,12 +4,14 @@
 package tailscale
 
 import (
+	"encoding/json"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog"
+	"tailscale.com/ipn"
 
 	"github.com/almeidapaulopt/tsdproxy/internal/config"
 )
@@ -39,6 +41,44 @@ func NewStateManager(log zerolog.Logger) *StateManager {
 func (sm *StateManager) StateExists(datadir string) bool {
 	info, err := os.Stat(filepath.Join(datadir, "tailscaled.state"))
 	return err == nil && !info.IsDir()
+}
+
+// LocalNodeID returns the stable node ID that the tsnet state in datadir is
+// logged in as, or "" when there is no state, no logged-in profile, or the
+// state cannot be read. It reads tailscaled.state in the format of
+// Tailscale's FileStore (the store tsnet uses): a JSON object of base64
+// values, holding the current profile's state key and the known profiles.
+// Call it before tsnet starts, while nothing else writes the file.
+func (sm *StateManager) LocalNodeID(datadir string) string {
+	b, err := os.ReadFile(filepath.Join(datadir, "tailscaled.state"))
+	if err != nil {
+		return ""
+	}
+
+	var stored map[ipn.StateKey][]byte
+	if err := json.Unmarshal(b, &stored); err != nil {
+		sm.log.Warn().Err(err).Msg("failed to parse tsnet state, cannot identify the local node")
+		return ""
+	}
+
+	current := ipn.StateKey(stored[ipn.CurrentProfileStateKey])
+	if current == "" {
+		return ""
+	}
+
+	var profiles map[ipn.ProfileID]ipn.LoginProfile
+	if err := json.Unmarshal(stored[ipn.KnownProfilesStateKey], &profiles); err != nil {
+		sm.log.Warn().Err(err).Msg("failed to parse tsnet profiles, cannot identify the local node")
+		return ""
+	}
+
+	for _, p := range profiles {
+		if p.Key == current {
+			return string(p.NodeID)
+		}
+	}
+
+	return ""
 }
 
 // CleanStale removes tsnet state when configuration has changed in ways that

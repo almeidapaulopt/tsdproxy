@@ -346,10 +346,16 @@ tailscale:
 
 A device is only deleted when **all** of these conditions are true:
 
-- It has the same hostname as the proxy being created
+- It has the same hostname as the proxy being created, or that hostname with a
+  Tailscale `-N` suffix
 - It has matching tags
 - It is currently offline (`ConnectedToControl` is false)
-- The local tsnet state file is missing (no existing identity to reuse)
+- It is not the device the proxy's local tsnet state belongs to
+
+The device recorded in the local state is never deleted, even though it is
+offline while TSDProxy restarts: the proxy reconnects as that device. If the
+state exists but its device cannot be identified, a device with the exact
+hostname is kept too, at the cost of a possible `-1` suffix.
 
 Online devices are never deleted.
 

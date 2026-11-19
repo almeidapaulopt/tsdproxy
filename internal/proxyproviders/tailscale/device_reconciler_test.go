@@ -277,7 +277,12 @@ func TestReconcile_WithLocalState_OnlineDeviceSkipped(t *testing.T) {
 	assert.Equal(t, "suffix-offline", mock.deletedIDs[0])
 }
 
-func TestReconcile_WithLocalState_OfflineExactHostnameDeleted(t *testing.T) {
+// With local state but no known node ID, an offline exact-hostname device may
+// be this node itself: it is offline because tsdproxy is restarting. Deleting
+// it invalidates the local state, and tsnet then resumes the deleted node
+// (it ignores the auth key once state exists), so the proxy never comes back.
+// Leaving a stale device costs at most a "-1" suffix, so it is preserved.
+func TestReconcile_WithLocalState_OfflineExactHostnamePreserved(t *testing.T) {
 	t.Parallel()
 
 	mock := &mockDeviceLister{
@@ -290,9 +295,7 @@ func TestReconcile_WithLocalState_OfflineExactHostnameDeleted(t *testing.T) {
 
 	r.Reconcile(context.Background(), "myhost", "tag:test", nil, WithLocalState(true))
 
-	require.Len(t, mock.deletedIDs, 2)
-	assert.Contains(t, mock.deletedIDs, "exact-offline")
-	assert.Contains(t, mock.deletedIDs, "suffix-offline")
+	assert.Equal(t, []string{"suffix-offline"}, mock.deletedIDs)
 }
 
 func TestReconcile_WithoutLocalState_DeletesExactHostname(t *testing.T) {
@@ -411,6 +414,88 @@ func TestReconcile_DeviceReconnectsBetweenListAndGet_NotDeleted(t *testing.T) {
 
 	assert.Empty(t, mock.deletedIDs, "device that reconnected between List and Get must not be deleted")
 	assert.True(t, conflictCalled, "onConflict must fire so the caller learns the hostname is contested")
+}
+
+// --- WithSelfNodeID ---
+
+// The node this tsdproxy instance holds state for is offline only because the
+// instance is restarting. It must survive reconciliation; other offline
+// duplicates are still removed.
+func TestReconcile_WithSelfNodeID_OfflineExactSelfPreserved(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "self", ConnectedToControl: false},
+			{Hostname: "myhost-1", NodeID: "stale", ConnectedToControl: false},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil,
+		WithLocalState(true), WithSelfNodeID("self"))
+
+	assert.Equal(t, []string{"stale"}, mock.deletedIDs)
+}
+
+// When this node registered as "myhost-1" because a stale "myhost" existed,
+// the stale exact-hostname device is known not to be this node and is removed,
+// while this node's own suffixed device is kept.
+func TestReconcile_WithSelfNodeID_SuffixedSelfPreserved_StaleExactDeleted(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "stale", ConnectedToControl: false},
+			{Hostname: "myhost-1", NodeID: "self", ConnectedToControl: false},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil,
+		WithLocalState(true), WithSelfNodeID("self"))
+
+	assert.Equal(t, []string{"stale"}, mock.deletedIDs)
+}
+
+// An online exact-hostname device that is not this node is a real conflict,
+// even with local state: report it rather than assume it is this node.
+func TestReconcile_WithSelfNodeID_OnlineOtherExact_ReportsConflict(t *testing.T) {
+	t.Parallel()
+
+	var conflicts []string
+	onConflict := func(_, nodeID string) { conflicts = append(conflicts, nodeID) }
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "other", ConnectedToControl: true},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", onConflict,
+		WithLocalState(true), WithSelfNodeID("self"))
+
+	assert.Empty(t, mock.deletedIDs)
+	assert.Equal(t, []string{"other"}, conflicts)
+}
+
+// Force clean must never remove this node either.
+func TestReconcile_WithSelfNodeID_ForceClean_SelfPreserved(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockDeviceLister{
+		devices: []deviceEntry{
+			{Hostname: "myhost", NodeID: "self", ConnectedToControl: false},
+			{Hostname: "myhost-1", NodeID: "other", ConnectedToControl: true},
+		},
+	}
+	r := newTestReconciler(mock)
+
+	r.Reconcile(context.Background(), "myhost", "tag:test", nil,
+		WithForceClean(), WithSelfNodeID("self"))
+
+	assert.Equal(t, []string{"other"}, mock.deletedIDs)
 }
 
 // --- isNumeric ---

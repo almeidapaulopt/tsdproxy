@@ -39,6 +39,7 @@ weight: 500
 
 #### Fixes
 
+- Fix `preventDuplicates` deleting a proxy's own device on restart. While TSDProxy restarts, every device it owns is offline, and the reconciler deleted an offline device with the proxy's hostname even when the local tsnet state belonged to it. tsnet then resumed the deleted node from that state, ignoring the auth key, and the proxy never came back. TSDProxy now reads the node ID from the local state and never deletes that device; when the ID cannot be read, an exact-hostname device is kept rather than deleted.
 - Fix `si/` icons not getting `dark:invert` in dark mode — Simple Icons now invert alongside Material Design Icons
 - Fix HTTP port listener fd leak when `close()` runs before `Serve()` registers the listener — now uses `portStartLock` guard consistent with TCP/UDP ports
 - Fix TCP listener fd leak when `Accept()` exhausts retries — listener is now explicitly closed on permanent error

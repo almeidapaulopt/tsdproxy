@@ -4,6 +4,7 @@
 package tailscale
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tailscale.com/ipn"
+	"tailscale.com/ipn/store"
+	"tailscale.com/tailcfg"
 )
 
 func newStateManager(t *testing.T) *StateManager {
@@ -272,4 +276,72 @@ func TestLifecycle_FullCycle(t *testing.T) {
 
 	assert.True(t, sm.CleanStale(&NodeConfig{Ephemeral: false}, dir), "ephemeral changed, cleanup triggered")
 	assert.False(t, sm.StateExists(dir), "state removed after cleanup")
+}
+
+// --- LocalNodeID ---
+
+// writeTailscaleState writes datadir/tailscaled.state through Tailscale's own
+// FileStore, the store tsnet uses, so the test follows the real on-disk format.
+func writeTailscaleState(t *testing.T, datadir string, current ipn.StateKey, profiles ...ipn.LoginProfile) {
+	t.Helper()
+	st, err := store.NewFileStore(t.Logf, filepath.Join(datadir, "tailscaled.state"))
+	require.NoError(t, err)
+
+	known := make(map[ipn.ProfileID]ipn.LoginProfile, len(profiles))
+	for _, p := range profiles {
+		known[p.ID] = p
+	}
+	b, err := json.Marshal(known)
+	require.NoError(t, err)
+	require.NoError(t, st.WriteState(ipn.KnownProfilesStateKey, b))
+	if current != "" {
+		require.NoError(t, st.WriteState(ipn.CurrentProfileStateKey, []byte(current)))
+	}
+}
+
+func TestLocalNodeID_ReadsCurrentProfile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTailscaleState(t, dir, "profile-b",
+		ipn.LoginProfile{ID: "a", Key: "profile-a", NodeID: tailcfg.StableNodeID("nOtherCNTRL")},
+		ipn.LoginProfile{ID: "b", Key: "profile-b", NodeID: tailcfg.StableNodeID("nSelfCNTRL")},
+	)
+
+	assert.Equal(t, "nSelfCNTRL", newStateManager(t).LocalNodeID(dir))
+}
+
+func TestLocalNodeID_NoStateFile(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, newStateManager(t).LocalNodeID(t.TempDir()))
+}
+
+func TestLocalNodeID_EmptyState(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	touchStateFile(t, dir)
+
+	assert.Empty(t, newStateManager(t).LocalNodeID(dir))
+}
+
+func TestLocalNodeID_NoCurrentProfile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTailscaleState(t, dir, "",
+		ipn.LoginProfile{ID: "a", Key: "profile-a", NodeID: tailcfg.StableNodeID("nSelfCNTRL")},
+	)
+
+	assert.Empty(t, newStateManager(t).LocalNodeID(dir))
+}
+
+func TestLocalNodeID_CorruptState(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tailscaled.state"), []byte("not json"), 0o600))
+
+	assert.Empty(t, newStateManager(t).LocalNodeID(dir))
 }

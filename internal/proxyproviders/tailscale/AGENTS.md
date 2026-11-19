@@ -164,6 +164,7 @@ This split is deliberate: the caller's request context (often an HTTP request or
 - `SharedServer` event loop can deadlock if a command handler calls back into `SharedServer`. All public methods must only send a command and wait.
 - `VirtualListener` channel buffer is 64. Under extreme load, connections silently dropped (`Dispatch` returns false).
 - `DeviceReconciler.Reconcile()` skips online devices (`ConnectedToControl`). Two tsdproxy instances with same shared hostname coexist until one goes offline.
+- `DeviceReconciler.Reconcile()` never deletes the device the local tsnet state belongs to (`WithSelfNodeID`, read by `StateManager.LocalNodeID` from `tailscaled.state`). That device is offline whenever tsdproxy restarts; deleting it leaves tsnet resuming a deleted node (it ignores the auth key once state exists), so the proxy never returns. Without a readable node ID, an exact-hostname device is kept whenever local state exists.
 - `certSem` shared across all proxies from same `Client`. Throttles concurrent TLS cert provisioning.
 - `whoisFromLocalClient` returns zero-value `Whois` for tagged nodes. Changing this allows tagged containers to impersonate users.
 - `CleanAuthState()` removes auth files but preserves TLS certificates (avoids Let's Encrypt rate limits).
